@@ -155,6 +155,16 @@ export function parseMetadataUserId(metadata: string | null | undefined): number
 
 /** 本地麦克风异常提示 */
 export function describeMicrophoneError(error: unknown): { code: string; message: string } {
+  // 非安全来源时浏览器根本不提供麦克风能力（getUserMedia 被禁用），
+  // 报错常常是 NotAllowedError/TypeError，容易被误导成"用户拒绝了权限"。
+  // 这里优先识别来源问题，直接告诉用户该怎么办。
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return {
+      code: "mic_insecure_origin",
+      message:
+        "当前页面是 HTTP（非安全来源），浏览器禁止使用麦克风。请改用 https:// 或 localhost 访问；你仍可以收听房间语音。",
+    };
+  }
   const name = readErrorName(error);
   switch (name) {
     case "NotAllowedError":
