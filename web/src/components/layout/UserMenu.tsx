@@ -71,7 +71,7 @@ export default function UserMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-ink-850 shadow-2xl shadow-black/60 animate-fade-in" role="menu">
+        <div className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-ink-850 shadow-2xl shadow-black/30 animate-fade-in" role="menu">
           <div className="border-b border-white/5 px-3.5 py-3">
             <div className="flex items-center gap-2.5">
               <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="md" />

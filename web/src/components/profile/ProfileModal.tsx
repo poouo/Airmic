@@ -163,7 +163,7 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
                   onClick={() => setAvatarColor(color)}
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-xl ring-2 transition-transform hover:scale-105",
-                    avatarColor.toLowerCase() === color.toLowerCase() ? "ring-white/80" : "ring-transparent",
+                    avatarColor.toLowerCase() === color.toLowerCase() ? "ring-mist-200" : "ring-transparent",
                   )}
                   style={{ background: "linear-gradient(145deg, " + color + ", " + color + "88)", border: "1px solid " + color + "88" }}
                   aria-label={"选择颜色 " + color}
@@ -246,7 +246,7 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.02] px-2.5 py-1.5">
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-ink-800/70 px-2.5 py-1.5">
       <span className="text-mist-500">{label}</span>
       <span className="truncate font-medium text-mist-200">{value}</span>
     </div>

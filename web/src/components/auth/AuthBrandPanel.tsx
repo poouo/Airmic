@@ -36,7 +36,7 @@ export default function AuthBrandPanel({ server, onlineCount, roomCount, setupRe
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight text-mist-100">
-                Air<span className="text-gradient">Mic</span>
+                Air<span className="bg-gradient-to-r from-brand-400 to-aqua-400 bg-clip-text text-transparent">Mic</span>
               </h1>
               <Badge tone="brand">v{server?.version ?? "1.0.0"}</Badge>
             </div>

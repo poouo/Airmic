@@ -29,7 +29,7 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
 
   return (
     <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto p-4 app-scroll">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-850 p-6 shadow-2xl shadow-black/50">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-850 p-6 shadow-xl shadow-black/15">
         {joining ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-ink-800 ring-1 ring-white/10">

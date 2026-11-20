@@ -1,7 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initTheme } from "./stores/theme";
 import "./styles.css";
+
+initTheme();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("缺少 #root 挂载点");

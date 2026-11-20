@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Badge, IconButton } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
 import ConnectionStatus from "./ConnectionStatus";
+import ThemeToggle from "./ThemeToggle";
 import UserMenu from "./UserMenu";
 
 export interface TopBarProps {
@@ -26,7 +27,7 @@ export default function TopBar({ onOpenSidebar }: TopBarProps) {
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold text-mist-100">
-            Air<span className="text-gradient">Mic</span>
+            Air<span className="bg-gradient-to-r from-brand-400 to-aqua-400 bg-clip-text text-transparent">Mic</span>
           </span>
           <span className="block max-w-[7rem] truncate text-[10px] text-mist-500 sm:max-w-[12rem]">{server?.name ?? "语音服务器"}</span>
         </span>
@@ -39,6 +40,7 @@ export default function TopBar({ onOpenSidebar }: TopBarProps) {
           <Users className="h-3 w-3" />
           在线 {onlineCount}
         </Badge>
+        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

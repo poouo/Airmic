@@ -75,7 +75,7 @@ export default function SessionsTab() {
             </thead>
             <tbody>
               {rows.map((session) => (
-                <tr key={session.id} className="transition-colors hover:bg-white/[0.02]">
+                <tr key={session.id} className="transition-colors hover:bg-ink-750">
                   <Td>
                     <p className="text-xs font-medium text-mist-100">{session.displayName}</p>
                     <p className="text-[10px] text-mist-500">@{session.username}</p>

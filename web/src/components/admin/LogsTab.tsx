@@ -296,7 +296,7 @@ export default function LogsTab() {
                     <tr
                       onClick={() => setExpandedId(expanded ? null : row.id)}
                       title={expanded ? "点击收起详情" : "点击展开 meta 详情"}
-                      className="cursor-pointer align-top transition-colors hover:bg-white/[0.02]"
+                      className="cursor-pointer align-top transition-colors hover:bg-ink-750"
                     >
                       <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(row.createdAt)}</Td>
                       <Td><LevelBadge level={row.level} /></Td>
@@ -410,18 +410,15 @@ function LogsPagination({
         共 {total} 条 · 第 {Math.min(page, totalPages)}/{totalPages} 页
       </span>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={String(pageSize)}
-          onChange={(event) => onPageSize(Number(event.target.value))}
-          className="h-7 rounded-lg border border-white/10 bg-ink-900 px-1.5 text-[11px] text-mist-300 outline-none focus:border-brand-500/60"
-          aria-label="每页条数"
-        >
-          {PAGE_SIZES.map((size) => (
-            <option key={size} value={size} className="bg-ink-900">
-              每页 {size} 条
-            </option>
-          ))}
-        </select>
+        <div className="w-36">
+          <Select
+            label="每页条数"
+            options={PAGE_SIZES.map((size) => ({ value: String(size), label: "每页 " + size + " 条" }))}
+            value={String(pageSize)}
+            disabled={loading}
+            onChange={(event) => onPageSize(Number(event.target.value))}
+          />
+        </div>
         <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => onPage(page - 1)}>
           上一页
         </Button>

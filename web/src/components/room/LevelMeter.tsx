@@ -20,7 +20,7 @@ export function LevelMeter({ level, active = true, barCount = 14, className }: L
         return (
           <span
             key={index}
-            className={cn("h-full flex-1 rounded-full transition-colors duration-75", on ? color : "bg-white/10")}
+            className={cn("h-full flex-1 rounded-full transition-colors duration-75", on ? color : "bg-ink-600/60")}
           />
         );
       })}

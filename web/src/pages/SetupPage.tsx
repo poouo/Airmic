@@ -3,6 +3,7 @@ import type { SetupStatusResponse } from "@airmic/shared";
 import { ArrowLeft, ArrowRight, Check, RefreshCw, ServerOff, Sparkles } from "lucide-react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Button, FullScreenLoader } from "@/components/ui";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import SetupAdminStep from "@/components/setup/SetupAdminStep";
 import SetupConfirmStep from "@/components/setup/SetupConfirmStep";
 import SetupServerStep from "@/components/setup/SetupServerStep";
@@ -45,7 +46,14 @@ export default function SetupPage() {
     void loadStatus();
   }, [loadStatus]);
 
-  if (loading) return <FullScreenLoader text="正在检查服务器初始化状态…" />;
+  if (loading) {
+    return (
+      <>
+        <ThemeToggle className="fixed right-4 top-4 z-20" />
+        <FullScreenLoader text="正在检查服务器初始化状态…" />
+      </>
+    );
+  }
 
   if (loadError) {
     return (
@@ -64,11 +72,25 @@ export default function SetupPage() {
   }
 
   if (status && !status.setupRequired) {
-    if (authStatus === "loading") return <FullScreenLoader text="正在跳转…" />;
+    if (authStatus === "loading") {
+      return (
+        <>
+          <ThemeToggle className="fixed right-4 top-4 z-20" />
+          <FullScreenLoader text="正在跳转…" />
+        </>
+      );
+    }
     return <Navigate to={authStatus === "authenticated" ? "/" : "/login"} replace />;
   }
 
-  if (!status || !form) return <FullScreenLoader text="正在准备初始化向导…" />;
+  if (!status || !form) {
+    return (
+      <>
+        <ThemeToggle className="fixed right-4 top-4 z-20" />
+        <FullScreenLoader text="正在准备初始化向导…" />
+      </>
+    );
+  }
 
   const currentStep = SETUP_STEPS[step] ?? SETUP_STEPS[0];
   const isLastStep = step === SETUP_STEPS.length - 1;

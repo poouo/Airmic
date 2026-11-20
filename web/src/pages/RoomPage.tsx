@@ -410,7 +410,7 @@ export default function RoomPage() {
       )}
 
       {selfState.audioBlocked && (
-        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-brand-500/20 bg-brand-500/10 px-4 py-2 text-[11px] text-brand-200">
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-brand-500/20 bg-brand-500/10 px-4 py-2 text-[11px] text-brand-300">
           <Volume2 className="h-3.5 w-3.5" />
           浏览器阻止了自动播放，暂时听不到队友的声音。
           <button

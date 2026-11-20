@@ -1,10 +1,22 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
-    <meta name="theme-color" content="#0a0e17" />
+    <meta name="theme-color" content="#eef2f8" />
     <meta name="description" content="AirMic — 打开网页就能开黑的游戏语音平台" />
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("airmic-theme");
+          var theme = stored === "dark" || stored === "light" ? stored : "light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
     <title>AirMic · 网页语音开黑</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>

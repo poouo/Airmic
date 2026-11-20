@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { AdminUserRow, BanRow, OnlineUser, Role } from "@airmic/shared";
 import { ROLE_LABELS } from "@airmic/shared";
 import { AlertTriangle, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
-import { Badge, Button, Spinner } from "@/components/ui";
+import { Badge, Button, Select, Spinner } from "@/components/ui";
 import { cn, formatDateTime } from "@/lib/format";
 
 // ============ 布局 ============
@@ -148,18 +148,15 @@ export function AdminPagination({
       </span>
       <div className="flex items-center gap-2">
         {onPageSize && (
-          <select
-            value={String(pageSize)}
-            onChange={(event) => onPageSize(Number(event.target.value))}
-            className="h-7 rounded-lg border border-white/10 bg-ink-900 px-1.5 text-[11px] text-mist-300 outline-none focus:border-brand-500/60"
-            aria-label="每页条数"
-          >
-            {[10, 20, 50].map((size) => (
-              <option key={size} value={size} className="bg-ink-900">
-                每页 {size} 条
-              </option>
-            ))}
-          </select>
+          <div className="w-36">
+            <Select
+              label="每页条数"
+              options={[10, 20, 50].map((size) => ({ value: String(size), label: "每页 " + size + " 条" }))}
+              value={String(pageSize)}
+              disabled={loading}
+              onChange={(event) => onPageSize(Number(event.target.value))}
+            />
+          </div>
         )}
         <Button variant="outline" size="sm" disabled={page <= 1 || loading} icon={<ChevronLeft className="h-3.5 w-3.5" />} onClick={() => onPage(page - 1)}>
           上一页

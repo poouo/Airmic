@@ -83,7 +83,7 @@ export function RoomControls({
           </span>
           {connected && quality && (
             <>
-              <span className="text-white/10">|</span>
+              <span className="text-ink-500">|</span>
               <span className={quality.textClass}>{quality.label}</span>
               <span className="font-mono">{latency === null ? "服务端中转" : "延迟 " + latency + " ms"}</span>
             </>
@@ -120,7 +120,7 @@ export function RoomControls({
             icon={selfState.screenSharing ? <MonitorOff className="h-5 w-5" /> : <MonitorUp className="h-5 w-5" />}
             title={!screenShareAllowed ? "该房间未开启屏幕共享" : undefined}
           />
-          <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
+          <span className="mx-0.5 hidden h-7 w-px bg-ink-600 sm:block" />
           <ControlButton label="聊天" active={chatOpen} onClick={onToggleChat} icon={<MessageSquare className="h-5 w-5" />} />
           <ControlButton label="语音设置" onClick={onOpenSettings} icon={<Settings className="h-5 w-5" />} />
         </div>
@@ -184,7 +184,7 @@ function ControlButton({ label, icon, onClick, active, danger, warn, aqua, disab
         "outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-not-allowed disabled:opacity-40",
         active && !danger && warn && "bg-warn-500/15 text-warn-400 ring-warn-500/40 hover:bg-warn-500/20",
         active && !danger && aqua && "bg-aqua-400/15 text-aqua-400 ring-aqua-400/40 hover:bg-aqua-400/20",
-        active && !danger && !warn && !aqua && "bg-brand-500/25 text-brand-200 ring-brand-400/50",
+        active && !danger && !warn && !aqua && "bg-brand-500/25 text-brand-300 ring-brand-400/50",
         danger && "bg-bad-500/20 text-bad-400 ring-bad-500/30 hover:bg-bad-500/30",
         !active && !danger && "bg-ink-750/90 text-mist-200 ring-white/10 hover:bg-ink-700",
         loading && "animate-pulse",

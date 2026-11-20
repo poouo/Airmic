@@ -36,14 +36,14 @@ export default function AppLayout() {
             onClick={() => setSidebarOpen(false)}
             aria-hidden
           />
-          <div className="absolute inset-y-0 left-0 flex w-[86%] max-w-xs flex-col border-r border-white/10 bg-ink-900 shadow-2xl shadow-black/60 animate-fade-in">
+          <div className="absolute inset-y-0 left-0 flex w-[86%] max-w-xs flex-col border-r border-white/10 bg-ink-900 shadow-2xl shadow-black/30 animate-fade-in">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/5 px-3">
               <span className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-aqua-500 shadow-md shadow-brand-500/30">
                   <Mic className="h-4 w-4 text-white" />
                 </span>
                 <span className="text-sm font-semibold text-mist-100">
-                  Air<span className="text-gradient">Mic</span>
+                  Air<span className="bg-gradient-to-r from-brand-400 to-aqua-400 bg-clip-text text-transparent">Mic</span>
                 </span>
               </span>
               <IconButton label="关闭侧栏" size="sm" onClick={() => setSidebarOpen(false)}>

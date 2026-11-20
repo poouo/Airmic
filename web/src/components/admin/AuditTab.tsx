@@ -86,7 +86,7 @@ export default function AuditTab() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="transition-colors hover:bg-white/[0.02]">
+                  <tr key={row.id} className="transition-colors hover:bg-ink-750">
                     <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(row.createdAt)}</Td>
                     <Td className="whitespace-nowrap text-xs text-mist-200">{row.actorName}</Td>
                     <Td><Badge tone="brand">{actionLabel(row.action)}</Badge></Td>

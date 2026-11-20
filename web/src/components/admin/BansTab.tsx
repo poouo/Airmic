@@ -110,7 +110,7 @@ export default function BansTab() {
                 {rows.map((ban) => {
                   const status = banStatus(ban);
                   return (
-                    <tr key={ban.id} className="transition-colors hover:bg-white/[0.02]">
+                    <tr key={ban.id} className="transition-colors hover:bg-ink-750">
                       <Td>
                         <p className="text-xs font-medium text-mist-100">{banTarget(ban)}</p>
                         {ban.username && ban.ip && <p className="font-mono text-[10px] text-mist-500">{ban.ip}</p>}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Ghost, LogIn, ServerOff, UserPlus } from "lucide-react";
 import { Badge, Button, Spinner, Tabs, type TabItem } from "@/components/ui";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import AuthBrandPanel from "@/components/auth/AuthBrandPanel";
 import GuestForm from "@/components/auth/GuestForm";
 import LoginForm from "@/components/auth/LoginForm";
@@ -52,12 +53,15 @@ export default function AuthPage() {
       <div className="pointer-events-none absolute inset-0 bg-grid opacity-80" />
       <div className="pointer-events-none absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-brand-600/20 blur-[120px]" />
       <div className="pointer-events-none absolute -bottom-48 -right-32 h-[28rem] w-[28rem] rounded-full bg-aqua-500/10 blur-[120px]" />
+      <div className="absolute right-4 top-4 z-20">
+        <ThemeToggle />
+      </div>
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center gap-10 px-4 py-10 lg:flex-row lg:items-center lg:justify-between lg:gap-16">
         <AuthBrandPanel server={server} onlineCount={onlineCount} roomCount={roomCount} setupRequired={setupRequired} className="w-full" />
 
         <div className="w-full max-w-md shrink-0">
-          <div className="glass-panel rounded-3xl p-5 shadow-2xl shadow-black/50 sm:p-6">
+          <div className="glass-panel rounded-3xl p-5 shadow-xl shadow-black/15 sm:p-6">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-base font-semibold text-mist-100">进入服务器</h2>
               <Badge tone={server ? "good" : "neutral"}>{server ? "服务器在线" : "等待服务器信息"}</Badge>

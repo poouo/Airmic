@@ -24,6 +24,7 @@ import SettingsTab from "@/components/admin/SettingsTab";
 import SessionsTab from "@/components/admin/SessionsTab";
 import UsersTab from "@/components/admin/UsersTab";
 import ConnectionStatus from "@/components/layout/ConnectionStatus";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -68,7 +69,7 @@ export default function AdminPage() {
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-mist-100">
-              Air<span className="text-gradient">Mic</span>
+              Air<span className="bg-gradient-to-r from-brand-400 to-aqua-400 bg-clip-text text-transparent">Mic</span>
             </p>
             <p className="text-[10px] text-mist-500">管理后台</p>
           </div>
@@ -85,7 +86,7 @@ export default function AdminPage() {
                 onClick={() => setActiveId(section.id)}
                 className={cn(
                   "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs transition-colors",
-                  isActive ? "bg-brand-500/15 font-medium text-brand-200 ring-1 ring-brand-400/25" : "text-mist-300 hover:bg-white/5 hover:text-mist-100",
+                  isActive ? "bg-brand-500/15 font-medium text-brand-300 ring-1 ring-brand-400/25" : "text-mist-300 hover:bg-white/5 hover:text-mist-100",
                 )}
               >
                 <Icon className={cn("h-4 w-4", isActive ? "text-brand-300" : "text-mist-500")} />
@@ -105,7 +106,7 @@ export default function AdminPage() {
           </div>
           <Link
             to="/"
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs text-mist-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-mist-100"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs text-mist-300 transition-colors hover:border-brand-400/40 hover:bg-white/5 hover:text-mist-100"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             返回大厅
@@ -125,6 +126,7 @@ export default function AdminPage() {
             <p className="hidden truncate text-[10px] text-mist-500 sm:block">{server?.name ?? "AirMic"} · 在线 {onlineCount} 人</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <ConnectionStatus status={connection} compact />
             <Badge tone="good">在线 {onlineCount}</Badge>
             <Link to="/" className="hidden sm:block">
@@ -146,7 +148,7 @@ export default function AdminPage() {
                 onClick={() => setActiveId(section.id)}
                 className={cn(
                   "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-colors",
-                  isActive ? "bg-brand-500/15 text-brand-200" : "text-mist-400 hover:bg-white/5 hover:text-mist-200",
+                  isActive ? "bg-brand-500/15 text-brand-300" : "text-mist-400 hover:bg-white/5 hover:text-mist-200",
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />

@@ -123,7 +123,7 @@ export default function UsersTab() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="transition-colors hover:bg-white/[0.02]">
+                  <tr key={row.id} className="transition-colors hover:bg-ink-750">
                     <Td>
                       <div className="flex items-center gap-2">
                         <Avatar name={row.displayName} color={row.avatarColor} emoji={row.avatarEmoji} size="xs" />

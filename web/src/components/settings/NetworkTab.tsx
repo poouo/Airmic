@@ -167,11 +167,11 @@ export function NetworkTab() {
                   "rounded-xl border px-3 py-2.5 text-left transition-colors",
                   active
                     ? "border-brand-400/60 bg-brand-500/15"
-                    : "border-white/10 bg-ink-900/60 hover:border-white/20 hover:bg-ink-800/60",
+                    : "border-white/10 bg-ink-900/60 hover:border-brand-400/40 hover:bg-ink-800/60",
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className={cn("text-xs font-medium", active ? "text-brand-200" : "text-mist-200")}>{option.title}</span>
+                  <span className={cn("text-xs font-medium", active ? "text-brand-300" : "text-mist-200")}>{option.title}</span>
                   {active && <Badge tone="brand">使用中</Badge>}
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-mist-500">{option.description}</p>

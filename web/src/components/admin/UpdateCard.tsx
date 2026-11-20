@@ -71,11 +71,11 @@ export default function UpdateCard() {
           )}
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-mist-400">
-            <a href={info.repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-300 hover:text-brand-200">
+            <a href={info.repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-300 hover:text-brand-400">
               <Github className="h-3.5 w-3.5" /> {info.repo}
             </a>
             {info.releaseUrl && (
-              <a href={info.releaseUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-300 hover:text-brand-200">
+              <a href={info.releaseUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-300 hover:text-brand-400">
                 <ArrowUpRight className="h-3.5 w-3.5" /> 查看发布内容
               </a>
             )}

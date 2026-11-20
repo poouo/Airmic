@@ -112,7 +112,7 @@ export default function OverviewTab() {
             </thead>
             <tbody>
               {onlineUsers.map((user) => (
-                <tr key={user.userId} className="transition-colors hover:bg-white/[0.02]">
+                <tr key={user.userId} className="transition-colors hover:bg-ink-750">
                   <Td>
                     <div className="flex items-center gap-2">
                       <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="xs" speaking={user.speaking} muted={user.muted} deafened={user.deafened} />
@@ -167,7 +167,7 @@ export default function OverviewTab() {
             <EmptyState icon={<LifeBuoy className="h-5 w-5" />} title="暂无审计记录" description="管理操作会自动记录在这里" />
           </div>
         ) : (
-          <ul className="divide-y divide-white/5">
+          <ul className="divide-y divide-ink-700/70">
             {recentAudit.map((row) => (
               <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-xs">
                 <span className="w-36 shrink-0 text-mist-500">{formatRelative(row.createdAt)}</span>

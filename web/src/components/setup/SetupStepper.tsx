@@ -45,7 +45,7 @@ export default function SetupStepper({ current, onSelect }: SetupStepperProps) {
                 <span className="hidden truncate text-[10px] text-mist-500 sm:block">{step.description}</span>
               </span>
             </button>
-            {index < SETUP_STEPS.length - 1 && <span className={cn("h-px min-w-3 flex-1", index < current ? "bg-good-500/40" : "bg-white/10")} />}
+            {index < SETUP_STEPS.length - 1 && <span className={cn("h-px min-w-3 flex-1", index < current ? "bg-good-500/40" : "bg-ink-600/70")} />}
           </li>
         );
       })}

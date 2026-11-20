@@ -137,7 +137,7 @@ export default function RoomsTab() {
                 const userCount = live?.userCount ?? room.userCount;
                 const maxUsers = live?.maxUsers ?? room.maxUsers;
                 return (
-                  <tr key={room.id} className="transition-colors hover:bg-white/[0.02]">
+                  <tr key={room.id} className="transition-colors hover:bg-ink-750">
                     <Td>
                       <p className="flex items-center gap-1.5 text-xs font-medium text-mist-100">
                         {room.name}

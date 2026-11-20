@@ -85,7 +85,7 @@ export default function AudioSettingsEditor({
                       "rounded-xl border px-3 py-2.5 text-left transition-colors",
                       active
                         ? "border-brand-400/60 bg-brand-500/10"
-                        : "border-white/10 bg-ink-900/60 hover:border-white/25 hover:bg-ink-900",
+                        : "border-white/10 bg-ink-900/60 hover:border-brand-400/40 hover:bg-ink-800",
                     )}
                   >
                     <span className="flex items-center justify-between gap-2">

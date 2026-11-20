@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { MicOff, MonitorUp, ShieldAlert, SignalHigh, SignalLow, SignalMedium, Signal, Volume1, Volume2, VolumeX } from "lucide-react";
-import { Avatar, Badge } from "@/components/ui";
+import { Avatar, Badge, Slider } from "@/components/ui";
 import { cn, formatRelative } from "@/lib/format";
 import { voice } from "@/voice/engine";
 import type { PeerNetworkStats } from "@/voice/engine";
@@ -48,7 +48,7 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
         compact ? "p-2.5" : "p-3 pt-4",
         member.speaking
           ? "border-aqua-400/60 shadow-[0_0_30px_-10px_rgba(34,211,238,0.85)]"
-          : "border-white/5 hover:border-white/15",
+          : "border-white/5 hover:border-brand-400/30",
         canOpenPanel && "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand-400/70",
       )}
     >
@@ -127,15 +127,12 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
               </span>
               <span className="font-mono text-mist-300">{volume}%</span>
             </div>
-            <input
-              type="range"
+            <Slider
+              value={volume}
               min={0}
               max={100}
               step={1}
-              value={volume}
-              aria-label={member.displayName + " 的本地音量"}
-              onChange={(event) => onVolumeChange(member.userId, Number(event.target.value))}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-ink-600 accent-brand-500"
+              onChange={(value) => onVolumeChange(member.userId, value)}
             />
             <div className="flex items-center gap-1.5">
               <button

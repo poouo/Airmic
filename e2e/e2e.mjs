@@ -108,6 +108,29 @@ async function main() {
       return "setupRequired=false, voiceAvailable=true, transport=sfu";
     });
 
+    await step("5b. 主题：默认白天模式，可切夜间并持久化", async () => {
+      const adminBody = await adminPage.page.innerText("body");
+      const initialTheme = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
+      if (initialTheme !== "light") throw new Error("默认主题不是白天模式：" + initialTheme);
+      const toggle = adminPage.page.getByTestId("theme-toggle").first();
+      await toggle.waitFor({ timeout: 5000 });
+      await toggle.click();
+      await adminPage.page.waitForTimeout(400);
+      const darkTheme = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
+      if (darkTheme !== "dark") throw new Error("切换到夜间模式失败：" + darkTheme);
+      await adminPage.page.reload({ waitUntil: "networkidle" });
+      await adminPage.page.waitForTimeout(600);
+      const persisted = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
+      if (persisted !== "dark") throw new Error("夜间模式未持久化：" + persisted);
+      await adminPage.page.getByTestId("theme-toggle").first().click();
+      await adminPage.page.waitForTimeout(400);
+      const backLight = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
+      if (backLight !== "light") throw new Error("切回白天模式失败：" + backLight);
+      if (!adminBody.includes("欢迎")) throw new Error("大厅未加载");
+      await browser.screenshot(adminPage.page, "01-lobby-light");
+      return "默认 light，夜间切换与持久化正常";
+    });
+
     await step("6. 初始化后 /setup 重定向回登录页，登录页三入口可用", async () => {
       const anon = await browser.newPage("anon");
       await anon.page.goto(server.url + "/setup", { waitUntil: "networkidle" });
@@ -116,6 +139,7 @@ async function main() {
       for (const keyword of ["登录", "注册", "游客"]) {
         if (!body.includes(keyword)) throw new Error("登录页缺少入口：" + keyword);
       }
+      await browser.screenshot(anon.page, "00-login-light");
       return "重定向与登录页正常";
     });
 
@@ -225,6 +249,17 @@ async function main() {
       const csv = await exportResponse.text();
       if (!csv.includes("时间")) throw new Error("导出 CSV 缺少表头");
       return "分页与 CSV 导出正常";
+    });
+
+    await step("14c. 管理后台服务器设置页", async () => {
+      await adminPage.page.getByRole("button", { name: "服务器设置", exact: true }).first().click();
+      await adminPage.page.waitForTimeout(1200);
+      const body = await adminPage.page.innerText("body");
+      for (const keyword of ["服务器设置", "保存设置"]) {
+        if (!body.includes(keyword)) throw new Error("设置页缺少：" + keyword);
+      }
+      await browser.screenshot(adminPage.page, "09-admin-settings");
+      return "设置页正常";
     });
 
     await step("15. 离开房间返回大厅", async () => {

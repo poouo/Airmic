@@ -142,7 +142,7 @@ function ScreenVideo({ stream }: { stream: MediaStream | null }) {
 
   if (!stream) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-mist-500">
+      <div className="flex h-full w-full items-center justify-center text-sm text-white/60">
         正在等待屏幕画面…
       </div>
     );

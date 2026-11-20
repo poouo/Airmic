@@ -103,12 +103,12 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
                 onClick={() => update({ preset: preset.id as SetupPresetId })}
                 className={cn(
                   "rounded-xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  active ? "border-brand-400/60 bg-brand-500/10" : "border-white/10 bg-ink-900/60 hover:border-white/25 hover:bg-ink-900",
+                  active ? "border-brand-400/60 bg-brand-500/10" : "border-white/10 bg-ink-900/60 hover:border-brand-400/40 hover:bg-ink-800",
                 )}
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-mist-100">{preset.label}</span>
-                  <span className={cn("h-2 w-2 rounded-full", active ? "bg-brand-400" : "bg-white/10")} />
+                  <span className={cn("h-2 w-2 rounded-full", active ? "bg-brand-400" : "bg-ink-600")} />
                 </span>
                 <span className="mt-1 block text-[11px] leading-relaxed text-mist-500">{preset.description}</span>
                 <span className="mt-1.5 block font-mono text-[10px] text-mist-400">

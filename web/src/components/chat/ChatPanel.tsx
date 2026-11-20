@@ -127,7 +127,7 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
         >
           {timeline.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-              <MessageSquare className="h-6 w-6 text-mist-600" />
+              <MessageSquare className="h-6 w-6 text-mist-500" />
               <p className="text-xs text-mist-500">还没有消息，和队友打个招呼吧</p>
             </div>
           )}
@@ -148,7 +148,7 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg shadow-black/40"
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg shadow-black/20"
           >
             <ArrowDown className="h-3 w-3" /> 新消息
           </button>
@@ -177,7 +177,7 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
               className="max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-mist-100 outline-none placeholder:text-mist-500"
             />
             <div className="flex items-center justify-between px-2 pb-1.5">
-              <span className={cn("text-[10px]", draft.length > maxLength * 0.9 ? "text-warn-400" : "text-mist-600")}>
+              <span className={cn("text-[10px]", draft.length > maxLength * 0.9 ? "text-warn-400" : "text-mist-500")}>
                 {draft.length > 0 ? draft.length + "/" + maxLength : ""}
               </span>
               <button

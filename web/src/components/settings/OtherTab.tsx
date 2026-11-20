@@ -1,13 +1,17 @@
 import { Bell, Info, RotateCcw } from "lucide-react";
 import { APP_VERSION } from "@airmic/shared";
 import { Button, Divider, SectionTitle, Switch } from "@/components/ui";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import { useSettingsStore } from "@/stores/settings";
+import { useThemeStore } from "@/stores/theme";
 import { useUiStore } from "@/stores/ui";
 import { voice } from "@/voice/engine";
 
 /** 其他设置：提示音、清除本地设置、关于 */
 export function OtherTab() {
   const soundsEnabled = useSettingsStore((state) => state.soundsEnabled);
+  const theme = useThemeStore((state) => state.theme);
+  const setTheme = useThemeStore((state) => state.setTheme);
 
   const resetSettings = async () => {
     const confirmed = await useUiStore.getState().confirm({
@@ -24,6 +28,19 @@ export function OtherTab() {
 
   return (
     <div className="space-y-5">
+      <section className="space-y-3">
+        <SectionTitle action={<ThemeToggle />}>外观</SectionTitle>
+        <Switch
+          checked={theme === "dark"}
+          onChange={(dark) => setTheme(dark ? "dark" : "light")}
+          label="夜间模式"
+          description="关闭时使用默认的白天模式，偏好保存在本机浏览器，可随时切换"
+        />
+        <p className="text-[11px] text-mist-500">当前：{theme === "dark" ? "夜间模式" : "白天模式"}</p>
+      </section>
+
+      <Divider />
+
       <section className="space-y-3">
         <SectionTitle>提示音</SectionTitle>
         <Switch

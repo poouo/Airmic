@@ -2,6 +2,7 @@ import { ArrowLeft, Gauge, Lock, MessageSquare, MicOff, Server, Users } from "lu
 import { audioSummary } from "@airmic/shared";
 import type { RoomDetail } from "@airmic/shared";
 import { Badge, Button, IconButton } from "@/components/ui";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import { useAppStore } from "@/stores/app";
 
 export interface RoomHeaderProps {
@@ -91,6 +92,8 @@ export function RoomHeader({
           <span className="hidden sm:inline">仅收听 · </span>启用麦克风
         </Button>
       )}
+
+      <ThemeToggle className="shrink-0" />
 
       <IconButton label="打开聊天" onClick={onToggleChat}>
         <MessageSquare className="h-4 w-4" />

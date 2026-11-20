@@ -115,7 +115,7 @@ export default function LobbyPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {currentRoom && (
+              {currentRoom && (
               <Button variant="secondary" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate("/room/" + currentRoom.id)}>
                 返回「{currentRoom.name}」
               </Button>

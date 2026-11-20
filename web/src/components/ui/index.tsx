@@ -1,7 +1,11 @@
 import {
   useEffect,
   useId,
+  useMemo,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -10,7 +14,9 @@ import {
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Info,
   Loader2,
   X,
@@ -198,33 +204,197 @@ export function Textarea({ label, hint, error, className, id, ...rest }: Textare
   );
 }
 
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+export interface SelectChangeEvent {
+  target: { value: string };
+  currentTarget: { value: string };
+}
+
+export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "onChange" | "value"> {
   label?: ReactNode;
   hint?: ReactNode;
   error?: string | null;
   options: { value: string; label: string; disabled?: boolean }[];
+  value?: string;
+  onChange?: (event: SelectChangeEvent) => void;
 }
 
-export function Select({ label, hint, error, options, className, id, ...rest }: SelectProps) {
+/** 自定义下拉选择（不使用浏览器原生 select），支持键盘操作与深色/浅色主题 */
+export function Select({ label, hint, error, options, className, id, value, onChange, disabled, name }: SelectProps) {
   const generatedId = useId();
-  const inputId = id ?? generatedId;
+  const selectId = id ?? generatedId;
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number }>({
+    left: 0,
+    width: 0,
+    maxHeight: 280,
+  });
+
+  const selectableIndexes = useMemo(
+    () => options.map((option, index) => (option.disabled ? -1 : index)).filter((index) => index >= 0),
+    [options],
+  );
+  const selectedIndex = options.findIndex((option) => option.value === (value ?? ""));
+  const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
+
+  const updatePosition = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const gap = 6;
+    const spaceBelow = window.innerHeight - rect.bottom - gap - 8;
+    const spaceAbove = rect.top - gap - 8;
+    const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+    setPosition({
+      left: rect.left,
+      width: rect.width,
+      maxHeight: Math.min(280, Math.max(120, openUp ? spaceAbove : spaceBelow)),
+      ...(openUp ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
+    });
+  };
+
+  const openMenu = () => {
+    if (disabled) return;
+    updatePosition();
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : (selectableIndexes[0] ?? -1));
+    setOpen(true);
+  };
+
+  const closeMenu = (focusButton = true) => {
+    setOpen(false);
+    if (focusButton) buttonRef.current?.focus();
+  };
+
+  const choose = (option: { value: string; label: string; disabled?: boolean }) => {
+    if (option.disabled) return;
+    onChange?.({ target: { value: option.value }, currentTarget: { value: option.value } });
+    closeMenu();
+  };
+
+  const moveActive = (direction: 1 | -1 | "first" | "last") => {
+    if (!options.length) return;
+    const enabled = selectableIndexes;
+    if (enabled.length === 0) return;
+    if (direction === "first") {
+      setActiveIndex(enabled[0] ?? -1);
+      return;
+    }
+    if (direction === "last") {
+      setActiveIndex(enabled[enabled.length - 1] ?? -1);
+      return;
+    }
+    const current = enabled.indexOf(activeIndex);
+    const next = current < 0 ? (direction === 1 ? 0 : enabled.length - 1) : (current + direction + enabled.length) % enabled.length;
+    setActiveIndex(enabled[next] ?? -1);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      closeMenu(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu();
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeIndex, options, selectedIndex]);
+
   return (
-    <FieldShell label={label} hint={hint} error={error} htmlFor={inputId}>
-      <select
-        {...rest}
-        id={inputId}
+    <FieldShell label={label} hint={hint} error={error} htmlFor={selectId}>
+      <button
+        ref={buttonRef}
+        id={selectId}
+        name={name}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? selectId + "-listbox" : undefined}
+        aria-activedescendant={open && activeIndex >= 0 ? selectId + "-option-" + activeIndex : undefined}
+        disabled={disabled}
+        onClick={() => (open ? closeMenu(false) : openMenu())}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (!open) openMenu();
+            else moveActive(event.key === "ArrowDown" ? 1 : -1);
+          } else if (event.key === "Enter" || event.key === " ") {
+            if (open && activeIndex >= 0) {
+              event.preventDefault();
+              const option = options[activeIndex];
+              if (option) choose(option);
+            }
+          } else if (event.key === "Escape" && open) {
+            event.preventDefault();
+            closeMenu();
+          }
+        }}
         className={cn(
-          "h-10 w-full appearance-none rounded-xl border border-white/10 bg-ink-900/80 px-3 text-sm text-mist-100",
+          "flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-ink-900/80 px-3 text-left text-sm text-mist-100",
           "outline-none transition-colors focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          error && "border-bad-500/60",
           className,
         )}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled} className="bg-ink-900 text-mist-100">
-            {option.label}
-          </option>
-        ))}
-      </select>
+        <span className={cn("truncate", !selected && "text-mist-500")}>{selected?.label ?? "请选择"}</span>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-mist-400 transition-transform", open && "rotate-180")} />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={selectId + "-listbox"}
+            role="listbox"
+            aria-label={typeof label === "string" ? label : "选项"}
+            className="fixed z-[80] overflow-y-auto rounded-xl border border-white/10 bg-ink-850 p-1 shadow-2xl shadow-black/50 app-scroll animate-scale-in"
+            style={{ left: position.left, width: position.width, top: position.top, bottom: position.bottom, maxHeight: position.maxHeight }}
+          >
+            {options.length === 0 && <p className="px-3 py-2 text-xs text-mist-500">暂无可选项</p>}
+            {options.map((option, index) => {
+              const active = index === activeIndex;
+              const isSelected = option.value === (value ?? "");
+              return (
+                <button
+                  key={option.value + "-" + index}
+                  id={selectId + "-option-" + index}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  disabled={option.disabled}
+                  onMouseEnter={() => !option.disabled && setActiveIndex(index)}
+                  onClick={() => choose(option)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                    option.disabled && "cursor-not-allowed opacity-40",
+                    active ? "bg-brand-500/15 text-mist-100" : "text-mist-200 hover:bg-white/5",
+                    isSelected && "font-medium",
+                  )}
+                >
+                  <span className="truncate">{option.label}</span>
+                  {isSelected && <Check className="h-4 w-4 shrink-0 text-brand-400" />}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
     </FieldShell>
   );
 }
@@ -280,6 +450,7 @@ export interface SliderProps {
 }
 
 export function Slider({ value, min = 0, max = 100, step = 1, onChange, label, formatValue, disabled }: SliderProps) {
+  const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
   return (
     <div className="space-y-2">
       {(label || formatValue) && (
@@ -296,7 +467,8 @@ export function Slider({ value, min = 0, max = 100, step = 1, onChange, label, f
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-ink-600 accent-brand-500 disabled:cursor-not-allowed"
+        className="airmic-range w-full disabled:cursor-not-allowed"
+        style={{ "--range-progress": percent + "%" } as CSSProperties}
       />
     </div>
   );
