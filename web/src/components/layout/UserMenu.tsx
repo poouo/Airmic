@@ -50,43 +50,49 @@ export default function UserMenu() {
     navigate("/login", { replace: true });
   };
 
+  const itemClass =
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-foreground/85 outline-none transition-colors hover:bg-accent hover:text-foreground";
+
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex items-center gap-2 rounded-xl px-1.5 py-1.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400",
-          open ? "bg-white/5" : "hover:bg-white/5",
+          "flex items-center gap-2 rounded-lg px-1.5 py-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          open ? "bg-accent" : "hover:bg-accent",
         )}
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="sm" />
         <span className="hidden min-w-0 text-left sm:block">
-          <span className="block max-w-[8rem] truncate text-xs font-medium text-mist-100">{user.displayName}</span>
-          <span className="block text-[10px] text-mist-500">{ROLE_LABELS[user.role]}</span>
+          <span className="block max-w-[8rem] truncate text-xs font-medium leading-tight text-foreground">{user.displayName}</span>
+          <span className="block text-[10px] leading-tight text-muted-foreground">{ROLE_LABELS[user.role]}</span>
         </span>
-        <ChevronDown className={cn("h-3.5 w-3.5 text-mist-400 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-150", open && "rotate-180")} />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-ink-850 shadow-2xl shadow-black/30 animate-fade-in" role="menu">
-          <div className="border-b border-white/5 px-3.5 py-3">
+        <div
+          className="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-popover animate-scale-in"
+          role="menu"
+        >
+          <div className="border-b border-border px-3.5 py-3">
             <div className="flex items-center gap-2.5">
               <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="md" />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-mist-100">{user.displayName}</p>
-                <p className="truncate text-[11px] text-mist-500">@{user.username}</p>
+                <p className="truncate text-sm font-semibold tracking-tight text-foreground">{user.displayName}</p>
+                <p className="truncate text-[11px] text-muted-foreground">@{user.username}</p>
               </div>
             </div>
-            <div className="mt-2 flex items-center gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <Badge tone={user.role === "admin" ? "brand" : user.role === "moderator" ? "warn" : user.role === "guest" ? "neutral" : "good"}>
                 {ROLE_LABELS[user.role]}
               </Badge>
               {user.isGuest && <Badge>游客账号</Badge>}
             </div>
-            {user.statusText && <p className="mt-2 line-clamp-2 text-[11px] text-mist-400">{user.statusText}</p>}
+            {user.statusText && <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{user.statusText}</p>}
           </div>
 
           <div className="p-1.5">
@@ -97,9 +103,9 @@ export default function UserMenu() {
                 setOpen(false);
                 openModal("profile");
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs text-mist-200 transition-colors hover:bg-white/5 hover:text-mist-100"
+              className={itemClass}
             >
-              <UserRound className="h-4 w-4 text-mist-400" />
+              <UserRound className="h-4 w-4 text-muted-foreground" />
               个人资料
             </button>
             <button
@@ -109,9 +115,9 @@ export default function UserMenu() {
                 setOpen(false);
                 openModal("settings");
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs text-mist-200 transition-colors hover:bg-white/5 hover:text-mist-100"
+              className={itemClass}
             >
-              <Settings className="h-4 w-4 text-mist-400" />
+              <Settings className="h-4 w-4 text-muted-foreground" />
               语音设置
             </button>
             {canAdmin && (
@@ -122,20 +128,20 @@ export default function UserMenu() {
                   setOpen(false);
                   navigate("/admin");
                 }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs text-brand-300 transition-colors hover:bg-brand-500/10"
+                className={itemClass}
               >
-                <ShieldCheck className="h-4 w-4" />
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
                 管理后台
               </button>
             )}
           </div>
 
-          <div className="border-t border-white/5 p-1.5">
+          <div className="border-t border-border p-1.5">
             <button
               type="button"
               role="menuitem"
               onClick={() => void handleLogout()}
-              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs text-bad-400 transition-colors hover:bg-bad-500/10"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-destructive outline-none transition-colors hover:bg-destructive/10"
             >
               <LogOut className="h-4 w-4" />
               退出登录

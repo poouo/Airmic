@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { AudioSettings, CreateRoomRequest, RoomSummary, UpdateRoomRequest } from "@airmic/shared";
 import { diffAudioSettings } from "@airmic/shared";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { Badge, Button, Input, Modal, Select, Switch, Textarea } from "@/components/ui";
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Modal, Select, Switch, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
 import { useUiStore } from "@/stores/ui";
@@ -139,11 +139,18 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
       footer={
         <div className="flex w-full items-center gap-2">
           {isEdit && canDelete && (
-            <Button variant="ghost" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} className="mr-auto text-bad-400 hover:bg-bad-500/10" loading={deleting} onClick={() => void handleDelete()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 className="h-3.5 w-3.5" />}
+              className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+              loading={deleting}
+              onClick={() => void handleDelete()}
+            >
               删除房间
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting || deleting}>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={submitting || deleting}>
             取消
           </Button>
           <Button size="sm" loading={submitting} onClick={() => void handleSubmit()} disabled={deleting}>
@@ -153,124 +160,118 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
       }
     >
       <div className="space-y-5">
-        {error && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{error}</div>}
+        {error && <Alert tone="error">{error}</Alert>}
 
-        <section className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-mist-500">基本信息</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="房间名称" required value={name} maxLength={40} placeholder="例如：周末开黑房" onChange={(event) => setName(event.target.value)} />
-            <Select
-              label="房间分类"
-              options={categories.map((item) => ({ value: item, label: item }))}
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-            />
-          </div>
-          <Textarea
-            label="房间简介"
-            hint="选填，最多 200 个字符"
-            rows={2}
-            maxLength={200}
-            value={description}
-            placeholder="介绍一下这个房间…"
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-mist-500">人数与权限</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              label="人数上限"
-              type="number"
-              min={0}
-              max={100}
-              value={maxUsers}
-              hint={"0 = 跟随服务器上限" + (roomLimit > 0 ? "（当前服务器上限 " + roomLimit + " 人）" : "") + "；不修改则保持原有设置"}
-              onChange={(event) => {
-                setMaxUsers(event.target.value);
-                setMaxUsersDirty(true);
-              }}
-            />
-            <div className="flex flex-col justify-center gap-2.5 rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2.5">
-              <Switch
-                label="房间锁定"
-                description="锁定后普通用户无法加入"
-                checked={locked}
-                onChange={setLocked}
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card>
+            <CardHeader title="基本信息" />
+            <CardContent className="space-y-3">
+              <Input label="房间名称" required value={name} maxLength={40} placeholder="例如：周末开黑房" onChange={(event) => setName(event.target.value)} />
+              <Select
+                label="房间分类"
+                options={categories.map((item) => ({ value: item, label: item }))}
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
               />
-              <Switch
-                label="允许屏幕共享"
-                description={screenShareAllowed ? "房间内同时仅允许一人共享" : "服务器已全局关闭屏幕共享"}
-                checked={screenShareEnabled && screenShareAllowed}
-                disabled={!screenShareAllowed}
-                onChange={setScreenShareEnabled}
+              <Textarea
+                label="房间简介"
+                hint="选填，最多 200 个字符"
+                rows={2}
+                maxLength={200}
+                value={description}
+                placeholder="介绍一下这个房间…"
+                onChange={(event) => setDescription(event.target.value)}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2.5">
-            <Switch
-              label="需要密码"
-              description={isEdit && initial.hasPassword ? "关闭开关并保存将清除当前密码" : "开启后用户进入房间需输入密码"}
-              checked={requirePassword}
-              onChange={(checked) => {
-                setRequirePassword(checked);
-                if (!checked) setPassword("");
-              }}
-            />
-            {requirePassword && (
-              <div className="mt-3">
-                <Input
-                  label="房间密码"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  maxLength={64}
-                  autoComplete="new-password"
-                  placeholder={isEdit && initial.hasPassword ? "留空保持当前密码" : "至少 4 位"}
-                  hint={isEdit && initial.hasPassword ? "留空表示不修改密码" : "4 - 64 位，房间内用户需输入此密码"}
-                  rightSlot={
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((value) => !value)}
-                      className="rounded-lg p-1.5 text-mist-400 transition-colors hover:bg-white/5 hover:text-mist-100"
-                      aria-label={showPassword ? "隐藏密码" : "显示密码"}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  }
-                  onChange={(event) => setPassword(event.target.value)}
+          <Card>
+            <CardHeader title="人数与权限" />
+            <CardContent className="space-y-3">
+              <Input
+                label="人数上限"
+                type="number"
+                min={0}
+                max={100}
+                value={maxUsers}
+                hint={"0 = 跟随服务器上限" + (roomLimit > 0 ? "（当前服务器上限 " + roomLimit + " 人）" : "") + "；不修改则保持原有设置"}
+                onChange={(event) => {
+                  setMaxUsers(event.target.value);
+                  setMaxUsersDirty(true);
+                }}
+              />
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+                <Switch label="房间锁定" description="锁定后普通用户无法加入" checked={locked} onChange={setLocked} />
+                <Switch
+                  label="允许屏幕共享"
+                  description={screenShareAllowed ? "房间内同时仅允许一人共享" : "服务器已全局关闭屏幕共享"}
+                  checked={screenShareEnabled && screenShareAllowed}
+                  disabled={!screenShareAllowed}
+                  onChange={setScreenShareEnabled}
                 />
               </div>
-            )}
-          </div>
-        </section>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-mist-500">音质设置</h3>
-            {!initial.audioKnown && <Badge tone="warn">需要服务器管理权限才能编辑音质</Badge>}
-          </div>
-          {initial.audioKnown ? (
-            <AudioSettingsEditor
-              base={audioBase}
-              value={audio}
-              onChange={(next) => {
-                setAudio(next);
-                setAudioDirty(true);
-              }}
-              followDefault={followDefault}
-              onFollowDefaultChange={(next) => {
-                setFollowDefault(next);
-                setAudioDirty(true);
-              }}
-            />
-          ) : (
-            <div className="rounded-xl border border-white/10 bg-ink-900/50 px-4 py-3 text-xs leading-relaxed text-mist-400">
-              当前账号可以编辑房间的基础信息、密码与人数，但修改音质需要「服务器管理」权限。保存时不会改动房间已有的音质配置。
-            </div>
-          )}
-        </section>
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+                <Switch
+                  label="需要密码"
+                  description={isEdit && initial.hasPassword ? "关闭开关并保存将清除当前密码" : "开启后用户进入房间需输入密码"}
+                  checked={requirePassword}
+                  onChange={(checked) => {
+                    setRequirePassword(checked);
+                    if (!checked) setPassword("");
+                  }}
+                />
+                {requirePassword && (
+                  <Input
+                    label="房间密码"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    maxLength={64}
+                    autoComplete="new-password"
+                    placeholder={isEdit && initial.hasPassword ? "留空保持当前密码" : "至少 4 位"}
+                    hint={isEdit && initial.hasPassword ? "留空表示不修改密码" : "4 - 64 位，房间内用户需输入此密码"}
+                    rightSlot={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((value) => !value)}
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    }
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader title="音质设置" action={!initial.audioKnown ? <Badge tone="warn">需要服务器管理权限才能编辑音质</Badge> : undefined} />
+          <CardContent>
+            {initial.audioKnown ? (
+              <AudioSettingsEditor
+                base={audioBase}
+                value={audio}
+                onChange={(next) => {
+                  setAudio(next);
+                  setAudioDirty(true);
+                }}
+                followDefault={followDefault}
+                onFollowDefaultChange={(next) => {
+                  setFollowDefault(next);
+                  setAudioDirty(true);
+                }}
+              />
+            ) : (
+              <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                当前账号可以编辑房间的基础信息、密码与人数，但修改音质需要「服务器管理」权限。保存时不会改动房间已有的音质配置。
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </Modal>
   );

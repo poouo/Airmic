@@ -5,6 +5,7 @@ name: Release
 #    （VPS 部署/升级直接下载预构建包，不在服务器上编译）
 # 2) 构建 AirMic Docker 镜像并推送到 GitHub Container Registry（ghcr.io）
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -27,10 +28,8 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="${GITHUB_REF_NAME#v}"
@@ -40,20 +39,31 @@ jobs:
             exit 1
           fi
 
+      - name: Verify deployment path safeguards
+        run: |
+          bash -n scripts/install.sh
+          node --test scripts/deploy.test.mjs
+
+      - name: Verify one-click installer behaviour (dry-run + shims)
+        run: bash scripts/install.test.sh "$GITHUB_WORKSPACE"
+
       - name: Build prebuilt bundle (with smoke test)
         run: node scripts/build-release-bundle.mjs
 
       - name: Create Release and upload bundle assets
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
           files: |
             dist-release/airmic-*.tar.gz
             dist-release/airmic-*.tar.gz.sha256
 
   docker:
+    if: startsWith(github.ref, 'refs/tags/v')
     name: Build and push Docker image
     runs-on: ubuntu-latest
     steps:

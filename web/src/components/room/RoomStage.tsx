@@ -35,10 +35,10 @@ export function RoomStage({
     const stream = screenSharer.isSelf ? selfScreenStream : screenStream;
     return (
       <div className="flex h-full min-h-0 flex-col gap-3">
-        <div className="relative min-h-[240px] flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black">
+        <div className="relative min-h-[240px] flex-1 overflow-hidden rounded-2xl border border-border bg-black shadow-card">
           <ScreenVideo stream={stream} />
-          <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-ink-950/75 px-3 py-1.5 text-xs text-mist-200 ring-1 ring-white/10 backdrop-blur">
-            <MonitorUp className="h-3.5 w-3.5 text-aqua-400" />
+          <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-foreground/75 px-3 py-1.5 text-xs text-background">
+            <MonitorUp className="h-3.5 w-3.5" />
             <span className="max-w-[16rem] truncate">
               {screenSharer.isSelf ? "你" : screenSharer.displayName} 正在共享屏幕
             </span>
@@ -112,13 +112,13 @@ function InviteHint() {
   };
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-white/10 bg-ink-900/40 px-4 py-6 text-center">
-      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-ink-800 text-mist-400">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center">
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
         <UserPlus className="h-5 w-5" />
       </div>
       <div>
-        <p className="text-sm text-mist-200">房间里只有你</p>
-        <p className="mt-1 text-xs text-mist-500">把房间链接分享给队友，等他们加入后会自动连接语音</p>
+        <p className="text-sm font-medium text-foreground">房间里只有你</p>
+        <p className="mt-1 text-xs text-muted-foreground">把房间链接分享给队友，等他们加入后会自动连接语音</p>
       </div>
       <Button size="sm" variant="secondary" icon={<Share2 className="h-3.5 w-3.5" />} onClick={copyLink}>
         复制房间链接
@@ -142,7 +142,7 @@ function ScreenVideo({ stream }: { stream: MediaStream | null }) {
 
   if (!stream) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-white/60">
+      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
         正在等待屏幕画面…
       </div>
     );

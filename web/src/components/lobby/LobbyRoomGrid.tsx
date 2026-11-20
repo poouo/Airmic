@@ -37,12 +37,12 @@ export default function LobbyRoomGrid({ rooms, currentRoomId, canEdit, canCreate
     <div className="space-y-6">
       {groups.map((group) => (
         <section key={group.category}>
-          <div className="mb-2.5 flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-mist-200">{group.category}</h2>
-            <span className="rounded-full bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-mist-500">{group.rooms.length}</span>
-            <div className="h-px flex-1 bg-white/5" />
+          <div className="mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-semibold tracking-tight text-foreground">{group.category}</h2>
+            <span className="tabular rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground">{group.rooms.length}</span>
+            <div className="h-px flex-1 bg-border" />
           </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {group.rooms.map((room) => (
               <RoomCard key={room.id} room={room} isCurrent={room.id === currentRoomId} canEdit={canEdit} onJoin={onJoin} onEdit={onEdit} />
             ))}

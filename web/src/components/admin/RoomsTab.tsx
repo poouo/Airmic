@@ -10,7 +10,7 @@ import { useUiStore } from "@/stores/ui";
 import RoomFormModal from "@/components/lobby/RoomFormModal";
 import { createRoomInitial, detailRoomInitial, summaryRoomInitial } from "@/components/lobby/roomForm";
 import { useAsyncData } from "./useAsyncData";
-import { AdminErrorPanel, AdminLoading, SectionCard, TableShell, Td, Th } from "./shared";
+import { AdminErrorPanel, AdminLoading, SectionCard, TableShell, TBody, Td, Th, THead, Tr } from "./shared";
 
 type FormState = { kind: "create" } | { kind: "edit"; room: RoomDetail | RoomSummary } | null;
 
@@ -76,9 +76,9 @@ export default function RoomsTab() {
     <div className="space-y-4">
       <SectionCard
         title="房间管理"
-        description={(canFull ? "服务器全部房间，可编辑完整音质参数" : "房间列表（音质参数需要服务器管理权限查看）")}
+        description={canFull ? "服务器全部房间，可编辑完整音质参数" : "房间列表（音质参数需要服务器管理权限查看）"}
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="w-48">
               <Input label="搜索房间" value={search} leftIcon={<Search className="h-4 w-4" />} placeholder="房间名 / 分类" onChange={(event) => setSearch(event.target.value)} />
             </div>
@@ -95,13 +95,13 @@ export default function RoomsTab() {
         bodyClassName="p-0"
       >
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={refreshAll} />
           </div>
         ) : loading ? (
           <AdminLoading text="正在加载房间列表…" />
         ) : filtered.length === 0 ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <EmptyState
               icon={<DoorOpen className="h-5 w-5" />}
               title={keyword ? "没有匹配的房间" : "还没有房间"}
@@ -117,18 +117,16 @@ export default function RoomsTab() {
           </div>
         ) : (
           <TableShell>
-            <thead>
-              <tr>
-                <Th>房间</Th>
-                <Th>分类</Th>
-                <Th>人数</Th>
-                <Th>状态</Th>
-                <Th>生效音质</Th>
-                <Th>创建者</Th>
-                <Th className="text-right">操作</Th>
-              </tr>
-            </thead>
-            <tbody>
+            <THead>
+              <Th>房间</Th>
+              <Th>分类</Th>
+              <Th>人数</Th>
+              <Th>状态</Th>
+              <Th>生效音质</Th>
+              <Th>创建者</Th>
+              <Th className="text-right">操作</Th>
+            </THead>
+            <TBody>
               {filtered.map((room) => {
                 const detail = isRoomDetail(room) ? room : null;
                 const live = liveMap.get(room.id);
@@ -137,33 +135,51 @@ export default function RoomsTab() {
                 const userCount = live?.userCount ?? room.userCount;
                 const maxUsers = live?.maxUsers ?? room.maxUsers;
                 return (
-                  <tr key={room.id} className="transition-colors hover:bg-ink-750">
+                  <Tr key={room.id}>
                     <Td>
-                      <p className="flex items-center gap-1.5 text-xs font-medium text-mist-100">
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                         {room.name}
-                        {locked && <LockKeyhole className="h-3 w-3 text-mist-400" />}
+                        {locked && <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" />}
                       </p>
-                      <p className="max-w-[16rem] truncate text-[10px] text-mist-500">{room.description || "暂无简介"}</p>
+                      <p className="max-w-[16rem] truncate text-xs text-muted-foreground">{room.description || "暂无简介"}</p>
                     </Td>
-                    <Td><Badge>{room.category}</Badge></Td>
                     <Td>
-                      <span className={maxUsers > 0 && userCount >= maxUsers ? "font-mono text-[11px] text-bad-400" : "font-mono text-[11px] text-mist-300"}>
+                      <Badge>{room.category}</Badge>
+                    </Td>
+                    <Td>
+                      <span
+                        className={
+                          maxUsers > 0 && userCount >= maxUsers
+                            ? "tabular font-mono text-xs text-destructive"
+                            : "tabular font-mono text-xs text-muted-foreground"
+                        }
+                      >
                         {userCount}/{maxUsers > 0 ? maxUsers : "∞"}
                       </span>
                     </Td>
                     <Td>
                       <div className="flex flex-wrap gap-1">
-                        {hasPassword && <Badge tone="warn"><KeyRound className="h-3 w-3" />密码</Badge>}
+                        {hasPassword && (
+                          <Badge tone="warn">
+                            <KeyRound className="h-3 w-3" />密码
+                          </Badge>
+                        )}
                         {locked && <Badge tone="bad">锁定</Badge>}
-                        {room.screenShareEnabled ? <Badge tone="good"><MonitorUp className="h-3 w-3" />共享</Badge> : <Badge>禁共享</Badge>}
+                        {room.screenShareEnabled ? (
+                          <Badge tone="good">
+                            <MonitorUp className="h-3 w-3" />共享
+                          </Badge>
+                        ) : (
+                          <Badge>禁共享</Badge>
+                        )}
                       </div>
                     </Td>
                     <Td className="max-w-[12rem]">
-                      <p className="truncate font-mono text-[10px] text-mist-400" title={detail ? audioSummary(detail.audioSettings) : ""}>
+                      <p className="truncate font-mono text-xs text-muted-foreground" title={detail ? audioSummary(detail.audioSettings) : ""}>
                         {detail ? audioSummary(detail.audioSettings) : "仅服务器管理员可见"}
                       </p>
                     </Td>
-                    <Td className="text-[11px] text-mist-500">{detail?.createdBy?.displayName ?? "-"}</Td>
+                    <Td className="whitespace-nowrap text-xs text-muted-foreground">{detail?.createdBy?.displayName ?? "-"}</Td>
                     <Td className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <IconButton label="编辑房间" size="sm" variant="solid" onClick={() => setForm({ kind: "edit", room })}>
@@ -176,10 +192,10 @@ export default function RoomsTab() {
                         )}
                       </div>
                     </Td>
-                  </tr>
+                  </Tr>
                 );
               })}
-            </tbody>
+            </TBody>
           </TableShell>
         )}
       </SectionCard>

@@ -16,11 +16,11 @@ export function LevelMeter({ level, active = true, barCount = 14, className }: L
       {Array.from({ length: barCount }, (_, index) => {
         const ratio = barCount <= 1 ? 0 : index / (barCount - 1);
         const on = index < lit;
-        const color = ratio > 0.82 ? "bg-bad-400" : ratio > 0.62 ? "bg-warn-400" : "bg-good-400";
+        const color = ratio > 0.82 ? "bg-destructive" : ratio > 0.62 ? "bg-warning" : "bg-success";
         return (
           <span
             key={index}
-            className={cn("h-full flex-1 rounded-full transition-colors duration-75", on ? color : "bg-ink-600/60")}
+            className={cn("h-full flex-1 rounded-full transition-colors duration-75", on ? color : "bg-foreground/10")}
           />
         );
       })}

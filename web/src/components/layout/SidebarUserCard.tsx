@@ -26,25 +26,25 @@ export default function SidebarUserCard() {
   };
 
   return (
-    <div className="shrink-0 border-t border-white/5 p-2.5">
-      <div className="flex items-center gap-2 rounded-xl bg-ink-800/70 p-1.5 ring-1 ring-white/5">
+    <div className="shrink-0 border-t border-sidebar-border p-2">
+      <div className="flex items-center gap-1.5 rounded-xl border border-sidebar-border bg-card p-1.5">
         <button
           type="button"
           onClick={() => openModal("profile")}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 text-left outline-none transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-brand-400"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
           title="编辑个人资料"
         >
           <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="sm" />
           <span className="min-w-0">
-            <span className="block truncate text-xs font-medium text-mist-100">{user.displayName}</span>
-            <span className="block truncate text-[10px] text-mist-500">{user.statusText || ROLE_LABELS[user.role]}</span>
+            <span className="block truncate text-[12px] font-medium leading-tight text-foreground">{user.displayName}</span>
+            <span className="block truncate text-[10px] leading-tight text-muted-foreground">{user.statusText || ROLE_LABELS[user.role]}</span>
           </span>
         </button>
-        <IconButton label="语音设置" size="sm" onClick={() => openModal("settings")}>
-          <Settings className="h-4 w-4" />
+        <IconButton label="语音设置" size="sm" onClick={() => openModal("settings")} className="h-7 w-7">
+          <Settings className="h-3.5 w-3.5" />
         </IconButton>
-        <IconButton label="退出登录" size="sm" variant="danger" onClick={() => void handleLogout()}>
-          <LogOut className="h-4 w-4" />
+        <IconButton label="退出登录" size="sm" variant="danger" onClick={() => void handleLogout()} className="h-7 w-7">
+          <LogOut className="h-3.5 w-3.5" />
         </IconButton>
       </div>
     </div>

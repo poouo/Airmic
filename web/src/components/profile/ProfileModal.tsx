@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { UserSelf } from "@airmic/shared";
 import { ROLE_LABELS } from "@airmic/shared";
 import { Check, KeyRound, Smile, UserRound } from "lucide-react";
-import { Avatar, Badge, Button, Input, Modal } from "@/components/ui";
+import { Alert, Avatar, Badge, Button, Divider, Input, Modal, SectionTitle } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { cn, formatDateTime } from "@/lib/format";
 import { useAuthStore } from "@/stores/auth";
@@ -114,10 +114,10 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
       onClose={onClose}
       title="个人资料"
       subtitle="修改昵称、头像与状态，或更新账号密码"
-      size="xl"
+      size="lg"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={savingProfile}>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={savingProfile}>
             关闭
           </Button>
           <Button size="sm" loading={savingProfile} onClick={() => void saveProfile()}>
@@ -126,71 +126,81 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
         </>
       }
     >
-      <div className="space-y-6">
-        <section className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-ink-900/50 p-4 sm:flex-row sm:items-center">
+      <div className="space-y-5">
+        <section className="flex items-center gap-3.5 rounded-2xl border border-border bg-muted/30 p-4">
           <Avatar name={displayName || user.displayName} color={avatarColor} emoji={avatarEmoji} size="xl" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-lg font-semibold text-mist-100">{displayName.trim() || user.displayName}</p>
+              <p className="truncate text-base font-semibold tracking-tight text-foreground">{displayName.trim() || user.displayName}</p>
               <Badge tone={user.role === "admin" ? "brand" : user.role === "moderator" ? "warn" : user.role === "guest" ? "neutral" : "good"}>
                 {ROLE_LABELS[user.role]}
               </Badge>
               {user.isGuest && <Badge>游客</Badge>}
             </div>
-            <p className="mt-0.5 text-xs text-mist-500">@{user.username}</p>
-            {statusText && <p className="mt-1.5 line-clamp-2 text-xs text-mist-300">{statusText}</p>}
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">@{user.username}</p>
+            {statusText && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{statusText}</p>}
           </div>
         </section>
 
+        <Divider />
+
         <section className="space-y-4">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-            <UserRound className="h-3.5 w-3.5" />
-            基本资料
-          </h3>
-          {profileError && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{profileError}</div>}
+          <div className="flex items-center gap-1.5">
+            <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
+            <SectionTitle>基本资料</SectionTitle>
+          </div>
+          {profileError && <Alert tone="error">{profileError}</Alert>}
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="昵称" required value={displayName} maxLength={24} hint="1 - 24 个字符" onChange={(event) => setDisplayName(event.target.value)} />
             <Input label="状态" value={statusText} maxLength={60} placeholder="在做什么？" hint="最多 60 个字符" onChange={(event) => setStatusText(event.target.value)} />
           </div>
 
-          <div>
-            <p className="mb-2 text-xs font-medium text-mist-300">头像颜色</p>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-foreground/80">头像颜色</p>
             <div className="flex flex-wrap gap-2">
-              {AVATAR_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  onClick={() => setAvatarColor(color)}
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-xl ring-2 transition-transform hover:scale-105",
-                    avatarColor.toLowerCase() === color.toLowerCase() ? "ring-mist-200" : "ring-transparent",
-                  )}
-                  style={{ background: "linear-gradient(145deg, " + color + ", " + color + "88)", border: "1px solid " + color + "88" }}
-                  aria-label={"选择颜色 " + color}
-                >
-                  {avatarColor.toLowerCase() === color.toLowerCase() && <Check className="h-4 w-4 text-white" />}
-                </button>
-              ))}
+              {AVATAR_COLORS.map((color) => {
+                const selected = avatarColor.toLowerCase() === color.toLowerCase();
+                return (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setAvatarColor(color)}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-xl transition-transform hover:scale-105",
+                      selected ? "ring-2 ring-foreground" : "ring-2 ring-transparent",
+                    )}
+                    style={{ background: "linear-gradient(145deg, " + color + ", " + color + "88)", border: "1px solid " + color + "88" }}
+                    aria-label={"选择颜色 " + color}
+                  >
+                    {selected && <Check className="h-4 w-4 text-white" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-medium text-mist-300">头像表情</p>
-              <button type="button" onClick={() => setAvatarEmoji(null)} className="flex items-center gap-1 text-[11px] text-mist-400 hover:text-mist-200">
-                <Smile className="h-3 w-3" />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium text-foreground/80">头像表情</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-mr-1"
+                onClick={() => setAvatarEmoji(null)}
+                icon={<Smile className="h-3 w-3" />}
+              >
                 使用昵称首字
-              </button>
+              </Button>
             </div>
-            <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-12">
+            <div className="grid grid-cols-8 gap-1.5">
               {AVATAR_EMOJIS.map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
                   onClick={() => setAvatarEmoji(avatarEmoji === emoji ? null : emoji)}
                   className={cn(
-                    "flex h-8 items-center justify-center rounded-lg text-base transition-colors",
-                    avatarEmoji === emoji ? "bg-brand-500/25 ring-1 ring-brand-400/60" : "bg-white/5 hover:bg-white/10",
+                    "flex h-9 items-center justify-center rounded-lg text-base transition-colors",
+                    avatarEmoji === emoji ? "bg-accent ring-1 ring-ring/40" : "bg-muted/50 hover:bg-accent",
                   )}
                   aria-label={"选择表情 " + emoji}
                 >
@@ -201,25 +211,44 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
           </div>
         </section>
 
+        <Divider />
+
         <section className="space-y-4">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-            <KeyRound className="h-3.5 w-3.5" />
-            修改密码
-          </h3>
+          <div className="flex items-center gap-1.5">
+            <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+            <SectionTitle>修改密码</SectionTitle>
+          </div>
           {user.isGuest ? (
-            <div className="rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2.5 text-xs leading-relaxed text-mist-400">
-              当前为游客账号，不支持设置密码。注册正式账号后即可修改密码并保存个人资料。
-            </div>
+            <Alert tone="info">当前为游客账号，不支持设置密码。注册正式账号后即可修改密码并保存个人资料。</Alert>
           ) : (
             <>
-              {passwordError && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{passwordError}</div>}
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Input label="当前密码" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-                <Input label="新密码" type="password" autoComplete="new-password" value={newPassword} hint="至少 6 位" onChange={(event) => setNewPassword(event.target.value)} />
-                <Input label="确认新密码" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+              {passwordError && <Alert tone="error">{passwordError}</Alert>}
+              <div className="space-y-3">
+                <Input
+                  label="当前密码"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                />
+                <Input
+                  label="新密码"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  hint="至少 6 位"
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+                <Input
+                  label="确认新密码"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                />
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-mist-500">修改成功后，其他设备上的登录状态将被退出。</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs leading-relaxed text-muted-foreground">修改成功后，其他设备上的登录状态将被退出。</p>
                 <Button variant="secondary" size="sm" loading={savingPassword} onClick={() => void changePassword()}>
                   修改密码
                 </Button>
@@ -228,9 +257,11 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
           )}
         </section>
 
+        <Divider />
+
         <section className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-mist-500">账号信息</h3>
-          <div className="grid gap-2 rounded-2xl border border-white/5 bg-ink-900/40 p-3 text-xs sm:grid-cols-2">
+          <SectionTitle>账号信息</SectionTitle>
+          <div className="grid gap-2 rounded-xl border border-border bg-muted/20 p-2 text-xs sm:grid-cols-2">
             <InfoRow label="用户名" value={user.username} />
             <InfoRow label="昵称" value={user.displayName} />
             <InfoRow label="角色" value={ROLE_LABELS[user.role]} />
@@ -246,9 +277,9 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-ink-800/70 px-2.5 py-1.5">
-      <span className="text-mist-500">{label}</span>
-      <span className="truncate font-medium text-mist-200">{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-card px-2.5 py-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate font-medium text-foreground">{value}</span>
     </div>
   );
 }

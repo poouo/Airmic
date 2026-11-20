@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AdminUserRow } from "@airmic/shared";
 import { Ban, Search, UserRound } from "lucide-react";
-import { Avatar, Button, Input, Modal, Select, Tabs, Textarea } from "@/components/ui";
+import { Alert, Avatar, Button, Input, Modal, Select, Tabs, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { useUiStore } from "@/stores/ui";
 import { RoleBadge, userPageRows } from "./shared";
@@ -117,12 +117,10 @@ export default function BanCreateModal({ canSearchUsers, onClose, onCreated }: B
             onChange={(id) => setMode(id === "ip" ? "ip" : "user")}
           />
         ) : (
-          <div className="rounded-xl border border-warn-500/30 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-400">
-            当前账号没有「用户管理」权限，无法搜索用户账号；可以按 IP 地址封禁。
-          </div>
+          <Alert tone="warning">当前账号没有「用户管理」权限，无法搜索用户账号；可以按 IP 地址封禁。</Alert>
         )}
 
-        {error && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{error}</div>}
+        {error && <Alert tone="error">{error}</Alert>}
 
         {effectiveMode === "user" ? (
           <div className="space-y-2">
@@ -144,31 +142,35 @@ export default function BanCreateModal({ canSearchUsers, onClose, onCreated }: B
               </Button>
             </div>
             {selected && (
-              <div className="flex items-center gap-2 rounded-xl border border-brand-400/30 bg-brand-500/10 px-3 py-2">
+              <div className="flex items-center gap-2 rounded-xl border border-brand/20 bg-brand/5 px-3 py-2">
                 <Avatar name={selected.displayName} color={selected.avatarColor} emoji={selected.avatarEmoji} size="sm" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs text-mist-100">{selected.displayName}</p>
-                  <p className="truncate text-[11px] text-mist-500">@{selected.username}</p>
+                  <p className="truncate text-sm font-medium text-foreground">{selected.displayName}</p>
+                  <p className="truncate text-xs text-muted-foreground">@{selected.username}</p>
                 </div>
                 <RoleBadge role={selected.role} />
-                <button type="button" onClick={() => setSelected(null)} className="text-[11px] text-mist-400 hover:text-mist-200">
+                <button type="button" onClick={() => setSelected(null)} className="text-xs text-muted-foreground transition-colors hover:text-foreground">
                   取消选择
                 </button>
               </div>
             )}
             {results.length > 0 && !selected && (
-              <div className="max-h-56 space-y-1 overflow-y-auto app-scroll rounded-xl border border-white/10 bg-ink-900/50 p-1.5">
+              <div className="max-h-56 space-y-1 overflow-y-auto app-scroll rounded-xl border border-border bg-card p-1.5">
                 {results.map((row) => (
                   <button
                     key={row.id}
                     type="button"
                     onClick={() => setSelected(row)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5"
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent"
                   >
                     <Avatar name={row.displayName} color={row.avatarColor} emoji={row.avatarEmoji} size="xs" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs text-mist-200">{row.displayName}</span>
-                      <span className="block truncate text-[10px] text-mist-500">@{row.username}{row.online ? " · 在线" : ""}{row.isBanned ? " · 已封禁" : ""}</span>
+                      <span className="block truncate text-sm text-foreground">{row.displayName}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        @{row.username}
+                        {row.online ? " · 在线" : ""}
+                        {row.isBanned ? " · 已封禁" : ""}
+                      </span>
                     </span>
                     <RoleBadge role={row.role} />
                   </button>

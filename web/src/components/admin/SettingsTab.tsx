@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ServerSettings, UpdateSettingsRequest } from "@airmic/shared";
 import { DEFAULT_AUDIO_SETTINGS } from "@airmic/shared";
 import { Eye, EyeOff, RadioTower, RefreshCw, Save, Sparkles, WifiOff } from "lucide-react";
-import { Badge, Button, Input, Select, Switch, Textarea } from "@/components/ui";
+import { Alert, Badge, Button, Card, Input, Select, Switch, Textarea } from "@/components/ui";
 import AudioSettingsEditor from "@/components/lobby/AudioSettingsEditor";
 import { api, errorMessage } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
@@ -130,23 +130,42 @@ export default function SettingsTab() {
     }
   };
 
-  if (loading && !data) return <AdminLoading text="正在加载服务器设置…" />;
-  if (error) return <AdminErrorPanel message={error} onRetry={reload} />;
+  if (loading && !data)
+    return (
+      <Card>
+        <AdminLoading text="正在加载服务器设置…" />
+      </Card>
+    );
+  if (error)
+    return (
+      <Card>
+        <div className="px-5 py-4">
+          <AdminErrorPanel message={error} onRetry={reload} />
+        </div>
+      </Card>
+    );
   if (!draft) return null;
 
   return (
     <div className="space-y-4">
-      {formError && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2.5 text-xs text-bad-400">{formError}</div>}
+      {formError && <Alert tone="error">{formError}</Alert>}
 
       <SectionCard title="基本信息" description="服务器名称与公告会展示在登录页和客户端顶栏">
         <div className="grid gap-3 sm:grid-cols-2">
           <Input label="服务器名称" required value={draft.name} maxLength={60} onChange={(event) => update({ name: event.target.value })} />
-          <div className="flex items-end">
+          <div className="flex items-end pb-1">
             <Badge tone="brand">版本 {draft.version}</Badge>
           </div>
         </div>
         <div className="mt-3">
-          <Textarea label="服务器公告（MOTD）" rows={3} maxLength={500} value={draft.motd} hint="支持换行，最多 500 个字符；展示在登录页与大厅欢迎区" onChange={(event) => update({ motd: event.target.value })} />
+          <Textarea
+            label="服务器公告（MOTD）"
+            rows={3}
+            maxLength={500}
+            value={draft.motd}
+            hint="支持换行，最多 500 个字符；展示在登录页与大厅欢迎区"
+            onChange={(event) => update({ motd: event.target.value })}
+          />
         </div>
       </SectionCard>
 
@@ -167,7 +186,14 @@ export default function SettingsTab() {
             {draft.registrationMode === "invite" && (
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <Input label="邀请码" required value={draft.registrationCode} maxLength={32} placeholder="例如：AIRMIC2026" onChange={(event) => update({ registrationCode: event.target.value })} />
+                  <Input
+                    label="邀请码"
+                    required
+                    value={draft.registrationCode}
+                    maxLength={32}
+                    placeholder="例如：AIRMIC2026"
+                    onChange={(event) => update({ registrationCode: event.target.value })}
+                  />
                 </div>
                 <Button variant="secondary" size="md" icon={<Sparkles className="h-4 w-4" />} onClick={() => update({ registrationCode: randomInviteCode() })}>
                   随机生成
@@ -175,9 +201,14 @@ export default function SettingsTab() {
               </div>
             )}
           </div>
-          <div className="space-y-3 rounded-xl border border-white/10 bg-ink-900/40 p-3">
+          <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-3.5">
             <Switch label="允许游客登录" description="关闭后游客入口不可用" checked={draft.guestEnabled} onChange={(guestEnabled) => update({ guestEnabled })} />
-            <Switch label="允许游客创建房间" description="仅对游客角色生效" checked={draft.allowGuestRoomCreation} onChange={(allowGuestRoomCreation) => update({ allowGuestRoomCreation })} />
+            <Switch
+              label="允许游客创建房间"
+              description="仅对游客角色生效"
+              checked={draft.allowGuestRoomCreation}
+              onChange={(allowGuestRoomCreation) => update({ allowGuestRoomCreation })}
+            />
             <Switch label="允许游客发送聊天" description="关闭后游客只能收听" checked={draft.allowGuestChat} onChange={(allowGuestChat) => update({ allowGuestChat })} />
           </div>
         </div>
@@ -196,13 +227,25 @@ export default function SettingsTab() {
           />
           <NumberField label="房间数量上限" value={draft.maxRooms} min={0} max={1000} hint="0 表示不限制" onChange={(maxRooms) => update({ maxRooms })} />
           <NumberField label="聊天消息长度上限" value={draft.maxChatLength} min={20} max={5000} hint="20 - 5000 个字符" onChange={(maxChatLength) => update({ maxChatLength })} />
-          <NumberField label="房间消息保留条数" value={draft.maxMessagesPerRoom} min={0} max={5000} hint="0 表示不保留历史消息" onChange={(maxMessagesPerRoom) => update({ maxMessagesPerRoom })} />
+          <NumberField
+            label="房间消息保留条数"
+            value={draft.maxMessagesPerRoom}
+            min={0}
+            max={5000}
+            hint="0 表示不保留历史消息"
+            onChange={(maxMessagesPerRoom) => update({ maxMessagesPerRoom })}
+          />
         </div>
       </SectionCard>
 
       <SectionCard title="功能开关" description="全局开启或关闭创建房间、屏幕共享与文字聊天">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Switch label="允许普通用户创建房间" description="管理员/版主始终可以创建" checked={draft.allowRoomCreation} onChange={(allowRoomCreation) => update({ allowRoomCreation })} />
+          <Switch
+            label="允许普通用户创建房间"
+            description="管理员/版主始终可以创建"
+            checked={draft.allowRoomCreation}
+            onChange={(allowRoomCreation) => update({ allowRoomCreation })}
+          />
           <Switch label="允许屏幕共享" description="关闭后房间内无法开启共享" checked={draft.allowScreenShare} onChange={(allowScreenShare) => update({ allowScreenShare })} />
           <Switch label="允许文字聊天" description="关闭后所有房间禁用聊天" checked={draft.allowTextChat} onChange={(allowTextChat) => update({ allowTextChat })} />
         </div>
@@ -215,7 +258,7 @@ export default function SettingsTab() {
             {draft.voiceAvailable ? "语音可用" : "未配置语音中转"}
           </Badge>
           <Badge tone="neutral">SFU 服务端中转 · 不做 P2P</Badge>
-          <span className="min-w-0 truncate font-mono text-[11px] text-mist-400">{draft.livekitUrl ?? "未配置 LiveKit 地址"}</span>
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{draft.livekitUrl ?? "未配置 LiveKit 地址"}</span>
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -249,7 +292,7 @@ export default function SettingsTab() {
               <button
                 type="button"
                 onClick={() => setSecretVisible((value) => !value)}
-                className="rounded-lg p-1.5 text-mist-400 transition-colors hover:bg-white/5 hover:text-mist-100"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 aria-label={secretVisible ? "隐藏 API Secret" : "显示 API Secret"}
               >
                 {secretVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -259,13 +302,11 @@ export default function SettingsTab() {
           />
         </div>
 
-        <div className="mt-3 space-y-1 text-[11px] leading-relaxed text-mist-500">
+        <div className="mt-3 space-y-1 text-xs leading-relaxed text-muted-foreground">
           <p>所有语音经你的 LiveKit 服务器中转；修改后新进入房间生效，已在房间内的用户需重新进入房间。</p>
           <p>需要自行部署 LiveKit，详见部署文档；LiveKit URL / API Key / API Secret 三项齐全后语音才可用。</p>
-          <p>
-            SFU 中转模式推荐单房间 50 - 100+ 人（当前上限 {draft.maxUsersPerRoom} 人），可在「容量与限制」中调整。
-          </p>
-          {livekitDirty && <p className="text-brand-300">语音中转配置有未保存的修改。</p>}
+          <p>SFU 中转模式推荐单房间 50 - 100+ 人（当前上限 {draft.maxUsersPerRoom} 人），可在「容量与限制」中调整。</p>
+          {livekitDirty && <p className="text-warning">语音中转配置有未保存的修改。</p>}
         </div>
       </SectionCard>
 
@@ -279,8 +320,8 @@ export default function SettingsTab() {
 
       <UpdateCard />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-ink-850 px-4 py-3">
-        <p className="text-[11px] text-mist-500">保存后服务器会向所有在线用户广播新设置。</p>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-5 py-3 shadow-card">
+        <p className="text-xs text-muted-foreground">保存后服务器会向所有在线用户广播新设置。</p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} disabled={saving} onClick={reload}>
             重新加载

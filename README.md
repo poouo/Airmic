@@ -96,7 +96,7 @@ AirMic 与这类软件一样采用**服务端语音转发**：客户端把音频
 
 ## 快速开始
 
-> 不想手动部署？直接使用下方「一键部署」章节中的一行命令（Linux/macOS/WSL 用 curl，Windows 用 PowerShell），默认从 Release 下载预构建包/镜像，VPS 无需编译。
+> 不想手动部署？直接使用下方「一键部署」章节中的一行命令（Linux/macOS/WSL 用 curl，Windows 用 PowerShell），默认从 GitHub 直接拉取：有 Release 预构建包 / GHCR 镜像时优先使用（不在服务器上编译），没有时自动改用源码归档并在本机构建——**不需要先发布 Release，也不需要 clone 仓库**。
 
 > 想一条命令完成部署（含 LiveKit、初始化目录、升级/卸载）？见下方「一键部署（本地 / Docker）」章节。
 
@@ -172,71 +172,78 @@ npm run dev
 
 ### 一键命令（推荐，无需 clone 仓库）
 
+`scripts/install.sh`（Linux / macOS / WSL）与 `scripts/install.ps1`（Windows）是**引导脚本**：把部署 CLI（`airmic-cli.mjs`）下载到临时目录后执行指定动作；缺少 Node.js ≥ 22.13 时会自动把 Node 安装到 `<安装目录>/.runtime/`（不污染系统环境）。安装完成后可直接用 `<安装目录>/bin/airmic`（Windows：`<安装目录>\bin\airmic.cmd`）管理服务。
+
+默认 `--source auto`：**有 Release 预构建资产（`airmic-<version>.tar.gz`）/ GHCR 镜像时直接使用，不在服务器上编译；没有时自动回退到 GitHub 源码归档，在本机构建**（本地模式 `npm ci` + `npm run build`，Docker 模式本地构建镜像）。所以**不需要先发布 Release、不需要 clone 仓库**；需要强制指定来源时用 `--source release`（仅 Release 资产）、`--source github`（仅源码归档），用本地仓库源码构建则用 `--source local --build`。
+
 **Linux / macOS / WSL**：
 
 ```bash
-# 本地部署（默认从 GitHub Release 下载预构建包，不在服务器编译）
+# 安装（本地模式：本机进程 + LiveKit 二进制）
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- install --language zh-CN
 
-# Docker 部署（拉取 GHCR 预构建镜像 + LiveKit，不在服务器编译）
+# 安装（Docker 模式：AirMic + LiveKit 两个容器）
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- install --mode docker --language zh-CN
 
-# 升级（自动识别本地/Docker 模式，下载预构建包/镜像，不编译）
+# 升级（自动识别本地/Docker 模式与来源；无 Release 时按 GitHub 最新提交/Tag 升级，失败自动回滚）
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- upgrade
 
-# 卸载（保留 data/ 与 backups/）
-curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall
-# 卸载并删除数据与备份
-curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall --purge
+# 卸载（保留 data/ 与 backups/）/ 连数据与备份一起删除
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall --yes
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall --purge --yes
 
-# 状态 / 检查更新
+# 状态 / 检查更新 / 日志 / 重启
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- status
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- check-update
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- logs --lines 200
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- restart
 ```
 
 **Windows PowerShell**：
 
 ```powershell
-# 默认本地安装（从 Release 下载预构建包）
-irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 | iex
+# 默认本地安装（无参数即 install，默认 auto 来源）
+iex ((irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 -UseBasicParsing).TrimStart([char]0xFEFF))
 
-# 带参数：Docker 安装
-$s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 -UseBasicParsing).Content
+# 带参数：Docker 安装（先取回脚本文本再执行，避免 iex 无法传参）
+$s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 -UseBasicParsing).TrimStart([char]0xFEFF)
 & ([scriptblock]::Create($s)) install --mode docker --language zh-CN
 
-# 升级 / 卸载 / 状态 / 检查更新
+# 升级 / 卸载 / 状态 / 检查更新 / 日志 / 重启
 & ([scriptblock]::Create($s)) upgrade
-& ([scriptblock]::Create($s)) uninstall
-& ([scriptblock]::Create($s)) uninstall --purge
+& ([scriptblock]::Create($s)) uninstall --yes
+& ([scriptblock]::Create($s)) uninstall --purge --yes
 & ([scriptblock]::Create($s)) status
 & ([scriptblock]::Create($s)) check-update
+& ([scriptblock]::Create($s)) logs --lines 200
+& ([scriptblock]::Create($s)) restart
 ```
 
 说明：
 
-- 一键脚本只负责下载部署 CLI 并执行对应命令；默认安装目录 Linux/macOS 为 `~/.airmic`、Windows 为 `%USERPROFILE%\.airmic`（可用 `--dir` 或 `AIRMIC_HOME` 修改）。
-- 缺少 Node.js >= 22.13 时，脚本会下载官方 Node 二进制到 `<安装目录>/.runtime/`，不污染系统环境。
-- 默认从 GitHub Release 下载平台无关的预构建包（或 Docker 拉取 `ghcr.io/poouo/airmic:<version>` 镜像），**VPS 不需要 npm ci / npm run build**；只有开发者显式加 `--build` 才源码构建。
-- Docker 模式拉取 `ghcr.io/poouo/airmic:<版本>`：公开包可直接拉取；私有包需先 `docker login ghcr.io`（用户名 + PAT，`read:packages` 权限）。
-- 离线环境可先下载 Release 中的 `airmic-<version>.tar.gz` 和 `.sha256`，用 `install --from ./airmic-<version>.tar.gz` 安装/升级。
-- 想先看脚本内容再执行：`curl -fsSL -o /tmp/airmic-install.sh https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh && bash /tmp/airmic-install.sh -h`。
+- 默认安装目录：Linux/macOS `~/.airmic`、Windows `%USERPROFILE%\.airmic`（可用 `--dir` 或 `AIRMIC_HOME` 修改）；安装完成后访问 `http://<主机>:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质），之后用 `<安装目录>/bin/airmic`（Windows `<安装目录>\bin\airmic.cmd`）管理服务。
+- 引导脚本只负责拉取部署 CLI 并执行对应动作，参数与退出码原样透传（便于脚本化，`--json` 输出机器可读结果）；`--help` 可查看全部动作与参数。
+- `--source auto`（默认）优先 Release：本地模式用平台无关的预构建包 `airmic-<version>.tar.gz`，Docker 模式用 `ghcr.io/poouo/airmic:<version>` 镜像，**VPS 不需要 npm ci / npm run build**；没有可用资产/镜像时才回退到 GitHub 源码归档，本地模式执行 `npm ci` + `npm run build`、Docker 模式用仓库 `Dockerfile` 构建镜像。
+- Docker 模式使用 GHCR 镜像时：公开包可直接拉取；私有包需先 `docker login ghcr.io`（用户名 + PAT，`read:packages` 权限）。缺少 Docker / Docker Compose v2 时可加 `--install-docker` 让脚本尝试自动安装并启动服务。
+- Linux 适配：自动检测 `apt-get` / `dnf` / `yum` / `pacman` / `zypper` / `apk` 安装缺失依赖（非 root 时用 `sudo`）；支持 x64 / arm64 / armv7，Alpine 等 musl 系统自动使用 musl 版 Node；没有 systemd 也能安装运行（只是不注册开机自启）。
+- 国内网络可设置 `AIRMIC_RAW_BASE`（脚本/CLI 下载前缀）与 `AIRMIC_NODE_MIRROR`（Node 二进制镜像）；GitHub API 受限时设置 `GITHUB_TOKEN` 提高限额。
+- 离线环境可先下载 Release 中的 `airmic-<version>.tar.gz` 和 `.sha256`，再用 `install --from ./airmic-<version>.tar.gz` 安装/升级。
+- 想先看脚本内容再执行：`curl -fsSL -o /tmp/airmic-install.sh https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh && bash /tmp/airmic-install.sh -h`；`--dry-run` 只打印将要执行的动作，不做实际改动。
 
 ### 从仓库本地运行（开发者 / 已 clone）
 
-除了按「快速开始」手工部署，仓库还提供**零依赖的部署 CLI**（仅使用 Node 内置模块）：默认下载 Release 预构建包、生成配置并启动 LiveKit，支持状态/日志/在线检查更新/OTA 升级/回滚/卸载。
-
-
+除了按「快速开始」手工部署，仓库还提供**零依赖的部署 CLI**（仅使用 Node 内置模块）：按 `--source`（默认 `auto`）选择 Release 预构建包或 GitHub 源码归档，生成配置并启动 LiveKit，支持状态/日志/在线检查更新/OTA 升级/回滚/卸载。
 
 ```bash
-# 已 clone 仓库时：本地部署（默认下载 Release 预构建包，不编译）
+# 已 clone 仓库时：本地部署（默认 auto：有 Release 预构建包就用，否则从 GitHub 源码构建）
 ./deploy/install-local.sh --yes
 .\deploy\install-local.ps1 --yes
 
-# 已 clone 仓库时：Docker 部署（拉取 GHCR 镜像，不 build）
+# 已 clone 仓库时：Docker 部署（有 GHCR 镜像则拉取，否则用仓库 Dockerfile 构建）
 ./deploy/install-docker.sh --yes
 .\deploy\install-docker.ps1 --yes
 
-# 开发者源码构建（需要 Node/npm，会在本机编译）
+# 开发者：用当前仓库源码安装并在本机构建（需要 Node/npm）
 ./deploy/airmic.sh install --source local --build --yes
 ```
 
@@ -245,8 +252,8 @@ $s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps
 安装完成后：
 
 - 默认安装目录：Windows `%USERPROFILE%\.airmic`、Linux/macOS `~/.airmic`（可用 `--dir` 或环境变量 `AIRMIC_HOME` 修改）。
-- 访问 `http://127.0.0.1:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质）。
-- 管理命令位于安装目录 `bin/airmic-cli.mjs`（同时提供 `airmic.sh` / `airmic.ps1` / `airmic.cmd` 包装脚本）：
+- 访问 `http://<主机>:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质）；本地模式默认只监听 `127.0.0.1`，需要从其它机器访问时用 `--host 0.0.0.0`，并自行配置反向代理与 HTTPS。
+- 管理入口：`<安装目录>/bin/airmic`（Windows `<安装目录>\bin\airmic.cmd`），也可直接调用 `bin/airmic-cli.mjs`（同时提供 `airmic.sh` / `airmic.ps1` 包装脚本）：
 
 ```bash
 node ~/.airmic/bin/airmic-cli.mjs status          # 进程 / 健康检查 / 版本 / 访问地址
@@ -259,23 +266,43 @@ node ~/.airmic/bin/airmic-cli.mjs upgrade         # 在线 OTA 升级
 node ~/.airmic/bin/airmic-cli.mjs uninstall       # 卸载（保留 data/backups）
 ```
 
-常用 install 选项：
+常用参数（一键脚本 / 部署 CLI，`--help` 可查看全部动作与参数）：
 
 | 选项 | 说明 |
 | --- | --- |
 | `--mode local / docker` | 部署模式，默认 `local` |
-| `--dir <路径>` | 安装目录（默认 `~/.airmic` / `%USERPROFILE%\.airmic`） |
-| `--source release / local / github` | 部署来源：默认 `release`（GitHub Release 预构建包/镜像，不编译）；`local`/`github` 需配合 `--build` |
-| `--build` | 开发者模式：允许源码安装构建（npm ci/build，VPS 不推荐） |
-| `--from <tar.gz\|zip\|URL\|目录>` | 离线预构建包安装（自动识别预构建包/源码包） |
+| `--dir <路径>` | 安装目录（默认 `~/.airmic` / `%USERPROFILE%\.airmic`，等价于 `AIRMIC_HOME`） |
+| `--source auto / release / github / local` | 安装/升级来源：默认 `auto`（有 Release 预构建包/镜像就用，否则回退 GitHub 源码归档并本机构建）；`release` 强制 Release 资产（缺失则报错）；`github` 强制 GitHub 源码归档（免 `--build`）；`local` 用本地仓库源码（需 `--build`） |
+| `--build` | 允许在本机源码构建（`npm ci` + `npm run build`；`--source local` 必需） |
+| `--ref <分支 / Tag / 提交>` | 指定要安装的版本；`--source release` 传 Release 标签，`--source github` 可传分支、标签或提交 |
+| `--repo <owner/repo>` | 覆盖 GitHub 仓库地址（默认 `poouo/Airmic`，等价于 `AIRMIC_REPO`） |
+| `--install-docker` | Docker 缺失时由一键脚本尝试自动安装 Docker / Compose（Docker 模式） |
+| `--dry-run` | 一键脚本只打印将要执行的动作与命令，不做实际改动 |
+| `--language <代码>` / `--lang <代码>` | 界面语言参数（AirMic 当前仅中文，保留用于兼容，可省略） |
+| `--yes / --force` | 显式确认卸载（非交互环境必填）/ 强制重装（保留 `data/`、`backups/`） |
+| `--purge` | 卸载时同时删除 AirMic 的 `data/`、`backups/` 和自带运行时 |
 | `--port <端口>` | AirMic 端口，默认 9811 |
 | `--host <地址>` | 本地模式监听地址，默认 127.0.0.1 |
 | `--no-livekit` | 跳过 LiveKit 下载/启动（语音不可用，适合快速验证） |
 | `--livekit-version <vX>` | 指定 LiveKit 版本（默认最新 Release） |
 | `--setup-token [值]` | 设置初始化口令；不带值时自动生成随机口令 |
-| `--yes / --force` | 自动确认 / 目标已存在时强制重装（保留 data、backups） |
+| `--from <tar.gz\|zip\|URL\|目录>` | 离线包安装/升级（自动识别预构建包/源码包） |
+| `--lines <行数>` | `logs` 显示最近 N 行，默认 100（范围 1–5000） |
+| `--json` | 以 JSON 输出结果（脚本集成用） |
 
-> 默认从 Release 下载预构建包 / GHCR 镜像，**不在服务器上编译**；本地模式需要 **Node.js >= 22.13**（一键脚本可自动安装），Docker 模式需要 Docker + Docker Compose v2。CLI 会把 AirMic 与 LiveKit 的 stdout/stderr 写入 `logs/airmic-YYYY-MM-DD.log`、`logs/livekit-YYYY-MM-DD.log`，按天轮转并自动保留最近 **3 天**。
+常用环境变量：
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `AIRMIC_REPO` | GitHub 仓库（默认 `poouo/Airmic`，等价于 `--repo`） |
+| `AIRMIC_REF` | 源码引用（分支 / Tag / 提交，等价于 `--ref`） |
+| `AIRMIC_HOME` | 安装目录（等价于 `--dir`） |
+| `AIRMIC_NODE_VERSION` | 引导脚本自动安装的 Node 版本（需 ≥ 22.13） |
+| `AIRMIC_NODE_MIRROR` | Node 二进制下载镜像（国内加速） |
+| `AIRMIC_RAW_BASE` | 部署 CLI 下载基础地址（默认 `https://raw.githubusercontent.com`，从仓库 `main` 分支获取） |
+| `GITHUB_TOKEN` | GitHub API 令牌，可提高 API 限额 |
+
+> 默认 `--source auto`：有 Release 预构建包 / GHCR 镜像时**不在服务器上编译**，没有时回退到 GitHub 源码归档在本机构建（本地模式需要 **Node.js >= 22.13**，一键脚本可自动安装；Docker 模式需要 Docker + Docker Compose v2，源码回退时用本机 Docker 构建镜像）。CLI 会把 AirMic 与 LiveKit 的 stdout/stderr 写入 `logs/airmic-YYYY-MM-DD.log`、`logs/livekit-YYYY-MM-DD.log`，按天轮转并自动保留最近 **3 天**。
 
 ## 统一安装目录结构
 
@@ -293,9 +320,9 @@ node ~/.airmic/bin/airmic-cli.mjs uninstall       # 卸载（保留 data/backups
 ├─ logs/                       # airmic-YYYY-MM-DD.log、livekit-YYYY-MM-DD.log（保留 3 天）
 ├─ backups/                    # 数据库备份 airmic-db-*.db、旧版本 app-<版本>-<时间>/
 ├─ run/                        # airmic.pid、livekit.pid、log-cleanup.pid
-├─ bin/                        # airmic-cli.mjs 与 airmic.sh/ps1/cmd
+├─ bin/                        # airmic-cli.mjs 与 airmic.sh/ps1/cmd（即 <安装目录>/bin/airmic 管理入口）
 ├─ .runtime/                   # 一键脚本自动下载的 Node（仅当系统缺少 Node >= 22.13）
-└─ version.json                # {version, ref, source, mode, repo, installedAt, livekitVersion}
+└─ version.json                # {version, ref, source, mode, repo, commit, installedAt, livekitVersion}
 ```
 
 ## 在线检查更新与 OTA 升级
@@ -315,22 +342,22 @@ node ~/.airmic/bin/airmic-cli.mjs check-update --json   # 脚本集成
 ### OTA 升级
 
 ```bash
-node ~/.airmic/bin/airmic-cli.mjs upgrade            # 检查最新 Release 并升级预构建包/镜像（不编译）
+node ~/.airmic/bin/airmic-cli.mjs upgrade            # 自动识别来源：有 Release 用预构建包/镜像，否则 GitHub 源码构建
 node ~/.airmic/bin/airmic-cli.mjs upgrade --check     # 只检查
 node ~/.airmic/bin/airmic-cli.mjs upgrade --force     # 强制重新安装当前/最新版本
 node ~/.airmic/bin/airmic-cli.mjs upgrade --from ~/airmic-1.1.0.tar.gz --force   # 离线预构建包（自动识别）
 node ~/.airmic/bin/airmic-cli.mjs upgrade --from ~/source.tar.gz --build --force # 开发者：源码升级构建
 ```
 
-升级流程（默认不编译、自动回滚）：
+升级流程（默认按 `--source auto` 选择来源、失败自动回滚）：
 
-1. 解析最新 GitHub Release：本地模式下载 `airmic-<version>.tar.gz` 预构建包并校验 `.sha256`；Docker 模式拉取 `ghcr.io/poouo/airmic:<version>` 镜像。`--from` 可指定离线预构建包；
+1. 解析目标版本：优先 GitHub 最新 Release（本地模式下载 `airmic-<version>.tar.gz` 预构建包并校验 `.sha256`，Docker 模式拉取 `ghcr.io/poouo/airmic:<version>` 镜像）；仓库还没有 Release / 镜像可用时回退到 GitHub 源码归档（Tag 或默认分支最新提交）。`--from` 可指定离线包；
 2. 停止当前服务，备份数据库到 `backups/airmic-db-<时间>.db`（含 WAL/SHM），旧版本 app 移动到 `backups/app-<旧版本>-<时间>/`；
-3. 本地模式把预构建包原子替换为 `app/`（包内 `node_modules` 已是生产依赖，`@airmic/shared` 为真实目录），**不执行 npm ci / build**；Docker 模式切换镜像 tag 后 `docker compose up -d`；
+3. 本地模式把预构建包原子替换为 `app/`（包内 `node_modules` 已是生产依赖，`@airmic/shared` 为真实目录），**不执行 npm ci / build**；源码回退时才在本机 `npm ci` + `npm run build`。Docker 模式切换镜像 tag 后 `docker compose up -d`，源码回退时用 `docker compose build` 重建镜像；
 4. 启动新版本并做健康检查；**任何一步失败都会自动回滚**到旧版本 app/旧镜像 tag + 备份数据库并重启，CLI 以非 0 退出；
 5. 成功后保留 `backups/`，可手动清理旧条目。
 
-> `--build` 仅开发者使用：源码安装/升级会在本机执行 `npm ci` + `npm run build`（VPS 低配机不推荐）。默认安装/升级从 Release 获取预构建包、Docker 默认拉取 GHCR 镜像，都不在服务器上编译。
+> `--build` 仅开发者使用：源码安装/升级会在本机执行 `npm ci` + `npm run build`（VPS 低配机不推荐）。默认 `--source auto` 在有 Release 预构建包 / GHCR 镜像时不编译；`--source release` 强制只用 Release，`--source github` 强制从 GitHub 源码归档构建。
 >
 > 预构建包结构：`airmic-<version>/{package.json, server/package.json, server/dist/**, web/dist/**, shared/package.json, shared/dist/**, node_modules/**}`，可在任意 Windows/Linux（Node >= 22.13）直接运行；产物由 `scripts/build-release-bundle.mjs` 在 CI 中生成。
 
@@ -338,21 +365,38 @@ node ~/.airmic/bin/airmic-cli.mjs upgrade --from ~/source.tar.gz --build --force
 
 ## 升级 / 回滚 / 卸载
 
-- **手动回滚**：若升级后需要回滚，停止服务后从 `backups/app-<版本>-<时间>` 恢复 app 目录、从 `backups/airmic-db-<时间>.db` 恢复数据库（删除旧 `-wal/-shm`），再 `start`。
+- **一键升级**（自动识别本地/Docker 模式与来源；有 Release 预构建包/镜像直接用，否则从 GitHub 源码归档升级，失败自动回滚）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- upgrade
+# 已安装后也可以直接用安装目录里的入口：
+~/.airmic/bin/airmic upgrade
+~/.airmic/bin/airmic check-update      # 检查更新，有新版本时退出码为 10
+```
+
+```powershell
+# Windows PowerShell
+$s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 -UseBasicParsing).TrimStart([char]0xFEFF)
+& ([scriptblock]::Create($s)) upgrade
+& "$env:USERPROFILE\.airmic\bin\airmic.cmd" upgrade
+```
+
+- **手动回滚**：升级过程会自动备份，失败时自动回滚；如需手动回滚，停止服务后从 `backups/app-<版本>-<时间>` 恢复 app 目录、从 `backups/airmic-db-<时间>.db` 恢复数据库（删除旧 `-wal/-shm`），再 `start`。
 - **卸载**（默认保留数据与备份）：
 
 ```bash
-node ~/.airmic/bin/airmic-cli.mjs uninstall --yes           # 删除程序文件，保留 data/、backups/
-node ~/.airmic/bin/airmic-cli.mjs uninstall --purge --yes   # 删除整个安装目录
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall --yes          # 删除程序文件，保留 data/、backups/
+curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- uninstall --purge --yes  # 同时删除 AirMic 数据与备份
 ```
 
 ```powershell
 # Windows PowerShell 等价写法
-node "$env:USERPROFILE\.airmic\bin\airmic-cli.mjs" uninstall --yes
-node "$env:USERPROFILE\.airmic\bin\airmic-cli.mjs" uninstall --purge --yes
+$s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps1 -UseBasicParsing).TrimStart([char]0xFEFF)
+& ([scriptblock]::Create($s)) uninstall --yes
+& ([scriptblock]::Create($s)) uninstall --purge --yes
 ```
 
-> 卸载会先停止本地进程/日志清理守护进程（Docker 模式执行 `docker compose down`），再删除 app/bin/config/livekit/logs/run；**默认保留 `data/` 与 `backups/`**，除非加 `--purge`。
+卸载会先核验安装记录，再停止服务并清理 AirMic 管理的文件。普通卸载保留 `data/` 与 `backups/`。`--purge` 同时清除这些数据和自带运行时，并在目录为空时移除安装目录。首次安装请使用专用的空目录，安装路径中的符号链接和 Windows 目录联接会被拒绝。
 
 ## 部署与语音服务（LiveKit）
 
@@ -535,9 +579,10 @@ LiveKit 不做混音，每个成员要向房间内其他 **N-1** 人各转发一
 | `npm run test:e2e` | 端到端测试（Playwright + 真实 LiveKit，17 步验证；需先 `npm run build`，见"测试与验证"） |
 | `npm run backup` | 备份 SQLite 数据库到 `backups/` |
 | `npm run cert` | 生成本地自签 HTTPS 证书到 `certs/` |
-| `node deploy/airmic-cli.mjs install` | 一键部署（本地/Docker，见「一键部署」章节） |
-| `node deploy/airmic-cli.mjs check-update` / `upgrade` | 检查 GitHub 新版本 / OTA 升级（自动备份与回滚） |
+| `node deploy/airmic-cli.mjs install` | 一键部署（本地/Docker，默认 `--source auto`，见「一键部署」章节） |
+| `node deploy/airmic-cli.mjs check-update` / `upgrade` | 检查 GitHub 新版本 / OTA 升级（无 Release 时按最新提交升级，自动备份与回滚） |
 | `node deploy/airmic-cli.mjs status` / `logs` / `uninstall` | 状态 / 日志 / 卸载 |
+| `scripts/install.sh` / `scripts/install.ps1` | 远端一键引导脚本：安装/升级/卸载/状态/日志，无需 clone 仓库（Linux/macOS/WSL 用 curl + bash，Windows 用 irm + iex） |
 | `npm run build -w @airmic/shared` | 修改 `shared/` 后单独构建共享包 |
 
 ### 备份
@@ -573,6 +618,8 @@ AirMic/
 ├─ Dockerfile                # AirMic 多阶段生产镜像（LiveKit 为独立容器）
 ├─ docker-compose.yml        # airmic + livekit 服务（必需）
 ├─ scripts/
+│  ├─ install.sh             # Linux/macOS/WSL 一键引导脚本（curl | bash，支持 install/upgrade/uninstall/…）
+│  ├─ install.ps1            # Windows PowerShell 一键引导脚本
 │  ├─ backup.mjs             # SQLite 备份（VACUUM INTO + 校验 + 轮换）
 │  └─ generate-cert.mjs      # 局域网自签 HTTPS 证书
 ├─ e2e/                      # Playwright 端到端测试（npm run test:e2e）
@@ -759,13 +806,13 @@ git push origin v1.2.0
 4. GitHub Actions（`.github/workflows/release.yml`）在 `v*` 标签触发后：
    - 构建平台无关预构建包 `airmic-<version>.tar.gz` + `.sha256`（`scripts/build-release-bundle.mjs`，含冒烟测试），并创建 GitHub Release 上传资产；
    - 构建 AirMic Docker 镜像并推送到 GitHub Container Registry：`ghcr.io/<owner>/<repo>`（标签含 `1.1.0`、`1.1`、`1`、`latest`）。
-5. 部署机升级（无需编译）：
-   - 本地模式：`upgrade` 下载 Release 预构建包并原子切换；
-   - Docker 模式：`upgrade` 拉取对应版本 GHCR 镜像并切换；
+5. 部署机升级（有 Release 时无需编译）：
+   - 本地模式：`upgrade` 优先下载 Release 预构建包并原子切换，没有 Release 时回退 GitHub 源码归档在本机构建；
+   - Docker 模式：`upgrade` 优先拉取对应版本 GHCR 镜像并切换，镜像不可用时用源码构建新镜像；
    - 也可先检查：`check-update`（有新版本退出码 10）。
 6. 首次发版示例：`git tag v1.1.0 && git push origin v1.1.0`；Actions 完成后，VPS 执行一键 `upgrade` 即可。
 
-> 仓库还没有 Tag/Release 时，`check-update` 会回退检查默认分支提交，但默认 `upgrade` 只接受 Release 预构建包/镜像并提示"尚未发布版本"；正式发版请始终打 `v*` 标签。
+> 仓库还没有 Tag/Release 时也能直接安装/升级：默认 `--source auto` 会回退到 GitHub 源码归档并在本机构建；发版（打 `v*` 标签）后部署机才走预构建包/镜像、无需编译。
 
 ## 相关文档
 

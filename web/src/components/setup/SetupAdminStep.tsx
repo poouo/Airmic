@@ -1,15 +1,11 @@
-import { ShieldCheck } from "lucide-react";
-import { Input } from "@/components/ui";
+import { Alert, Input } from "@/components/ui";
 import type { SetupStepProps } from "./types";
 
 /** 第 2 步：管理员账号 */
 export default function SetupAdminStep({ form, update, disabled }: SetupStepProps) {
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2 rounded-xl border border-aqua-400/30 bg-aqua-400/10 px-3 py-2.5 text-xs leading-relaxed text-mist-300">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-aqua-400" />
-        该账号将成为服务器第一个管理员，拥有全部管理权限；请妥善保管账号密码。
-      </div>
+      <Alert tone="info">该账号将成为服务器第一个管理员，拥有全部管理权限；请妥善保管账号密码。</Alert>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Input

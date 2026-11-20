@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Ghost, UserRound } from "lucide-react";
-import { Button, Input } from "@/components/ui";
+import { Alert, Button, Input } from "@/components/ui";
 import { useAuthStore } from "@/stores/auth";
 
 export interface GuestFormProps {
@@ -35,23 +35,16 @@ export default function GuestForm({ guestEnabled }: GuestFormProps) {
 
   if (!guestEnabled) {
     return (
-      <div className="rounded-xl border border-white/10 bg-ink-900/60 px-4 py-3">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-mist-200">
-          <Ghost className="h-4 w-4 text-mist-400" />
-          服务器未开放游客模式
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-mist-400">管理员已关闭游客登录，请注册账号或使用已有账号登录。</p>
-      </div>
+      <Alert tone="warning" title="服务器未开放游客模式">
+        管理员已关闭游客登录，请注册账号或使用已有账号登录。
+      </Alert>
     );
   }
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
-      <div className="rounded-xl border border-white/10 bg-ink-900/60 px-3 py-2.5 text-xs leading-relaxed text-mist-400">
-        <Ghost className="mr-1 inline h-3.5 w-3.5 text-aqua-400" />
-        游客身份无需密码即可进入，可收听语音与加入房间，具体权限由服务器管理员配置。
-      </div>
-      {localError && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{localError}</div>}
+      <Alert tone="info">游客身份无需密码即可进入，可收听语音与加入房间，具体权限由服务器管理员配置。</Alert>
+      {localError && <Alert tone="error">{localError}</Alert>}
       <Input
         label="游客昵称"
         required

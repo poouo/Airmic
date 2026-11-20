@@ -397,9 +397,9 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-ink-950">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {connection !== "online" && (
-        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-warn-500/20 bg-warn-500/10 px-4 py-1.5 text-[11px] text-warn-400">
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
           <WifiOff className="h-3.5 w-3.5" />
           {connection === "reconnecting"
             ? "实时连接已断开，正在重新连接…"
@@ -410,13 +410,13 @@ export default function RoomPage() {
       )}
 
       {selfState.audioBlocked && (
-        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-brand-500/20 bg-brand-500/10 px-4 py-2 text-[11px] text-brand-300">
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-info/20 bg-info/10 px-4 py-2 text-[11px] text-info">
           <Volume2 className="h-3.5 w-3.5" />
           浏览器阻止了自动播放，暂时听不到队友的声音。
           <button
             type="button"
             onClick={() => void voice.resumeAudio()}
-            className="rounded-full bg-brand-500 px-2.5 py-0.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-400"
+            className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
           >
             点击启用声音
           </button>
@@ -467,8 +467,11 @@ export default function RoomPage() {
         </main>
 
         {chatOpen && (
-          <aside className="hidden min-h-0 w-80 shrink-0 border-l border-white/5 lg:flex xl:w-96">
-            <ChatPanel onClose={() => setChatOpen(false)} />
+          <aside className="hidden min-h-0 w-80 shrink-0 py-3 pr-3 lg:flex lg:py-4 lg:pr-4">
+            <ChatPanel
+              className="w-full overflow-hidden rounded-2xl border border-border shadow-card"
+              onClose={() => setChatOpen(false)}
+            />
           </aside>
         )}
       </div>
@@ -479,9 +482,9 @@ export default function RoomPage() {
             type="button"
             aria-label="关闭聊天"
             onClick={() => setChatDrawerOpen(false)}
-            className="absolute inset-0 bg-ink-950/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px] animate-fade-in dark:bg-black/50"
           />
-          <div className="relative ml-auto flex h-full w-[min(92vw,400px)] flex-col border-l border-white/10 bg-ink-900 shadow-2xl">
+          <div className="relative ml-auto flex h-full w-[min(92vw,400px)] flex-col overflow-hidden rounded-l-2xl border-l border-border bg-card shadow-popover animate-rise-in">
             <ChatPanel onClose={() => setChatDrawerOpen(false)} />
           </div>
         </div>

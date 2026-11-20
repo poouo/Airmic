@@ -35,16 +35,16 @@ export default function CategoriesEditor({ value, onChange }: CategoriesEditorPr
   };
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex flex-wrap gap-1.5">
-        {value.length === 0 && <span className="text-xs text-mist-500">还没有分类，至少添加一个</span>}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {value.length === 0 && <span className="text-xs text-muted-foreground">还没有分类，至少添加一个</span>}
         {value.map((category) => (
-          <span key={category} className="inline-flex items-center gap-1 rounded-lg bg-white/5 px-2 py-1 text-xs text-mist-200 ring-1 ring-white/10">
+          <span key={category} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground">
             {category}
             <button
               type="button"
               onClick={() => onChange(value.filter((item) => item !== category))}
-              className="rounded p-0.5 text-mist-500 transition-colors hover:bg-white/10 hover:text-bad-400"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
               aria-label={"删除分类 " + category}
             >
               <X className="h-3 w-3" />
@@ -76,7 +76,7 @@ export default function CategoriesEditor({ value, onChange }: CategoriesEditorPr
           添加
         </Button>
       </div>
-      <p className="text-[11px] text-mist-500">大厅与房间表单会按分类分组展示房间；最多 20 个分类，顺序即展示顺序。</p>
+      <p className="text-xs text-muted-foreground">大厅与房间表单会按分类分组展示房间；最多 20 个分类，顺序即展示顺序。</p>
     </div>
   );
 }

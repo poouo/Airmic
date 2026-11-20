@@ -5,7 +5,20 @@ import { Badge, Button, EmptyState, Select } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useAsyncData } from "./useAsyncData";
-import { actionLabel, ACTION_LABELS, AdminErrorPanel, AdminLoading, AdminPagination, SectionCard, TableShell, Td, Th } from "./shared";
+import {
+  actionLabel,
+  ACTION_LABELS,
+  AdminErrorPanel,
+  AdminLoading,
+  AdminPagination,
+  SectionCard,
+  TableShell,
+  TBody,
+  Td,
+  Th,
+  THead,
+  Tr,
+} from "./shared";
 
 const ACTION_OPTIONS = [{ value: "", label: "全部操作类型" }, ...Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }))];
 
@@ -42,7 +55,7 @@ export default function AuditTab() {
         title="审计日志"
         description={"共 " + (data?.total ?? 0) + " 条操作记录"}
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="w-40">
               <Select
                 label="操作类型"
@@ -62,47 +75,49 @@ export default function AuditTab() {
         bodyClassName="p-0"
       >
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={reload} />
           </div>
         ) : loading && !data ? (
           <AdminLoading text="正在加载审计日志…" />
         ) : rows.length === 0 ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <EmptyState icon={<FileClock className="h-5 w-5" />} title="暂无审计记录" description="管理员和版主的关键操作会自动记录" />
           </div>
         ) : (
           <>
             <TableShell>
-              <thead>
-                <tr>
-                  <Th>时间</Th>
-                  <Th>操作者</Th>
-                  <Th>操作</Th>
-                  <Th>目标</Th>
-                  <Th>IP</Th>
-                  <Th>详情</Th>
-                </tr>
-              </thead>
-              <tbody>
+              <THead>
+                <Th>时间</Th>
+                <Th>操作者</Th>
+                <Th>操作</Th>
+                <Th>目标</Th>
+                <Th>IP</Th>
+                <Th>详情</Th>
+              </THead>
+              <TBody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="transition-colors hover:bg-ink-750">
-                    <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(row.createdAt)}</Td>
-                    <Td className="whitespace-nowrap text-xs text-mist-200">{row.actorName}</Td>
-                    <Td><Badge tone="brand">{actionLabel(row.action)}</Badge></Td>
+                  <Tr key={row.id}>
+                    <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
+                    <Td className="whitespace-nowrap text-sm font-medium text-foreground">{row.actorName}</Td>
+                    <Td>
+                      <Badge tone="brand">{actionLabel(row.action)}</Badge>
+                    </Td>
                     <Td className="max-w-[12rem]">
-                      <p className="truncate text-xs" title={row.targetName ?? ""}>
-                        {row.targetType ? <span className="mr-1 text-[10px] text-mist-500">[{row.targetType}]</span> : null}
+                      <p className="truncate text-sm" title={row.targetName ?? ""}>
+                        {row.targetType ? <span className="mr-1 text-[11px] text-muted-foreground">[{row.targetType}]</span> : null}
                         {row.targetName ?? "-"}
                       </p>
                     </Td>
-                    <Td className="whitespace-nowrap font-mono text-[10px] text-mist-500">{row.ip ?? "-"}</Td>
+                    <Td className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">{row.ip ?? "-"}</Td>
                     <Td className="max-w-[18rem]">
-                      <p className="truncate text-[11px] text-mist-400" title={row.details ?? ""}>{detailsText(row.details)}</p>
+                      <p className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-muted-foreground" title={row.details ?? ""}>
+                        {detailsText(row.details)}
+                      </p>
                     </Td>
-                  </tr>
+                  </Tr>
                 ))}
-              </tbody>
+              </TBody>
             </TableShell>
             <AdminPagination
               page={page}

@@ -8,10 +8,10 @@ export interface QualityMeta {
 }
 
 const QUALITY_META: Record<VoiceQuality, QualityMeta> = {
-  good: { label: "连接良好", textClass: "text-good-400", dotClass: "bg-good-400", bars: 3 },
-  fair: { label: "连接一般", textClass: "text-warn-400", dotClass: "bg-warn-400", bars: 2 },
-  poor: { label: "连接较差", textClass: "text-bad-400", dotClass: "bg-bad-400", bars: 1 },
-  unknown: { label: "正在检测", textClass: "text-mist-500", dotClass: "bg-mist-500", bars: 0 },
+  good: { label: "连接良好", textClass: "text-success", dotClass: "bg-success", bars: 3 },
+  fair: { label: "连接一般", textClass: "text-warning", dotClass: "bg-warning", bars: 2 },
+  poor: { label: "连接较差", textClass: "text-destructive", dotClass: "bg-destructive", bars: 1 },
+  unknown: { label: "正在检测", textClass: "text-muted-foreground", dotClass: "bg-muted-foreground", bars: 0 },
 };
 
 export function qualityMeta(quality: VoiceQuality): QualityMeta {

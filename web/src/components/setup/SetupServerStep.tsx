@@ -42,7 +42,7 @@ export default function SetupServerStep({ form, update, disabled, requiresToken 
         onChange={(event) => update({ motd: event.target.value })}
       />
 
-      <div className="rounded-xl border border-white/10 bg-ink-900/40 p-3">
+      <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
         <Switch
           label="允许游客登录"
           description="开启后无需注册即可用游客身份进入服务器"
@@ -53,7 +53,7 @@ export default function SetupServerStep({ form, update, disabled, requiresToken 
       </div>
 
       {requiresToken && (
-        <div className="rounded-xl border border-warn-500/30 bg-warn-500/5 p-3">
+        <div className="rounded-xl border border-warning/30 bg-warning/10 p-3.5">
           <Input
             label="初始化口令"
             required

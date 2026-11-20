@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { RoomDetail, RoomSummary } from "@airmic/shared";
 import { DEFAULT_AUDIO_SETTINGS } from "@airmic/shared";
-import { ArrowRight, DoorOpen, Plus, RefreshCw, Users, WifiOff } from "lucide-react";
+import { ArrowRight, DoorOpen, Plus, RefreshCw, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Badge, Button, IconButton, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, IconButton, PageHeader, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -86,63 +86,66 @@ export default function LobbyPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 sm:p-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
       {connection !== "online" && (
-        <div className="flex items-center gap-2 rounded-xl border border-warn-500/30 bg-warn-500/10 px-3 py-2 text-xs text-warn-400">
-          <WifiOff className="h-4 w-4 shrink-0" />
+        <Alert tone="warning">
           {connection === "reconnecting" ? "实时连接已断开，正在自动重连…" : "实时连接未建立，房间列表可能不是最新状态"}
-        </div>
+        </Alert>
       )}
 
-      <section className="relative overflow-hidden rounded-3xl border border-white/5 bg-ink-850 p-5 sm:p-6">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-brand-500/10 blur-3xl" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs text-mist-500">欢迎回来，{user?.displayName ?? "朋友"}</p>
-            <h1 className="mt-1 truncate text-2xl font-bold text-mist-100 sm:text-3xl">{server?.name ?? "AirMic 语音服务器"}</h1>
-            <p className="mt-1.5 max-w-2xl whitespace-pre-line text-sm leading-relaxed text-mist-400">{server?.motd || "选择一个房间加入语音，或自己创建一个房间。"}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge tone="good">
-                <Users className="h-3 w-3" />
-                在线 {onlineUserCount}
-              </Badge>
-              <Badge tone="brand">
-                <DoorOpen className="h-3 w-3" />
-                房间 {rooms.length}
-              </Badge>
-              <Badge>{server?.registrationMode === "open" ? "开放注册" : server?.registrationMode === "invite" ? "邀请码注册" : "暂停注册"}</Badge>
-              {server && !server.allowScreenShare && <Badge tone="warn">屏幕共享已全局关闭</Badge>}
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-4">
+        <PageHeader
+          title={server?.name ?? "AirMic 语音服务器"}
+          description={
+            <>
+              <span className="block">欢迎回来，{user?.displayName ?? "朋友"}</span>
+              <span className="mt-1 block whitespace-pre-line">{server?.motd || "选择一个房间加入语音，或自己创建一个房间。"}</span>
+            </>
+          }
+          actions={
+            <>
               {currentRoom && (
-              <Button variant="secondary" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate("/room/" + currentRoom.id)}>
-                返回「{currentRoom.name}」
-              </Button>
-            )}
-            {allowCreate && (
-              <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormTarget({ kind: "create" })}>
-                创建房间
-              </Button>
-            )}
-          </div>
+                <Button variant="secondary" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate("/room/" + currentRoom.id)}>
+                  返回「{currentRoom.name}」
+                </Button>
+              )}
+              {allowCreate && (
+                <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormTarget({ kind: "create" })}>
+                  创建房间
+                </Button>
+              )}
+            </>
+          }
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="good" className="tabular">
+            <Users className="h-3 w-3" />
+            在线 {onlineUserCount}
+          </Badge>
+          <Badge className="tabular">
+            <DoorOpen className="h-3 w-3" />
+            房间 {rooms.length}
+          </Badge>
+          <Badge>{server?.registrationMode === "open" ? "开放注册" : server?.registrationMode === "invite" ? "邀请码注册" : "暂停注册"}</Badge>
+          {server && !server.allowScreenShare && <Badge tone="warn">屏幕共享已全局关闭</Badge>}
         </div>
-      </section>
+      </div>
 
       {currentRoom && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-400/25 bg-brand-500/10 px-3 py-2 text-xs text-brand-300">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground shadow-card">
           <span>你当前在「{currentRoom.name}」房间中，可随时返回继续语音。</span>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/room/" + currentRoom.id)}>
+          <Button variant="outline" size="sm" onClick={() => navigate("/room/" + currentRoom.id)}>
             返回房间
           </Button>
         </div>
       )}
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-mist-100">房间列表</h2>
-            <p className="text-xs text-mist-500">点击房间卡片即可加入语音，带锁图标的房间需要密码</p>
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">房间列表</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">点击房间卡片即可加入语音，带锁图标的房间需要密码</p>
           </div>
           <div className="flex items-center gap-2">
             {editLoading && <Spinner className="h-4 w-4" />}

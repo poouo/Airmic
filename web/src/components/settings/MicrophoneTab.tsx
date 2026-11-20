@@ -70,13 +70,15 @@ export function MicrophoneTab() {
       <section className="space-y-3">
         <SectionTitle
           action={
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-mr-1"
               onClick={() => void refresh()}
-              className="flex items-center gap-1 text-[11px] text-mist-400 transition-colors hover:text-mist-200"
+              icon={<RefreshCw className="h-3 w-3" />}
             >
-              <RefreshCw className="h-3 w-3" /> 刷新设备
-            </button>
+              刷新设备
+            </Button>
           }
         >
           输入设备
@@ -95,18 +97,19 @@ export function MicrophoneTab() {
 
       <section className="space-y-3">
         <SectionTitle>音频处理</SectionTitle>
-        <p className="-mt-1 text-[11px] text-mist-500">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           当前生效音质：{audioSummary(effective)}。修改会写入本机音质覆盖并立即重新应用。
         </p>
-        <div className="space-y-2.5">
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           {PROCESSING_OPTIONS.map((option) => (
-            <Switch
-              key={option.key}
-              checked={effective[option.key]}
-              onChange={(checked) => handleProcessing(option.key, checked)}
-              label={option.label}
-              description={option.description}
-            />
+            <div key={option.key} className="px-3.5 py-3">
+              <Switch
+                checked={effective[option.key]}
+                onChange={(checked) => handleProcessing(option.key, checked)}
+                label={option.label}
+                description={option.description}
+              />
+            </div>
           ))}
         </div>
       </section>
@@ -124,9 +127,9 @@ export function MicrophoneTab() {
           label="启用按键说话"
           description="按住绑定键时麦克风才会打开，松开即静音"
         />
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-ink-900/60 px-3 py-2.5 ring-1 ring-white/5">
-          <Keyboard className="h-4 w-4 text-mist-400" />
-          <span className="text-xs text-mist-400">当前按键</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+          <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">当前按键</span>
           <Kbd>{prettyKey(pttKey)}</Kbd>
           <Button
             size="sm"
@@ -153,7 +156,7 @@ export function MicrophoneTab() {
           onChange={(value) => useSettingsStore.getState().update({ vadThreshold: value })}
           formatValue={(value) => Math.round(value * 100) + "%"}
         />
-        <p className="text-[11px] text-mist-500">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           阈值越低越容易判定为"正在说话"。如果说话高亮不灵敏可以适当降低，环境噪音较多时请调高。
         </p>
       </section>
@@ -230,13 +233,22 @@ function MicTestPanel({ deviceId }: { deviceId: string | null }) {
   }, [active, deviceId]);
 
   return (
-    <div className="space-y-2 rounded-xl border border-white/10 bg-ink-900/60 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Mic className={cn("h-4 w-4", active ? "text-good-400" : "text-mist-400")} />
-          <div>
-            <p className="text-xs text-mist-200">麦克风测试</p>
-            <p className="text-[11px] text-mist-500">{active ? "正在采集，对着麦克风说话试试" : "开始测试后可实时查看输入电平"}</p>
+    <div className="space-y-2.5 rounded-xl border border-border bg-muted/30 p-3.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className={cn(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+              active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground",
+            )}
+          >
+            <Mic className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground">麦克风测试</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {active ? "正在采集，对着麦克风说话试试" : "开始测试后可实时查看输入电平"}
+            </p>
           </div>
         </div>
         <Button
@@ -251,7 +263,7 @@ function MicTestPanel({ deviceId }: { deviceId: string | null }) {
         </Button>
       </div>
       <LevelMeter level={level} active={active} barCount={24} className="h-3" />
-      {error && <p className="text-[11px] leading-relaxed text-bad-400">{error}</p>}
+      {error && <p className="text-xs leading-relaxed text-destructive">{error}</p>}
     </div>
   );
 }

@@ -58,7 +58,7 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
       size="sm"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
             取消
           </Button>
           <Button size="sm" loading={submitting} onClick={() => void handleJoin()}>
@@ -67,11 +67,11 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
         </>
       }
     >
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-ink-900/60 px-3 py-2.5 text-xs text-mist-400">
-          <Lock className="h-4 w-4 shrink-0 text-warn-400" />
+      <div className="space-y-4">
+        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           该房间已设置密码，请输入密码后加入。
-        </div>
+        </p>
         <Input
           label="房间密码"
           type={visible ? "text" : "password"}
@@ -84,7 +84,7 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
             <button
               type="button"
               onClick={() => setVisible((value) => !value)}
-              className="rounded-lg p-1.5 text-mist-400 transition-colors hover:bg-white/5 hover:text-mist-100"
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={visible ? "隐藏密码" : "显示密码"}
             >
               {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

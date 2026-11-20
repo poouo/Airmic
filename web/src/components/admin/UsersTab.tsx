@@ -17,8 +17,11 @@ import {
   RoleBadge,
   SectionCard,
   TableShell,
+  TBody,
   Td,
   Th,
+  THead,
+  Tr,
   userPageRows,
   type ManagedUser,
 } from "./shared";
@@ -68,7 +71,7 @@ export default function UsersTab() {
         }
         bodyClassName="p-0"
       >
-        <div className="flex flex-wrap items-end gap-2 border-b border-white/5 px-4 py-3">
+        <div className="flex flex-wrap items-end gap-2 border-b border-border px-4 py-3">
           <div className="min-w-[12rem] flex-1">
             <Input
               label="搜索用户"
@@ -99,61 +102,61 @@ export default function UsersTab() {
         </div>
 
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={reload} />
           </div>
         ) : loading && !data ? (
           <AdminLoading text="正在加载用户列表…" />
         ) : rows.length === 0 ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <EmptyState icon={<Search className="h-5 w-5" />} title="没有匹配的用户" description="尝试更换搜索关键字或角色筛选条件" />
           </div>
         ) : (
           <>
             <TableShell>
-              <thead>
-                <tr>
-                  <Th>用户</Th>
-                  <Th>角色</Th>
-                  <Th>状态</Th>
-                  <Th>所在房间</Th>
-                  <Th>最后活跃</Th>
-                  <Th className="text-right">操作</Th>
-                </tr>
-              </thead>
-              <tbody>
+              <THead>
+                <Th>用户</Th>
+                <Th>角色</Th>
+                <Th>状态</Th>
+                <Th>所在房间</Th>
+                <Th>最后活跃</Th>
+                <Th className="text-right">操作</Th>
+              </THead>
+              <TBody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="transition-colors hover:bg-ink-750">
+                  <Tr key={row.id}>
                     <Td>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         <Avatar name={row.displayName} color={row.avatarColor} emoji={row.avatarEmoji} size="xs" />
                         <div className="min-w-0">
-                          <p className="flex items-center gap-1 truncate text-xs font-medium text-mist-100">
+                          <p className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                             {row.displayName}
-                            {row.id === self?.id && <span className="text-[10px] text-mist-500">（你）</span>}
+                            {row.id === self?.id && <span className="text-[11px] font-normal text-muted-foreground">（你）</span>}
                             {row.isGuest && <Badge>游客</Badge>}
                           </p>
-                          <p className="truncate text-[10px] text-mist-500">@{row.username}</p>
+                          <p className="truncate text-xs text-muted-foreground">@{row.username}</p>
                         </div>
                       </div>
                     </Td>
-                    <Td><RoleBadge role={row.role} /></Td>
+                    <Td>
+                      <RoleBadge role={row.role} />
+                    </Td>
                     <Td>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <OnlineDot online={row.online} />
                         {row.isBanned && <Badge tone="bad">已封禁</Badge>}
                       </div>
                     </Td>
-                    <Td className="text-xs">{row.roomName ?? <span className="text-mist-500">大厅</span>}</Td>
-                    <Td className="text-[11px] text-mist-500">{row.lastSeenAt ? formatRelative(row.lastSeenAt) : "从未登录"}</Td>
+                    <Td className="text-sm">{row.roomName ?? <span className="text-muted-foreground">大厅</span>}</Td>
+                    <Td className="whitespace-nowrap text-xs text-muted-foreground">{row.lastSeenAt ? formatRelative(row.lastSeenAt) : "从未登录"}</Td>
                     <Td className="text-right">
                       <Button variant="outline" size="sm" icon={<UserCog className="h-3.5 w-3.5" />} onClick={() => setManaged(managedFromAdminUser(row))}>
                         管理
                       </Button>
                     </Td>
-                  </tr>
+                  </Tr>
                 ))}
-              </tbody>
+              </TBody>
             </TableShell>
             <AdminPagination
               page={page}

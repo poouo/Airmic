@@ -51,13 +51,15 @@ export function SpeakerTab() {
       <section className="space-y-3">
         <SectionTitle
           action={
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-mr-1"
               onClick={() => void refresh()}
-              className="flex items-center gap-1 text-[11px] text-mist-400 transition-colors hover:text-mist-200"
+              icon={<RefreshCw className="h-3 w-3" />}
             >
-              <RefreshCw className="h-3 w-3" /> 刷新设备
-            </button>
+              刷新设备
+            </Button>
           }
         >
           输出设备
@@ -80,19 +82,23 @@ export function SpeakerTab() {
 
       <section className="space-y-3">
         <SectionTitle>音量</SectionTitle>
-        <Slider
-          label="全体音量"
-          value={master}
-          min={0}
-          max={200}
-          step={5}
-          onChange={handleMasterVolume}
-          formatValue={(value) => value + "%"}
-        />
-        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-mist-500">
-          <Volume2 className="mt-0.5 h-3 w-3 shrink-0" />
-          全体音量会叠加在每个成员独立的本地音量之上；在房间成员卡片上可以为单个队友单独调节或本地静音。
-          {master === 0 && <span className="text-warn-400">（当前全体音量为 0，你将听不到任何声音）</span>}
+        <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+          <Slider
+            label="全体音量"
+            value={master}
+            min={0}
+            max={200}
+            step={5}
+            onChange={handleMasterVolume}
+            formatValue={(value) => value + "%"}
+          />
+        </div>
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+          <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            全体音量会叠加在每个成员独立的本地音量之上；在房间成员卡片上可以为单个队友单独调节或本地静音。
+            {master === 0 && <span className="text-warning">（当前全体音量为 0，你将听不到任何声音）</span>}
+          </span>
         </p>
       </section>
 
@@ -100,19 +106,19 @@ export function SpeakerTab() {
 
       <section className="space-y-3">
         <SectionTitle>测试</SectionTitle>
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-ink-900/60 px-3 py-3 ring-1 ring-white/5">
-          <div className="flex items-center gap-2">
-            <Headphones className="h-4 w-4 text-mist-400" />
-            <div>
-              <p className="text-xs text-mist-200">播放测试音</p>
-              <p className="text-[11px] text-mist-500">会通过当前选择的输出设备播放一声短促提示音</p>
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Headphones className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-foreground">播放测试音</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">会通过当前选择的输出设备播放一声短促提示音</p>
             </div>
           </div>
           <Button size="sm" variant="secondary" loading={testing} onClick={() => void playTest()} icon={<Play className="h-3.5 w-3.5" />}>
             播放
           </Button>
         </div>
-        <p className="text-[11px] text-mist-500">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           如果听不到声音：请检查系统音量、浏览器标签页是否静音，以及是否开启了"耳聋"（耳聋会静音所有成员声音）。
         </p>
       </section>

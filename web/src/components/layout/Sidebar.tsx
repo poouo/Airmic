@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
 import { DEFAULT_AUDIO_SETTINGS } from "@airmic/shared";
 import { useNavigate } from "react-router-dom";
@@ -13,6 +12,7 @@ import { canCreateRoom } from "@/components/lobby/access";
 import OnlineUsersList from "./OnlineUsersList";
 import RoomNavList from "./RoomNavList";
 import SidebarUserCard from "./SidebarUserCard";
+import { useState } from "react";
 
 export interface SidebarProps {
   onNavigate?: () => void;
@@ -60,7 +60,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
   const categories = server?.roomCategories ?? [];
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col bg-ink-900/30">
+    <div className="flex h-full w-full min-h-0 flex-col">
       <RoomNavList currentRoomId={currentRoomId} canCreateRooms={allowCreate} onSelect={handleSelect} onCreate={() => setCreating(true)} />
       <OnlineUsersList />
       <SidebarUserCard />

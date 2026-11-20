@@ -26,3 +26,8 @@ e2e/artifacts/
 
 # 本地数据库备份（scripts/backup.mjs）
 backups/
+
+# local forensics/test artifacts
+.dsh-recovery/
+.dsh-acl-recovery/
+.dsh-tests/

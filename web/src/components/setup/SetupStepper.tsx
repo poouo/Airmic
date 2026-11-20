@@ -9,12 +9,12 @@ export interface SetupStepperProps {
 
 export default function SetupStepper({ current, onSelect }: SetupStepperProps) {
   return (
-    <ol className="flex items-center gap-1.5 overflow-x-auto app-scroll pb-1 sm:gap-3" aria-label="初始化步骤">
+    <ol className="flex items-center gap-1 overflow-x-auto app-scroll pb-1 sm:gap-2.5" aria-label="初始化步骤">
       {SETUP_STEPS.map((step, index) => {
         const done = index < current;
         const active = index === current;
         return (
-          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
+          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2.5">
             <button
               type="button"
               onClick={() => {
@@ -23,29 +23,29 @@ export default function SetupStepper({ current, onSelect }: SetupStepperProps) {
               disabled={index >= current}
               aria-current={active ? "step" : undefined}
               className={cn(
-                "flex min-w-0 items-center gap-2 rounded-xl px-1 py-1 text-left outline-none transition-colors",
-                index < current ? "cursor-pointer hover:bg-white/5" : "cursor-default",
-                "focus-visible:ring-2 focus-visible:ring-brand-400",
+                "flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-left outline-none transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-ring",
+                done ? "cursor-pointer hover:bg-accent" : "cursor-default",
               )}
             >
               <span
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ring-1 transition-colors",
-                  done && "bg-good-500/15 text-good-400 ring-good-500/30",
-                  active && "bg-brand-500 text-white ring-brand-400/60",
-                  !done && !active && "bg-ink-800 text-mist-500 ring-white/10",
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors",
+                  done && "bg-primary text-primary-foreground",
+                  active && "border border-foreground/40 bg-card text-foreground shadow-card",
+                  !done && !active && "border border-border bg-muted text-muted-foreground",
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
               </span>
               <span className="min-w-0">
-                <span className={cn("block truncate text-xs font-medium", active ? "text-mist-100" : done ? "text-mist-300" : "text-mist-500")}>
+                <span className={cn("block truncate text-xs font-medium", active ? "text-foreground" : done ? "text-foreground/80" : "text-muted-foreground")}>
                   {step.title}
                 </span>
-                <span className="hidden truncate text-[10px] text-mist-500 sm:block">{step.description}</span>
+                <span className="hidden truncate text-[10px] text-muted-foreground sm:block">{step.description}</span>
               </span>
             </button>
-            {index < SETUP_STEPS.length - 1 && <span className={cn("h-px min-w-3 flex-1", index < current ? "bg-good-500/40" : "bg-ink-600/70")} />}
+            {index < SETUP_STEPS.length - 1 && <span className={cn("h-px min-w-3 flex-1", done ? "bg-foreground/25" : "bg-border")} />}
           </li>
         );
       })}

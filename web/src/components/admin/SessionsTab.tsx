@@ -5,7 +5,7 @@ import { EmptyState, Button, Input } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { useAsyncData } from "./useAsyncData";
-import { AdminErrorPanel, AdminLoading, RoleBadge, SectionCard, TableShell, Td, Th } from "./shared";
+import { AdminErrorPanel, AdminLoading, RoleBadge, SectionCard, TableShell, TBody, Td, Th, THead, Tr } from "./shared";
 
 function shortenUserAgent(ua: string | null): string {
   if (!ua) return "-";
@@ -33,7 +33,7 @@ export default function SessionsTab() {
         title="登录会话"
         description={"共 " + (data?.sessions.length ?? 0) + " 个有效会话 · 仅显示未过期且未注销的登录"}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="w-52">
               <Input
                 label="搜索"
@@ -51,46 +51,48 @@ export default function SessionsTab() {
         bodyClassName="p-0"
       >
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={reload} />
           </div>
         ) : loading && !data ? (
           <AdminLoading text="正在加载登录会话…" />
         ) : rows.length === 0 ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <EmptyState icon={<KeyRound className="h-5 w-5" />} title="没有匹配的登录会话" description="用户登录后会在这里显示，可用于排查异常登录" />
           </div>
         ) : (
           <TableShell>
-            <thead>
-              <tr>
-                <Th>用户</Th>
-                <Th>角色</Th>
-                <Th>IP</Th>
-                <Th>客户端</Th>
-                <Th>登录时间</Th>
-                <Th>最后活跃</Th>
-                <Th>过期时间</Th>
-              </tr>
-            </thead>
-            <tbody>
+            <THead>
+              <Th>用户</Th>
+              <Th>角色</Th>
+              <Th>IP</Th>
+              <Th>客户端</Th>
+              <Th>登录时间</Th>
+              <Th>最后活跃</Th>
+              <Th>过期时间</Th>
+            </THead>
+            <TBody>
               {rows.map((session) => (
-                <tr key={session.id} className="transition-colors hover:bg-ink-750">
+                <Tr key={session.id}>
                   <Td>
-                    <p className="text-xs font-medium text-mist-100">{session.displayName}</p>
-                    <p className="text-[10px] text-mist-500">@{session.username}</p>
+                    <p className="text-sm font-medium text-foreground">{session.displayName}</p>
+                    <p className="text-xs text-muted-foreground">@{session.username}</p>
                   </Td>
-                  <Td><RoleBadge role={session.role} /></Td>
-                  <Td className="whitespace-nowrap font-mono text-[11px] text-mist-300">{session.ip ?? "-"}</Td>
+                  <Td>
+                    <RoleBadge role={session.role} />
+                  </Td>
+                  <Td className="whitespace-nowrap font-mono text-xs text-muted-foreground">{session.ip ?? "-"}</Td>
                   <Td className="max-w-[16rem]">
-                    <p className="truncate text-[11px] text-mist-400" title={session.userAgent ?? ""}>{shortenUserAgent(session.userAgent)}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={session.userAgent ?? ""}>
+                      {shortenUserAgent(session.userAgent)}
+                    </p>
                   </Td>
-                  <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(session.createdAt)}</Td>
-                  <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatRelative(session.lastSeenAt)}</Td>
-                  <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(session.expiresAt)}</Td>
-                </tr>
+                  <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(session.createdAt)}</Td>
+                  <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatRelative(session.lastSeenAt)}</Td>
+                  <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(session.expiresAt)}</Td>
+                </Tr>
               ))}
-            </tbody>
+            </TBody>
           </TableShell>
         )}
       </SectionCard>

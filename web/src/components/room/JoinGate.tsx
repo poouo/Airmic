@@ -29,15 +29,15 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
 
   return (
     <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto p-4 app-scroll">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-850 p-6 shadow-xl shadow-black/15">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
         {joining ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-ink-800 ring-1 ring-white/10">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
               <Spinner className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-mist-100">正在加入 {roomName ? "「" + roomName + "」" : "房间"}…</p>
-              <p className="mt-1 text-xs text-mist-500">正在建立实时连接并同步房间成员</p>
+              <p className="text-sm font-medium text-foreground">正在加入 {roomName ? "「" + roomName + "」" : "房间"}…</p>
+              <p className="mt-1 text-xs text-muted-foreground">正在建立实时连接并同步房间成员</p>
             </div>
           </div>
         ) : needsPassword && error ? (
@@ -49,12 +49,12 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
             }}
           >
             <div className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300 ring-1 ring-brand-400/30">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand">
                 <KeyRound className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-mist-100">该房间需要密码</p>
-                <p className="mt-1 text-xs text-mist-500">
+                <p className="text-sm font-medium text-foreground">该房间需要密码</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {roomName ? "「" + roomName + "」" : "房间"}已设置访问密码，请输入后加入
                 </p>
               </div>
@@ -87,12 +87,12 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
         ) : (
           <div className="space-y-4">
             <div className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-bad-500/15 text-bad-400 ring-1 ring-bad-500/30">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
                 <WifiOff className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-mist-100">无法加入房间</p>
-                <p className="mt-1 text-xs leading-relaxed text-mist-400">
+                <p className="text-sm font-medium text-foreground">无法加入房间</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   {error?.message ?? "实时连接尚未建立，请稍后重试或返回大厅。"}
                 </p>
               </div>
@@ -122,7 +122,7 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
 function FailedHint({ connection }: { connection: SocketStatus }) {
   if (connection === "online") return null;
   return (
-    <p className="rounded-xl bg-warn-500/10 px-3 py-2 text-[11px] text-warn-400 ring-1 ring-warn-500/20">
+    <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
       实时连接状态：{connection === "reconnecting" ? "正在重新连接服务器" : connection === "connecting" ? "正在连接服务器" : "已断开"}
       ，连接恢复后即可重试。
     </p>

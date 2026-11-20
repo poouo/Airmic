@@ -44,6 +44,8 @@ const EXCLUDE_TOP = new Set([
   "backups",
   "certs",
   ".staging",
+  ".dsh-acl-recovery",
+  ".dsh-tests",
   "dist-release",
   "e2e",
 ]);
@@ -106,6 +108,7 @@ function copyProjectTree(sourceDir, destDir) {
       const rel = path.relative(sourceDir, source);
       if (!rel) return true;
       const parts = rel.split(path.sep);
+      if (/^\.env(?:\.|$)/.test(parts[0]) && parts[0] !== ".env.example") return false;
       if (parts.length === 1) return !EXCLUDE_TOP.has(parts[0]);
       return !EXCLUDE_REL.has(rel);
     },
@@ -186,6 +189,7 @@ function writeBundlePayload(stageDir, bundleDir, version) {
   const nodeModules = path.join(stageDir, "node_modules");
   if (!exists(nodeModules)) fail("缺少 node_modules（npm prune 是否失败？）");
   fs.cpSync(nodeModules, path.join(bundleDir, "node_modules"), { recursive: true, force: true });
+  removeDir(path.join(bundleDir, "node_modules", ".bin"));
 
   // @airmic/shared 必须为真实目录，避免 workspace 链接在跨机器/移动后失效
   const scopeDir = path.join(bundleDir, "node_modules", "@airmic");
@@ -348,7 +352,7 @@ async function main() {
   if (!exists(path.join(ROOT, "package.json"))) fail("未找到项目根目录：" + ROOT);
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   const version = String(pkg.version || "").trim();
-  if (!/^\d+\.\d+\.\d+/.test(version)) fail("package.json 版本号无效：" + version);
+  if (!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)) fail("package.json 版本号无效：" + version);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   const nodeMinor = Number(process.versions.node.split(".")[1]);
   if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 13)) {

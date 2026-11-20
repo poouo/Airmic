@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, MessageSquare, Send, X } from "lucide-react";
 import type { ChatMessage, PeerInfo } from "@airmic/shared";
-import { Avatar, Badge } from "@/components/ui";
-import { cn, colorWithAlpha, formatClock, initials } from "@/lib/format";
+import { Avatar, Badge, Button, IconButton } from "@/components/ui";
+import { cn, formatClock } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useRoomStore } from "@/stores/room";
@@ -96,22 +96,19 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
   };
 
   return (
-    <section className={cn("flex h-full min-h-0 flex-col bg-ink-900/80", className)}>
-      <header className="flex shrink-0 items-center justify-between border-b border-white/5 px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-mist-400" />
-          <h2 className="text-sm font-medium text-mist-100">房间聊天</h2>
-          <span className="text-[11px] text-mist-500">{messages.length > 99 ? "99+" : messages.length}</span>
+    <section className={cn("flex h-full min-h-0 flex-col bg-card", className)}>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <h2 className="truncate text-sm font-semibold tracking-tight text-foreground">房间聊天</h2>
+          <span className="tabular rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {messages.length > 99 ? "99+" : messages.length}
+          </span>
         </div>
         {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="收起聊天"
-            className="rounded-lg p-1 text-mist-500 transition-colors hover:bg-white/5 hover:text-mist-200"
-          >
+          <IconButton label="收起聊天" size="sm" onClick={onClose} className="-mr-1">
             <X className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
       </header>
 
@@ -126,9 +123,11 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
           className="absolute inset-0 space-y-3 overflow-y-auto px-3 py-3 app-scroll"
         >
           {timeline.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-              <MessageSquare className="h-6 w-6 text-mist-500" />
-              <p className="text-xs text-mist-500">还没有消息，和队友打个招呼吧</p>
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <MessageSquare className="h-5 w-5" />
+              </span>
+              <p className="text-xs text-muted-foreground">还没有消息，和队友打个招呼吧</p>
             </div>
           )}
           {timeline.map((item) =>
@@ -148,20 +147,20 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg shadow-black/20"
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground shadow-card transition-colors hover:bg-primary/90"
           >
             <ArrowDown className="h-3 w-3" /> 新消息
           </button>
         )}
       </div>
 
-      <div className="shrink-0 border-t border-white/5 p-2.5">
+      <div className="shrink-0 border-t border-border p-2.5">
         {chatDisabled ? (
-          <p className="rounded-xl bg-white/5 px-3 py-2.5 text-center text-[11px] text-mist-500">
+          <p className="rounded-field bg-muted px-3 py-2.5 text-center text-[11px] text-muted-foreground">
             {server && !server.allowTextChat ? "服务器已关闭文字聊天" : "当前无法发送消息"}
           </p>
         ) : (
-          <div className="rounded-xl border border-white/10 bg-ink-900/80 focus-within:border-brand-500/50 focus-within:ring-2 focus-within:ring-brand-500/15">
+          <div className="rounded-field border border-input bg-card transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -174,21 +173,21 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
               maxLength={maxLength}
               rows={1}
               placeholder="发送消息…（Enter 发送，Shift+Enter 换行）"
-              className="max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-mist-100 outline-none placeholder:text-mist-500"
+              className="max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
             />
-            <div className="flex items-center justify-between px-2 pb-1.5">
-              <span className={cn("text-[10px]", draft.length > maxLength * 0.9 ? "text-warn-400" : "text-mist-500")}>
+            <div className="flex items-center justify-between gap-2 px-2 pb-1.5">
+              <span className={cn("tabular text-[10px]", draft.length > maxLength * 0.9 ? "text-warning" : "text-muted-foreground")}>
                 {draft.length > 0 ? draft.length + "/" + maxLength : ""}
               </span>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={submit}
                 disabled={!draft.trim()}
                 aria-label="发送消息"
-                className="inline-flex h-7 items-center gap-1 rounded-lg bg-brand-600 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+                icon={<Send className="h-3.5 w-3.5" />}
               >
-                <Send className="h-3 w-3" /> 发送
-              </button>
+                发送
+              </Button>
             </div>
           </div>
         )}
@@ -204,29 +203,18 @@ function MessageRow({ message, isOwn, peer }: { message: ChatMessage; isOwn: boo
   return (
     <div className={cn("flex gap-2", isOwn && "flex-row-reverse")}>
       <div className="pt-0.5">
-        {isOwn ? (
-          <Avatar name={message.senderName} color={color} size="sm" />
-        ) : (
-          <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-xs font-semibold text-white"
-            style={{
-              background: "linear-gradient(145deg, " + colorWithAlpha(color ?? "#6366f1", 0.95) + ", " + colorWithAlpha(color ?? "#6366f1", 0.55) + ")",
-            }}
-          >
-            {emoji ? <span>{emoji}</span> : <span>{initials(message.senderName)}</span>}
-          </div>
-        )}
+        <Avatar name={message.senderName} color={color} emoji={isOwn ? undefined : emoji} size="sm" />
       </div>
       <div className={cn("flex min-w-0 max-w-[82%] flex-col gap-1", isOwn && "items-end")}>
-        <div className={cn("flex items-center gap-1.5 text-[11px] text-mist-500", isOwn && "flex-row-reverse")}>
-          <span className="truncate font-medium text-mist-300">{message.senderName}</span>
+        <div className={cn("flex items-center gap-1.5 text-[11px] text-muted-foreground", isOwn && "flex-row-reverse")}>
+          <span className="truncate font-medium text-foreground/80">{message.senderName}</span>
           {role && showRoleBadge(role) && <Badge tone={ROLE_TONE[role]}>{ROLE_LABEL[role]}</Badge>}
-          <span className="font-mono text-[10px]">{formatClock(message.createdAt)}</span>
+          <span className="tabular shrink-0 font-mono text-[10px]">{formatClock(message.createdAt)}</span>
         </div>
         <div
           className={cn(
-            "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
-            isOwn ? "rounded-tr-sm bg-brand-500/25 text-mist-100" : "rounded-tl-sm bg-ink-800/90 text-mist-200 ring-1 ring-white/5",
+            "whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm leading-relaxed text-foreground",
+            isOwn ? "rounded-tr-sm" : "rounded-tl-sm",
           )}
         >
           {message.content}
@@ -242,7 +230,7 @@ function NoticeRow({ text, level }: { text: string; level: "info" | "warn" | "er
       <span
         className={cn(
           "max-w-full rounded-full px-2.5 py-1 text-center text-[11px]",
-          level === "error" ? "bg-bad-500/10 text-bad-400" : level === "warn" ? "bg-warn-500/10 text-warn-400" : "bg-white/5 text-mist-400",
+          level === "error" ? "bg-destructive/10 text-destructive" : level === "warn" ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground",
         )}
       >
         {text}

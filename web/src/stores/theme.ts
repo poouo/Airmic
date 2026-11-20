@@ -19,7 +19,7 @@ export function applyTheme(theme: Theme): void {
   root.dataset.theme = theme;
   root.style.colorScheme = theme;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", theme === "light" ? "#eef2f8" : "#0a0e17");
+  if (meta) meta.setAttribute("content", theme === "light" ? "#f7f8f9" : "#191a1c");
 }
 
 /** 在 React 渲染前调用，避免主题闪烁；默认白天模式 */

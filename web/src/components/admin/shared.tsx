@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { AdminUserRow, BanRow, OnlineUser, Role } from "@airmic/shared";
 import { ROLE_LABELS } from "@airmic/shared";
-import { AlertTriangle, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
-import { Badge, Button, Select, Spinner } from "@/components/ui";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Alert, Badge, Button, Card, CardHeader, Select, Skeleton, Spinner } from "@/components/ui";
 import { cn, formatDateTime } from "@/lib/format";
 
 // ============ 布局 ============
@@ -22,107 +22,90 @@ export function SectionCard({
   className?: string;
   bodyClassName?: string;
 }) {
+  const hasHeader = Boolean(title || description || action);
   return (
-    <section className={cn("overflow-hidden rounded-2xl border border-white/5 bg-ink-850", className)}>
-      {(title || action) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-3">
-          <div className="min-w-0">
-            {title && <h2 className="text-sm font-semibold text-mist-100">{title}</h2>}
-            {description && <p className="mt-0.5 text-xs text-mist-500">{description}</p>}
-          </div>
-          {action}
-        </div>
-      )}
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
-    </section>
-  );
-}
-
-const STAT_TONES: Record<string, string> = {
-  brand: "bg-brand-500/10 text-brand-300",
-  aqua: "bg-aqua-500/10 text-aqua-400",
-  good: "bg-good-500/10 text-good-400",
-  warn: "bg-warn-500/10 text-warn-400",
-  bad: "bg-bad-500/10 text-bad-400",
-  neutral: "bg-white/5 text-mist-300",
-};
-
-export function StatCard({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone = "brand",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: ReactNode;
-  hint?: ReactNode;
-  tone?: keyof typeof STAT_TONES;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/5 bg-ink-850 p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-mist-500">{label}</span>
-        <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", STAT_TONES[tone])}>
-          <Icon className="h-3.5 w-3.5" />
-        </span>
-      </div>
-      <p className="mt-1.5 text-xl font-semibold text-mist-100">{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-mist-500">{hint}</p>}
-    </div>
-  );
-}
-
-export function PageHeading({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return (
-    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-lg font-semibold text-mist-100">{title}</h1>
-        {description && <p className="mt-0.5 text-xs text-mist-500">{description}</p>}
-      </div>
-      {action && <div className="flex flex-wrap items-center gap-2">{action}</div>}
-    </div>
+    <Card className={cn("overflow-hidden", className)}>
+      {hasHeader && <CardHeader title={title ?? ""} description={description} action={action} />}
+      <div className={bodyClassName ?? "px-5 py-4"}>{children}</div>
+    </Card>
   );
 }
 
 export function AdminLoading({ text = "加载中…" }: { text?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-10 text-xs text-mist-500">
-      <Spinner className="h-4 w-4" />
-      {text}
+    <div className="space-y-3 px-5 py-5" aria-busy="true">
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Spinner className="h-3.5 w-3.5" />
+        {text}
+      </p>
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-2/3" />
+      </div>
     </div>
   );
 }
 
 export function AdminErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-bad-500/30 bg-bad-500/10 px-4 py-8 text-center">
-      <AlertTriangle className="h-6 w-6 text-bad-400" />
-      <p className="text-xs text-bad-400">{message}</p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        重试
-      </Button>
-    </div>
+    <Alert tone="error">
+      <div className="flex flex-wrap items-center gap-3">
+        <span>{message}</span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          重试
+        </Button>
+      </div>
+    </Alert>
   );
 }
 
-// ============ 表格 ============
+// ============ 表格（规范第 4 节） ============
 
 export function TableShell({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full min-w-[680px] border-collapse text-left text-xs">{children}</table>
+      <table className="w-full min-w-[760px] border-collapse text-sm">{children}</table>
     </div>
   );
 }
 
+export function THead({ children }: { children: ReactNode }) {
+  return (
+    <thead>
+      <tr className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">{children}</tr>
+    </thead>
+  );
+}
+
+export function TBody({ children }: { children: ReactNode }) {
+  return <tbody className="divide-y divide-border">{children}</tbody>;
+}
+
+export function Tr({
+  children,
+  className,
+  onClick,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <tr onClick={onClick} title={title} className={cn("transition-colors hover:bg-muted/40", className)}>
+      {children}
+    </tr>
+  );
+}
+
 export function Th({ children, className }: { children?: ReactNode; className?: string }) {
-  return <th className={cn("whitespace-nowrap border-b border-white/5 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-mist-500", className)}>{children}</th>;
+  return <th className={cn("whitespace-nowrap px-4 py-2.5 text-left font-medium", className)}>{children}</th>;
 }
 
 export function Td({ children, className }: { children?: ReactNode; className?: string }) {
-  return <td className={cn("border-b border-white/5 px-3 py-2.5 align-middle text-mist-300", className)}>{children}</td>;
+  return <td className={cn("px-4 py-3 align-middle text-foreground/90", className)}>{children}</td>;
 }
 
 export function AdminPagination({
@@ -142,11 +125,11 @@ export function AdminPagination({
 }) {
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-3 py-2.5 text-[11px] text-mist-400">
-      <span>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+      <span className="tabular">
         共 {total} 条 · 第 {Math.min(page, totalPages)}/{totalPages} 页
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         {onPageSize && (
           <div className="w-36">
             <Select
@@ -185,9 +168,9 @@ export function RoleBadge({ role }: { role: Role }) {
 
 export function OnlineDot({ online }: { online: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[11px]">
-      <span className={cn("h-1.5 w-1.5 rounded-full", online ? "bg-good-400" : "bg-mist-500/50")} />
-      <span className={online ? "text-good-400" : "text-mist-500"}>{online ? "在线" : "离线"}</span>
+    <span className="inline-flex items-center gap-1.5 text-[11px]">
+      <span className={cn("h-1.5 w-1.5 rounded-full", online ? "bg-success" : "bg-muted-foreground/40")} />
+      <span className={online ? "text-success" : "text-muted-foreground"}>{online ? "在线" : "离线"}</span>
     </span>
   );
 }

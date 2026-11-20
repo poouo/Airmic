@@ -28,56 +28,57 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
         }
       }}
       className={cn(
-        "group flex flex-col rounded-2xl border bg-ink-850 p-4 text-left outline-none transition-all",
-        "focus-visible:ring-2 focus-visible:ring-brand-400",
-        isCurrent ? "border-brand-400/50 bg-brand-500/10" : "border-white/5 hover:border-brand-400/30 hover:bg-ink-800/80",
+        "group flex flex-col rounded-2xl border bg-card p-5 text-left shadow-card outline-none transition-[border-color,box-shadow]",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        isCurrent ? "border-primary/40" : "border-border hover:border-muted-foreground/40",
         disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="flex items-center gap-1.5 truncate text-sm font-semibold text-mist-100">
+          <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
             <span className="truncate">{room.name}</span>
-            {room.hasPassword && <Lock className="h-3.5 w-3.5 shrink-0 text-warn-400" aria-label="房间有密码" />}
-            {room.locked && <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-mist-400" aria-label="房间已锁定" />}
+            {room.hasPassword && <Lock className="h-3.5 w-3.5 shrink-0 text-warning" aria-label="房间有密码" />}
+            {room.locked && <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="房间已锁定" />}
             {isCurrent && <Badge tone="brand">当前</Badge>}
+            {room.locked && <Badge tone="warn">已锁定</Badge>}
           </h3>
-          <p className="mt-1 line-clamp-2 min-h-[2rem] text-xs leading-relaxed text-mist-500">{room.description || "暂无房间简介"}</p>
+          <p className="mt-1.5 line-clamp-2 min-h-[2rem] text-xs leading-relaxed text-muted-foreground">{room.description || "暂无房间简介"}</p>
         </div>
-        <span className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-[10px] text-mist-400">{room.category}</span>
+        <Badge className="shrink-0">{room.category}</Badge>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-mist-400">
-        <span className={cn("inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5", full ? "bg-bad-500/10 text-bad-400" : "bg-white/5")}>
-          <Users className="h-3 w-3" />
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+        <span className={cn("tabular inline-flex items-center gap-1", full && "font-medium text-destructive")}>
+          <Users className="h-3.5 w-3.5" />
           {room.userCount}/{room.maxUsers > 0 ? room.maxUsers : "∞"}
         </span>
-        {room.locked && <Badge tone="warn">已锁定</Badge>}
         {room.screenShareEnabled && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-white/5 px-1.5 py-0.5">
-            <MonitorUp className="h-3 w-3" />
+          <span className="inline-flex items-center gap-1">
+            <MonitorUp className="h-3.5 w-3.5" />
             共享
           </span>
         )}
         {room.hasPassword && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-white/5 px-1.5 py-0.5">
-            <KeyRound className="h-3 w-3" />
+          <span className="inline-flex items-center gap-1">
+            <KeyRound className="h-3.5 w-3.5" />
             密码
           </span>
         )}
         {room.description && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-white/5 px-1.5 py-0.5">
-            <MessageSquare className="h-3 w-3" />
+          <span className="inline-flex items-center gap-1">
+            <MessageSquare className="h-3.5 w-3.5" />
             聊天
           </span>
         )}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 pt-1">
+      <div className="mt-auto flex items-center gap-2 pt-4">
         <Button
-          size="sm"
+          size="md"
           variant={isCurrent ? "secondary" : "primary"}
           disabled={disabled}
+          className="flex-1"
           onClick={(event) => {
             event.stopPropagation();
             onJoin(room);
@@ -88,15 +89,14 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
         {canEdit && (
           <IconButton
             label="编辑房间"
-            size="sm"
+            size="md"
             variant="solid"
-            className="ml-auto"
             onClick={(event) => {
               event.stopPropagation();
               onEdit(room);
             }}
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="h-4 w-4" />
           </IconButton>
         )}
       </div>

@@ -15,7 +15,7 @@ export default function ThemeToggle({ className }: { className?: string }) {
       onClick={toggleTheme}
       data-testid="theme-toggle"
     >
-      {dark ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </IconButton>
   );
 }

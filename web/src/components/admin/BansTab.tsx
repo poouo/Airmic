@@ -16,8 +16,11 @@ import {
   banTarget,
   SectionCard,
   TableShell,
+  TBody,
   Td,
   Th,
+  THead,
+  Tr,
 } from "./shared";
 
 type Filter = "active" | "all";
@@ -58,7 +61,7 @@ export default function BansTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <Tabs
           items={[
             { id: "active", label: "生效中", icon: ShieldCheck },
@@ -83,58 +86,64 @@ export default function BansTab() {
 
       <SectionCard title="封禁列表" description={"共 " + (data?.total ?? 0) + " 条记录"} bodyClassName="p-0">
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={reload} />
           </div>
         ) : loading && !data ? (
           <AdminLoading text="正在加载封禁列表…" />
         ) : rows.length === 0 ? (
-          <div className="p-4">
-            <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title={filter === "active" ? "当前没有生效中的封禁" : "暂无封禁记录"} description="封禁账号或 IP 后可在这里管理" />
+          <div className="px-5 py-5">
+            <EmptyState
+              icon={<ShieldCheck className="h-5 w-5" />}
+              title={filter === "active" ? "当前没有生效中的封禁" : "暂无封禁记录"}
+              description="封禁账号或 IP 后可在这里管理"
+            />
           </div>
         ) : (
           <>
             <TableShell>
-              <thead>
-                <tr>
-                  <Th>封禁对象</Th>
-                  <Th>类型</Th>
-                  <Th>原因</Th>
-                  <Th>状态</Th>
-                  <Th>创建时间</Th>
-                  <Th>操作者</Th>
-                  <Th className="text-right">操作</Th>
-                </tr>
-              </thead>
-              <tbody>
+              <THead>
+                <Th>封禁对象</Th>
+                <Th>类型</Th>
+                <Th>原因</Th>
+                <Th>状态</Th>
+                <Th>创建时间</Th>
+                <Th>操作者</Th>
+                <Th className="text-right">操作</Th>
+              </THead>
+              <TBody>
                 {rows.map((ban) => {
                   const status = banStatus(ban);
                   return (
-                    <tr key={ban.id} className="transition-colors hover:bg-ink-750">
+                    <Tr key={ban.id}>
                       <Td>
-                        <p className="text-xs font-medium text-mist-100">{banTarget(ban)}</p>
-                        {ban.username && ban.ip && <p className="font-mono text-[10px] text-mist-500">{ban.ip}</p>}
+                        <p className="text-sm font-medium text-foreground">{banTarget(ban)}</p>
+                        {ban.username && ban.ip && <p className="font-mono text-[11px] text-muted-foreground">{ban.ip}</p>}
                       </Td>
                       <Td>{ban.userId !== null ? <Badge tone="brand">账号</Badge> : <Badge tone="warn">IP</Badge>}</Td>
                       <Td className="max-w-[14rem]">
-                        <p className="truncate text-xs" title={ban.reason}>{ban.reason}</p>
+                        <p className="truncate text-sm" title={ban.reason}>
+                          {ban.reason}
+                        </p>
                       </Td>
-                      <Td><Badge tone={status.tone}>{status.label}</Badge></Td>
-                      <Td className="text-[11px] text-mist-500">{formatDateTime(ban.createdAt)}</Td>
-                      <Td className="text-[11px] text-mist-500">{ban.bannedByName ?? "-"}</Td>
+                      <Td>
+                        <Badge tone={status.tone}>{status.label}</Badge>
+                      </Td>
+                      <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(ban.createdAt)}</Td>
+                      <Td className="whitespace-nowrap text-xs text-muted-foreground">{ban.bannedByName ?? "-"}</Td>
                       <Td className="text-right">
                         {ban.active ? (
                           <Button variant="outline" size="sm" loading={busyId === ban.id} onClick={() => void handleUnban(ban.id, banTarget(ban))}>
                             解除封禁
                           </Button>
                         ) : (
-                          <span className="text-[11px] text-mist-500">已解除</span>
+                          <span className="text-xs text-muted-foreground">已解除</span>
                         )}
                       </Td>
-                    </tr>
+                    </Tr>
                   );
                 })}
-              </tbody>
+              </TBody>
             </TableShell>
             <AdminPagination
               page={page}

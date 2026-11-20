@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useState } from "react";
 import type { AdminLogListResponse, AdminLogQuery, AdminLogRow, LogCategory, LogLevel } from "@airmic/shared";
-import { Copy, Download, Info, RefreshCw, Search, ScrollText } from "lucide-react";
-import { Badge, Button, EmptyState, Input, Select, Switch } from "@/components/ui";
+import { Copy, Download, RefreshCw, Search, ScrollText } from "lucide-react";
+import { Alert, Badge, Button, EmptyState, Input, Select, Switch } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useUiStore } from "@/stores/ui";
 import { useAsyncData } from "./useAsyncData";
-import { AdminErrorPanel, AdminLoading, SectionCard, TableShell, Td, Th } from "./shared";
+import { AdminErrorPanel, AdminLoading, SectionCard, TableShell, TBody, Td, Th, THead, Tr } from "./shared";
 
 const LEVELS: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
 const CATEGORIES: LogCategory[] = ["http", "ws", "auth", "admin", "system", "room", "voice", "error", "security"];
@@ -193,17 +193,11 @@ export default function LogsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-white/5 bg-ink-850 px-4 py-3">
-        <div className="flex items-start gap-2 text-xs leading-relaxed text-mist-400">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-300" />
-          <div>
-            <p>运行日志仅保留最近 {retentionDays} 天，超期自动清理；敏感信息不记录请求体/密码。</p>
-            <p className="mt-1 text-[11px] text-mist-500">
-              最早记录：{formatDateTime(data?.oldest)} · 最新记录：{formatDateTime(data?.newest)}
-            </p>
-          </div>
-        </div>
-      </div>
+      <Alert tone="info" title={"运行日志仅保留最近 " + retentionDays + " 天，超期自动清理；敏感信息不记录请求体/密码。"}>
+        <p className="text-[11px] text-muted-foreground">
+          最早记录：{formatDateTime(data?.oldest)} · 最新记录：{formatDateTime(data?.newest)}
+        </p>
+      </Alert>
 
       <SectionCard
         title="运行日志"
@@ -234,7 +228,7 @@ export default function LogsTab() {
         }
         bodyClassName="p-0"
       >
-        <div className="flex flex-wrap items-end gap-2 border-b border-white/5 px-4 py-3">
+        <div className="flex flex-wrap items-end gap-2 border-b border-border px-4 py-3">
           <div className="w-28">
             <Select label="级别" options={LEVEL_OPTIONS} value={level} onChange={(event) => handleLevelChange(event.target.value)} />
           </div>
@@ -251,25 +245,23 @@ export default function LogsTab() {
               onChange={(event) => setSearchInput(event.target.value)}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="md" icon={<RefreshCw className="h-4 w-4" />} loading={loading} onClick={reload}>
-              刷新
-            </Button>
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-ink-900/50 px-2.5 py-1.5">
-              <Switch label="自动刷新" checked={autoRefresh} onChange={setAutoRefresh} />
-              <span className="whitespace-nowrap text-[10px] text-mist-500">每 10 秒</span>
-            </div>
+          <Button variant="outline" size="md" icon={<RefreshCw className="h-4 w-4" />} loading={loading} onClick={reload}>
+            刷新
+          </Button>
+          <div className="flex items-center gap-2 rounded-field border border-border bg-card px-2.5 py-1.5">
+            <Switch label="自动刷新" checked={autoRefresh} onChange={setAutoRefresh} />
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground">每 10 秒</span>
           </div>
         </div>
 
         {error ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <AdminErrorPanel message={error} onRetry={reload} />
           </div>
         ) : loading && !data ? (
           <AdminLoading text="正在加载运行日志…" />
         ) : rows.length === 0 ? (
-          <div className="p-4">
+          <div className="px-5 py-5">
             <EmptyState
               icon={<ScrollText className="h-5 w-5" />}
               title="没有匹配的运行日志"
@@ -278,65 +270,65 @@ export default function LogsTab() {
           </div>
         ) : (
           <TableShell>
-            <thead>
-              <tr>
-                <Th className="w-36">时间</Th>
-                <Th className="w-20">级别</Th>
-                <Th className="w-24">分类</Th>
-                <Th>消息</Th>
-                <Th className="w-28">用户</Th>
-                <Th className="w-32">IP</Th>
-              </tr>
-            </thead>
-            <tbody>
+            <THead>
+              <Th className="w-36">时间</Th>
+              <Th className="w-20">级别</Th>
+              <Th className="w-24">分类</Th>
+              <Th>消息</Th>
+              <Th className="w-28">用户</Th>
+              <Th className="w-32">IP</Th>
+            </THead>
+            <TBody>
               {rows.map((row) => {
                 const expanded = expandedId === row.id;
                 return (
                   <Fragment key={row.id}>
-                    <tr
+                    <Tr
                       onClick={() => setExpandedId(expanded ? null : row.id)}
                       title={expanded ? "点击收起详情" : "点击展开 meta 详情"}
-                      className="cursor-pointer align-top transition-colors hover:bg-ink-750"
+                      className="cursor-pointer"
                     >
-                      <Td className="whitespace-nowrap text-[11px] text-mist-500">{formatDateTime(row.createdAt)}</Td>
-                      <Td><LevelBadge level={row.level} /></Td>
+                      <Td className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
                       <Td>
-                        <span className="text-xs text-mist-300">{CATEGORY_LABELS[row.category]}</span>
+                        <LevelBadge level={row.level} />
+                      </Td>
+                      <Td>
+                        <span className="text-sm">{CATEGORY_LABELS[row.category]}</span>
                       </Td>
                       <Td className="max-w-[28rem]">
-                        <p className="line-clamp-2 break-all text-xs leading-relaxed text-mist-200">{row.message}</p>
+                        <p className="line-clamp-2 break-all text-sm leading-relaxed text-foreground/90">{row.message}</p>
                       </Td>
                       <Td>
                         {row.username ? (
                           <div className="min-w-0">
-                            <p className="truncate text-[11px] text-mist-300">{row.username}</p>
-                            {row.userId !== null && <p className="font-mono text-[10px] text-mist-500">#{row.userId}</p>}
+                            <p className="truncate text-xs text-foreground/90">{row.username}</p>
+                            {row.userId !== null && <p className="font-mono text-[11px] text-muted-foreground">#{row.userId}</p>}
                           </div>
                         ) : row.userId !== null ? (
-                          <span className="font-mono text-[11px] text-mist-500">#{row.userId}</span>
+                          <span className="font-mono text-xs text-muted-foreground">#{row.userId}</span>
                         ) : (
-                          <span className="text-[11px] text-mist-500">-</span>
+                          <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </Td>
                       <Td className="max-w-[12rem]">
-                        <span className="block truncate font-mono text-[10px] text-mist-500" title={row.ip ?? ""}>
+                        <span className="block truncate font-mono text-[11px] text-muted-foreground" title={row.ip ?? ""}>
                           {row.ip ?? "-"}
                         </span>
                       </Td>
-                    </tr>
+                    </Tr>
                     {expanded && (
-                      <tr className="bg-ink-900/50">
-                        <td colSpan={6} className="border-b border-white/5 px-4 py-3">
+                      <tr className="bg-muted/40">
+                        <td colSpan={6} className="px-4 py-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                              <p className="mb-1 flex items-center gap-1 text-[11px] text-mist-500">
-                                <ScrollText className="h-3 w-3" />
+                              <p className="mb-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                                <ScrollText className="h-3.5 w-3.5" />
                                 meta（附加信息）
                               </p>
-                              <pre className="max-h-64 overflow-auto app-scroll whitespace-pre-wrap break-all rounded-lg bg-ink-950/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-mist-300">
+                              <pre className="max-h-64 overflow-auto app-scroll whitespace-pre-wrap break-all rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed text-foreground/90">
                                 {formatMeta(row.meta)}
                               </pre>
-                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-mist-500">
+                              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
                                 <span>id: {row.id}</span>
                                 {row.requestId && <span>requestId: {row.requestId}</span>}
                                 {row.ip && <span>ip: {row.ip}</span>}
@@ -359,7 +351,7 @@ export default function LogsTab() {
                   </Fragment>
                 );
               })}
-            </tbody>
+            </TBody>
           </TableShell>
         )}
 
@@ -405,11 +397,11 @@ function LogsPagination({
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-3 py-2.5 text-[11px] text-mist-400">
-      <span>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+      <span className="tabular">
         共 {total} 条 · 第 {Math.min(page, totalPages)}/{totalPages} 页
       </span>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <div className="w-36">
           <Select
             label="每页条数"
@@ -435,7 +427,7 @@ function LogsPagination({
             onKeyDown={(event) => {
               if (event.key === "Enter") jumpToPage();
             }}
-            className="h-7 w-14 rounded-lg border border-white/10 bg-ink-900 px-2 text-[11px] text-mist-300 placeholder:text-mist-500 outline-none focus:border-brand-500/60"
+            className="h-8 w-16 rounded-field border border-input bg-card px-2 text-xs text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-ring focus:ring-2 focus:ring-ring/15"
           />
           <Button variant="outline" size="sm" disabled={loading} onClick={jumpToPage}>
             跳转

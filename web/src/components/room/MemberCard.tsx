@@ -38,29 +38,28 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
       onClick={togglePanel}
       onKeyDown={(event) => {
         if (!canOpenPanel) return;
+        // 音量滑杆等子元素内的按键不应触发展开面板
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           togglePanel();
         }
       }}
       className={cn(
-        "group relative flex select-none flex-col items-center gap-2 rounded-2xl border bg-ink-850/80 text-center transition-all",
+        "group relative flex select-none flex-col items-center gap-2 rounded-2xl border border-border bg-card text-center shadow-card transition-[border-color,box-shadow,background-color]",
         compact ? "p-2.5" : "p-3 pt-4",
-        member.speaking
-          ? "border-aqua-400/60 shadow-[0_0_30px_-10px_rgba(34,211,238,0.85)]"
-          : "border-white/5 hover:border-brand-400/30",
-        canOpenPanel && "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand-400/70",
+        canOpenPanel && "cursor-pointer outline-none hover:border-ring/40 focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
       <div className="absolute right-2 top-2 flex items-center gap-1.5">
         {!member.isSelf && stats && <QualityIndicator stats={stats} />}
         {member.forceMuted && (
-          <span title="已被管理员强制静音" className="text-bad-400">
+          <span title="已被管理员强制静音" className="text-destructive">
             <ShieldAlert className="h-3.5 w-3.5" />
           </span>
         )}
         {member.screenSharing && (
-          <span title="正在共享屏幕" className="text-aqua-400">
+          <span title="正在共享屏幕" className="text-info">
             <MonitorUp className="h-3.5 w-3.5" />
           </span>
         )}
@@ -78,11 +77,11 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
 
       <div className="flex w-full min-w-0 flex-col items-center gap-1">
         <div className="flex max-w-full items-center justify-center gap-1.5">
-          <span className="truncate text-sm font-medium text-mist-100" title={member.username}>
+          <span className="truncate text-sm font-medium text-foreground" title={member.username}>
             {member.displayName}
           </span>
           {member.isSelf && (
-            <span className="rounded bg-brand-500/25 px-1 py-0.5 text-[10px] leading-none text-brand-300">你</span>
+            <span className="rounded bg-brand/10 px-1 py-0.5 text-[10px] leading-none text-brand">你</span>
           )}
         </div>
 
@@ -94,7 +93,7 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
         )}
 
         {member.statusText && !member.isSelf && (
-          <p className="max-w-full truncate text-[11px] text-mist-500" title={member.statusText}>
+          <p className="max-w-full truncate text-[11px] text-muted-foreground" title={member.statusText}>
             {member.statusText}
           </p>
         )}
@@ -102,64 +101,72 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
         {member.isSelf ? (
           <div className="mt-1 w-full space-y-1.5">
             <SelfLevelMeter active={!member.muted} />
-            <p className="text-[10px] text-mist-500">
+            <p className="text-[10px] text-muted-foreground">
               {member.muted ? (member.forceMuted ? "已被强制静音" : "麦克风已静音") : "麦克风已开启"}
               {member.deafened ? " · 已关闭声音" : ""}
             </p>
           </div>
         ) : (
-          <p className="text-[10px] text-mist-500">
-            {member.muted ? "已静音" : member.deafened ? "关闭了声音" : "在房间中"}
-            {member.joinedAt ? " · " + formatRelative(member.joinedAt) + "加入" : ""}
-          </p>
+          <>
+            <p className="text-[10px] text-muted-foreground">
+              {member.muted ? "已静音" : member.deafened ? "关闭了声音" : "在房间中"}
+              {member.joinedAt ? " · " + formatRelative(member.joinedAt) + "加入" : ""}
+            </p>
+            <div
+              className="mt-0.5 w-full space-y-1.5"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  {volume <= 0 ? <VolumeX className="h-3 w-3" /> : volume < 60 ? <Volume1 className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                  本地音量
+                </span>
+                <span className="tabular font-medium text-foreground">{volume}%</span>
+              </div>
+              <Slider
+                value={volume}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(value) => onVolumeChange(member.userId, value)}
+              />
+            </div>
+          </>
         )}
 
         {panelOpen && !member.isSelf && (
           <div
-            className="mt-1 w-full space-y-2 rounded-xl bg-ink-900/90 p-2.5 text-left ring-1 ring-white/10"
+            className="mt-0.5 flex w-full items-center gap-1.5"
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="flex items-center gap-1 text-mist-400">
-                {volume <= 0 ? <VolumeX className="h-3 w-3" /> : volume < 60 ? <Volume1 className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-                本地音量
-              </span>
-              <span className="font-mono text-mist-300">{volume}%</span>
-            </div>
-            <Slider
-              value={volume}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) => onVolumeChange(member.userId, value)}
-            />
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => onLocalMute(member.userId, volume > 0)}
-                className={cn(
-                  "flex-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
-                  volume > 0 ? "bg-white/5 text-mist-300 hover:bg-white/10" : "bg-good-500/15 text-good-400",
-                )}
-              >
-                {volume > 0 ? "本地静音" : "恢复声音"}
-              </button>
-              <button
-                type="button"
-                onClick={() => onVolumeChange(member.userId, 100)}
-                className="rounded-lg bg-white/5 px-2 py-1 text-[11px] text-mist-400 transition-colors hover:bg-white/10 hover:text-mist-200"
-              >
-                100%
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onLocalMute(member.userId, volume > 0)}
+              className={cn(
+                "flex-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors",
+                volume > 0
+                  ? "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                  : "border-success/25 bg-success/10 text-success",
+              )}
+            >
+              {volume > 0 ? "本地静音" : "恢复声音"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onVolumeChange(member.userId, 100)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              100%
+            </button>
           </div>
         )}
       </div>
 
       {member.muted && !member.isSelf && (
-        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-ink-900 p-1 ring-1 ring-white/10" title="已静音">
-          <MicOff className="h-3 w-3 text-bad-400" />
+        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card p-1" title="已静音">
+          <MicOff className="h-3 w-3 text-destructive" />
         </span>
       )}
     </div>

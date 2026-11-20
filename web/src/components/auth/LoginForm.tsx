@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Eye, EyeOff, LogIn, User } from "lucide-react";
-import { Button, Input } from "@/components/ui";
+import { Alert, Button, IconButton, Input } from "@/components/ui";
 import { useAuthStore } from "@/stores/auth";
 
 export default function LoginForm() {
@@ -27,6 +27,7 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+      {localError && <Alert tone="error">{localError}</Alert>}
       <Input
         label="用户名"
         autoComplete="username"
@@ -35,7 +36,6 @@ export default function LoginForm() {
         value={username}
         maxLength={64}
         placeholder="请输入用户名"
-        error={localError ?? undefined}
         onChange={(event) => {
           setUsername(event.target.value);
           setLocalError(null);
@@ -49,14 +49,13 @@ export default function LoginForm() {
         maxLength={128}
         placeholder="请输入密码"
         rightSlot={
-          <button
-            type="button"
+          <IconButton
+            label={visible ? "隐藏密码" : "显示密码"}
+            size="sm"
             onClick={() => setVisible((value) => !value)}
-            className="rounded-lg p-1.5 text-mist-400 transition-colors hover:bg-white/5 hover:text-mist-100"
-            aria-label={visible ? "隐藏密码" : "显示密码"}
           >
             {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
+          </IconButton>
         }
         onChange={(event) => {
           setPassword(event.target.value);

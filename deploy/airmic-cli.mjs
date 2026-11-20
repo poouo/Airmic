@@ -22,15 +22,18 @@ import path from "node:path";
 import crypto from "node:crypto";
 import https from "node:https";
 import http from "node:http";
+import { pipeline } from "node:stream/promises";
 import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const CLI_VERSION = "1.1.0";
 const APP_NAME = "AirMic";
-const REPO = "poouo/Airmic";
-const GHCR_IMAGE = "ghcr.io/" + REPO.toLowerCase();
-const REPO_URL = "https://github.com/" + REPO;
+const DEFAULT_REPO = "poouo/Airmic";
+const HOME_MARKER = ".airmic-install.json";
+let REPO = DEFAULT_REPO;
+let GHCR_IMAGE = "ghcr.io/" + REPO.toLowerCase();
+let REPO_URL = "https://github.com/" + REPO;
 const DEFAULT_PORT = 9811;
 const DEFAULT_LIVEKIT_VERSION = "v1.13.11";
 const MIN_NODE_APP = "22.13.0";
@@ -43,6 +46,7 @@ const CLI_DIR = path.dirname(CLI_FILE);
 
 const EXCLUDE_TOP = new Set([
   "node_modules", ".git", ".tools", "data", "logs", "backups", "certs", ".staging", ".github",
+  ".dsh-acl-recovery", ".dsh-tests", "dist-release",
 ]);
 const EXCLUDE_REL = new Set([
   path.join("web", "dist"),
@@ -54,16 +58,59 @@ const EXCLUDE_REL = new Set([
 
 const HOME_DIRS = ["app", "data", "config", "livekit", path.join("livekit", "bin"), "logs", "backups", "run", "bin"];
 
+/* ============ 终端输出 ============ */
+
+const ANSI = { reset: "\u001b[0m", bold: "\u001b[1m", dim: "\u001b[2m", cyan: "\u001b[36m", green: "\u001b[32m", yellow: "\u001b[33m", red: "\u001b[31m" };
+const COLOR_ENABLED = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR && !process.argv.includes("--no-color");
+
+function paint(name, text) {
+  return COLOR_ENABLED ? ANSI[name] + text + ANSI.reset : text;
+}
+
+const bold = (text) => paint("bold", text);
+const dim = (text) => paint("dim", text);
+const cyan = (text) => paint("cyan", text);
+const green = (text) => paint("green", text);
+
+/** 全角字符按 2 列计算，保证中英文标签对齐 */
+function textWidth(text) {
+  let width = 0;
+  for (const ch of String(text)) {
+    width += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1;
+  }
+  return width;
+}
+
+/** 生成对齐的「标签 : 值」行，中文标签不会错位 */
+function field(label, value) {
+  const width = 12;
+  return " " + label + " ".repeat(Math.max(0, width - textWidth(label))) + " : " + value;
+}
+
+/** 统一的分区标题：安装 / 升级 / 卸载 / 状态 / 完成摘要共用同一套观感 */
+function printHeader(title, rows) {
+  const line = "=".repeat(46);
+  log("");
+  log(cyan(line));
+  log(" " + bold(title));
+  if (rows && rows.length > 0) {
+    log(cyan("-".repeat(46)));
+    for (const row of rows) log(row);
+  }
+  log(cyan(line));
+  log("");
+}
+
 function log(message) {
   console.log(message);
 }
 
 function warn(message) {
-  console.error("[警告] " + message);
+  console.error(paint("yellow", "[警告]") + " " + message);
 }
 
 function step(index, total, message) {
-  console.log("[" + index + "/" + total + "] " + message);
+  console.log(cyan("[" + index + "/" + total + "]") + " " + message);
 }
 
 function fail(message) {
@@ -162,6 +209,10 @@ const OPTION_SPEC = {
   mode: "value",
   dir: "value",
   source: "value",
+  repo: "value",
+  ref: "value",
+  action: "value",
+  prepare_runtime: "flag",
   port: "value",
   host: "value",
   livekit_version: "value",
@@ -175,6 +226,7 @@ const OPTION_SPEC = {
   from: "value",
   purge: "flag",
   lines: "value",
+  no_color: "flag",
   help: "flag",
 };
 
@@ -219,18 +271,142 @@ function parseArgs(argv) {
 // ============ 路径与目录 ============
 
 function resolveHome(options) {
-  const explicit = options ? options.dir : undefined;
-  if (explicit !== undefined) {
-    const trimmed = String(explicit).trim();
-    if (!trimmed) fail("--dir 不能为空。示例：--dir " + path.join(os.homedir(), ".airmic"));
-    const resolved = path.resolve(trimmed);
-    if (resolved === path.parse(resolved).root) fail("安装目录不能是磁盘根目录：" + resolved);
-    return resolved;
+  const installedHome = path.basename(CLI_DIR) === "bin" ? path.dirname(CLI_DIR) : null;
+  let raw = String(options?.dir ?? process.env.AIRMIC_HOME ?? installedHome ?? path.join(os.homedir(), ".airmic"));
+  if (!raw.trim()) fail("--dir 不能为空。");
+  if (raw === "~" || /^~[/\\]/.test(raw)) raw = path.join(os.homedir(), raw.slice(2));
+  if (IS_WIN && (raw !== raw.trim() || /^[\\/]|^[a-z]:(?![/\\])/i.test(raw) || raw.replace(/^[a-z]:/i, "").includes(":") ||
+      raw.replace(/^[a-z]:/i, "").split(/[/\\]/).some((part) => /[. ]$/.test(part) && ![".", ".."].includes(part)))) {
+    fail("安装目录必须是本地磁盘上的普通路径：" + raw);
   }
-  const raw = process.env.AIRMIC_HOME || path.join(os.homedir(), ".airmic");
-  const home = path.resolve(String(raw));
-  if (home === path.parse(home).root) fail("安装目录不能是磁盘根目录：" + home);
+  let home = path.resolve(raw);
+  const ancestors = [];
+  for (let current = home; current !== path.parse(current).root; current = path.dirname(current)) ancestors.unshift(current);
+  let existingAncestor = path.parse(home).root;
+  for (const current of ancestors) {
+    if (!assertPlainPath(current, "directory")) break;
+    existingAncestor = current;
+  }
+  home = path.resolve(fs.realpathSync.native(existingAncestor), path.relative(existingAncestor, home));
+  const systemDrive = process.env.SystemDrive || "C:";
+  const protectedPaths = [
+    path.parse(home).root, os.homedir(), os.tmpdir(), process.env.HOME, process.env.USERPROFILE,
+    process.env.PUBLIC, process.env.SystemRoot, process.env.ProgramFiles, process.env["ProgramFiles(x86)"],
+    process.env.ProgramData, process.env.OneDrive, process.env.APPDATA, process.env.LOCALAPPDATA,
+    ...["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music", "OneDrive"].map((name) => path.join(os.homedir(), name)),
+    ...(IS_WIN ? [systemDrive + "\\Users", systemDrive + "\\Windows"] :
+      ["/home", "/Users", "/root", "/etc", "/usr", "/var", "/opt", "/srv", "/bin", "/sbin", "/dev", "/proc", "/sys"]),
+  ];
+  for (const anchor of protectedPaths.filter(Boolean)) {
+    if (pathIsWithin(home, path.resolve(anchor))) {
+      fail("安装目录指向受保护的路径：" + home);
+    }
+  }
+  if (installedHome && path.relative(home, installedHome) !== "") {
+    fail("已安装的管理命令只操作自身安装目录：" + installedHome);
+  }
   return home;
+}
+
+function pathIsWithin(parent, target) {
+  const relative = path.relative(parent, target);
+  return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep);
+}
+
+function assertPlainPath(target, type) {
+  const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+  if (!stat) return false;
+  if (stat.isSymbolicLink() || (type === "directory" ? !stat.isDirectory() : !stat.isFile() || stat.nlink > 1)) {
+    fail("拒绝访问链接或非预期类型的路径：" + target);
+  }
+  return true;
+}
+
+const MANAGED_DIRS = ["app", "config", "bin", "run", "livekit", "logs", ".staging", ".runtime"];
+const RETAINED_DIRS = ["data", "backups"];
+
+function validateHome(home, action) {
+  if (!assertPlainPath(home, "directory")) {
+    if (action !== "install") fail("未找到 AirMic 安装目录：" + home);
+    return { owned: false, installed: false };
+  }
+  for (const dir of [...MANAGED_DIRS, ...RETAINED_DIRS]) assertPlainPath(path.join(home, dir), "directory");
+  assertPlainPath(path.join(home, "livekit", "bin"), "directory");
+  for (const file of [
+    HOME_MARKER, "version.json", "bin/airmic-cli.mjs", "bin/airmic.sh", "bin/airmic.ps1", "bin/airmic.cmd",
+    "config/airmic.env", "config/docker-compose.yml", "config/livekit.yaml",
+    "run/airmic.pid", "run/livekit.pid", "run/log-cleanup.pid",
+    "data/airmic.db", "data/airmic.db-wal", "data/airmic.db-shm",
+    path.relative(home, livekitBinaryPath(home)),
+  ]) assertPlainPath(path.join(home, file), "file");
+  const marker = readJson(path.join(home, HOME_MARKER), null);
+  const owned = isHomeMarker(marker, home);
+  const info = readVersionInfo(home);
+  const cli = path.join(home, "bin", "airmic-cli.mjs");
+  const legacy = Boolean(info && typeof info.repo === "string" && validRepo(info.repo) &&
+    normalizeVersion(info.version) && ["local", "docker"].includes(info.mode) &&
+    exists(cli) && fs.readFileSync(cli, "utf8").slice(0, 2048).includes("AirMic 部署 CLI"));
+  if (owned || legacy) return { owned, installed: legacy || (owned && Boolean(info?.version)) };
+  if (action === "install" && fs.readdirSync(home).length === 0) return { owned: false, installed: false };
+  fail("目录没有 AirMic 安装标记，且无法核验为已有部署：" + home + "。首次安装请使用新建或空目录。");
+}
+
+function markHome(home) {
+  mkdirp(home);
+  const marker = path.join(home, HOME_MARKER);
+  if (!isHomeMarker(readJson(marker, null), home)) {
+    const flag = assertPlainPath(marker, "file") ? "w" : "wx";
+    fs.writeFileSync(marker, JSON.stringify({ product: "AirMic", schema: 1, home }) + "\n", { flag });
+  }
+}
+
+function isHomeMarker(marker, home) {
+  return marker?.product === "AirMic" && marker.schema === 1 &&
+    typeof marker.home === "string" && path.relative(home, marker.home) === "";
+}
+
+async function withDeploymentLock(home, action, work) {
+  const state = validateHome(home, action);
+  if (action === "install" || action === "upgrade") markHome(home);
+  const lock = path.join(home, ".airmic-deploy.lock");
+  let handle;
+  try {
+    handle = fs.openSync(lock, "wx");
+  } catch (error) {
+    if (error.code === "EEXIST") fail("安装目录已有部署操作锁：" + lock + "。若上次操作意外结束，请确认锁内记录的进程已退出后再移除此文件。");
+    throw error;
+  }
+  try {
+    fs.writeFileSync(handle, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }) + "\n");
+    return await work(state);
+  } finally {
+    fs.closeSync(handle);
+    fs.unlinkSync(lock);
+  }
+}
+
+async function withStaging(home, work) {
+  const base = path.join(home, ".staging");
+  assertPlainPath(base, "directory");
+  mkdirp(base);
+  const staging = fs.mkdtempSync(path.join(base, "operation-"));
+  try {
+    return await work(staging);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+function validRepo(repo) {
+  return /^[\w-]+\/[\w.-]+$/.test(repo) && !/\/\.{1,2}$/.test(repo);
+}
+
+function configureRepository(options, installedRepo) {
+  const repo = options.repo ?? (process.env.AIRMIC_REPO || installedRepo || DEFAULT_REPO);
+  if (!validRepo(repo)) fail("--repo 需要有效的 GitHub owner/name。");
+  REPO = repo;
+  GHCR_IMAGE = "ghcr.io/" + REPO.toLowerCase();
+  REPO_URL = "https://github.com/" + REPO;
 }
 
 function cliRepoRoot() {
@@ -384,6 +560,7 @@ function shouldCopy(source, root) {
   const rel = path.relative(root, source);
   if (!rel) return true;
   const parts = rel.split(path.sep);
+  if (/^\.env(?:\.|$)/.test(parts[0]) && parts[0] !== ".env.example") return false;
   if (EXCLUDE_TOP.has(parts[0])) return false;
   for (const excluded of EXCLUDE_REL) {
     if (rel === excluded || rel.startsWith(excluded + path.sep)) return false;
@@ -412,23 +589,11 @@ function listFilesRecursive(dir) {
 }
 
 function extractArchive(archivePath, destDir) {
+  assertSafeArchive(archivePath);
   mkdirp(destDir);
-  const tarAvailable = commandExists("tar", ["--version"]);
-  if (tarAvailable) {
-    const result = spawnSync("tar", ["-xf", archivePath, "-C", destDir], { stdio: "inherit", windowsHide: true });
-    if (result.status === 0) return;
-  }
-  if (/\.zip$/i.test(archivePath) && IS_WIN) {
-    const escapedArchive = archivePath.replace(/'/g, "''");
-    const escapedDest = destDir.replace(/'/g, "''");
-    runCommand("powershell.exe", [
-      "-NoProfile",
-      "-Command",
-      "Expand-Archive -LiteralPath '" + escapedArchive + "' -DestinationPath '" + escapedDest + "' -Force",
-    ]);
-    return;
-  }
-  throw new Error("解压失败：" + archivePath + "。请安装 tar（Windows 10+ 自带 tar，或使用 PowerShell Expand-Archive 解压 zip）");
+  const result = spawnSync("tar", ["-xf", archivePath, "-C", destDir], { stdio: "inherit", windowsHide: true });
+  if (result.status === 0) return;
+  throw new Error("解压失败：" + archivePath + "。请检查压缩包和系统 tar。");
 }
 
 function findProjectRoot(dir) {
@@ -462,26 +627,33 @@ function githubHeaders(extra) {
   return Object.assign(headers, extra || {});
 }
 
-function requestBuffer(url, options) {
-  const opts = options || {};
-  const headers = Object.assign(
-    { "User-Agent": "AirMic-CLI/" + CLI_VERSION },
-    githubHeaders(opts.api ? {} : {}),
-    opts.headers || {},
-  );
+function requestResponse(url, options = {}, redirects = 0) {
+  const target = new URL(url);
+  if (!["https:", "http:"].includes(target.protocol)) throw new Error("不支持的下载协议：" + target.protocol);
+  const api = target.origin === "https://api.github.com";
+  const headers = {
+    ...(api ? githubHeaders() : { "User-Agent": "AirMic-CLI/" + CLI_VERSION }),
+    ...options.headers,
+  };
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith("https:") ? https : http;
-    const client = lib.get(url, { headers, timeout: opts.timeout || 60000 }, (response) => {
+    const lib = target.protocol === "https:" ? https : http;
+    const client = lib.get(target, { headers, timeout: options.timeout || 60000 }, (response) => {
       const status = response.statusCode || 0;
       if (status >= 300 && status < 400 && response.headers.location) {
         response.resume();
-        const next = new URL(response.headers.location, url).toString();
-        requestBuffer(next, opts).then(resolve, reject);
+        try {
+          const next = new URL(response.headers.location, target);
+          if (redirects >= 5 || (target.protocol === "https:" && next.protocol !== "https:")) {
+            throw new Error("下载重定向无效：" + url);
+          }
+          const nextOptions = next.origin === target.origin ? options : { timeout: options.timeout };
+          requestResponse(next, nextOptions, redirects + 1).then(resolve, reject);
+        } catch (error) {
+          reject(error);
+        }
         return;
       }
-      const chunks = [];
-      response.on("data", (chunk) => chunks.push(chunk));
-      response.on("end", () => resolve({ status, headers: response.headers, body: Buffer.concat(chunks) }));
+      resolve(response);
     });
     client.on("timeout", () => {
       client.destroy(new Error("请求超时：" + url));
@@ -490,49 +662,38 @@ function requestBuffer(url, options) {
   });
 }
 
+async function requestBuffer(url, options) {
+  const response = await requestResponse(url, options);
+  const chunks = [];
+  for await (const chunk of response) chunks.push(chunk);
+  return { status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) };
+}
+
 async function githubJson(apiPath) {
   const url = "https://api.github.com/repos/" + REPO + apiPath;
   const response = await requestBuffer(url, { api: true });
   if (response.status >= 400) {
     const detail = response.body ? response.body.toString("utf8").slice(0, 200) : "";
-    throw new Error("GitHub API 请求失败（" + response.status + "）：" + (detail || url));
+    const error = new Error("GitHub API 请求失败（" + response.status + "）：" + (detail || url));
+    error.status = response.status;
+    throw error;
   }
   return JSON.parse(response.body.toString("utf8"));
 }
 
-async function downloadFile(url, destPath) {
+async function downloadFile(url, destPath, options) {
+  const response = await requestResponse(url, { timeout: 120000, ...options });
+  const status = response.statusCode || 0;
+  if (status < 200 || status >= 300) {
+    response.resume();
+    throw new Error("下载失败（HTTP " + status + "）：" + url);
+  }
   mkdirp(path.dirname(destPath));
-  const file = fs.createWriteStream(destPath);
-  const headers = githubHeaders();
-  return new Promise((resolve, reject) => {
-    const lib = url.startsWith("https:") ? https : http;
-    const client = lib.get(url, { headers, timeout: 120000 }, (response) => {
-      const status = response.statusCode || 0;
-      if (status >= 300 && status < 400 && response.headers.location) {
-        response.resume();
-        file.close();
-        const next = new URL(response.headers.location, url).toString();
-        downloadFile(next, destPath).then(resolve, reject);
-        return;
-      }
-      if (status >= 400) {
-        response.resume();
-        file.close();
-        reject(new Error("下载失败（HTTP " + status + "）：" + url));
-        return;
-      }
-      response.pipe(file);
-      file.on("finish", () => file.close(() => resolve(destPath)));
-    });
-    client.on("timeout", () => client.destroy(new Error("下载超时：" + url)));
-    client.on("error", (error) => {
-      file.close();
-      reject(error);
-    });
-  });
+  await pipeline(response, fs.createWriteStream(destPath, { flags: "wx" }));
 }
 
-function sourceArchiveUrl(ref, kind) {
+function sourceArchiveUrl(ref, kind, commit) {
+  if (commit) return "https://api.github.com/repos/" + REPO + "/tarball/" + encodeURIComponent(commit);
   if (kind === "branch") {
     return "https://github.com/" + REPO + "/archive/refs/heads/" + encodeURIComponent(ref) + ".tar.gz";
   }
@@ -640,7 +801,7 @@ function generateDockerCompose(home, options) {
   const lines = [
     "# AirMic Docker Compose（由 airmic-cli 生成）",
     "# 安装目录：" + home,
-    "# 部署方式：" + (useImage ? "拉取 GHCR 预构建镜像（不编译）" : "本地构建镜像（开发者 --build）"),
+    "# 部署方式：" + (useImage ? "拉取 GHCR 预构建镜像（不编译）" : "从 GitHub 源码本地构建镜像（首次构建需要数分钟）"),
     "# 用法：docker compose -f config/docker-compose.yml up -d",
     "name: airmic",
     "",
@@ -717,11 +878,8 @@ function writeDockerCompose(home, options) {
 
 /** 校验 app/ 目录下能否解析 @airmic/shared（server 运行时依赖）。 */
 function verifyAppRuntime(appDir) {
-  const checkFile = path.join(appDir, "node_modules", ".airmic-runtime-check.mjs");
   try {
-    mkdirp(path.dirname(checkFile));
-    fs.writeFileSync(checkFile, "import '@airmic/shared';\nprocess.exit(0);\n", "utf8");
-    const result = spawnSync(process.execPath, [checkFile], {
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", 'await import("@airmic/shared")'], {
       cwd: appDir,
       encoding: "utf8",
       windowsHide: true,
@@ -734,12 +892,6 @@ function verifyAppRuntime(appDir) {
   } catch (error) {
     warn("运行时依赖预检异常：" + (error && error.message ? error.message : error));
     return false;
-  } finally {
-    try {
-      fs.rmSync(checkFile, { force: true });
-    } catch {
-      /* ignore */
-    }
   }
 }
 
@@ -793,22 +945,117 @@ function fixWorkspaceLinks(appDir) {
   return false;
 }
 
+/** 从远端引导安装时只下载了 airmic-cli.mjs，这里生成缺失的包装脚本，保证 bin/airmic 可用。 */
+function writeManagementWrapper(binDir, name) {
+  const target = path.join(binDir, name);
+  if (name === "airmic.sh") {
+    fs.writeFileSync(
+      target,
+      [
+        "#!/usr/bin/env bash",
+        "# AirMic 部署 CLI 包装脚本（由 airmic-cli 生成）：优先使用安装目录内的 Node，其次使用系统 Node",
+        "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'HOME_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"',
+        'NODE_BIN="${AIRMIC_NODE:-}"',
+        'if [ -z "$NODE_BIN" ] && [ -d "$HOME_DIR/.runtime" ]; then',
+        '  for candidate in "$HOME_DIR"/.runtime/node-*/bin/node; do',
+        '    if [ -x "$candidate" ]; then NODE_BIN="$candidate"; break; fi',
+        "  done",
+        "fi",
+        'if [ -z "$NODE_BIN" ]; then NODE_BIN="$(command -v node || true)"; fi',
+        'if [ -z "$NODE_BIN" ]; then echo "[AirMic] 未找到 Node.js，请先重新运行 install.sh 或设置 AIRMIC_NODE" >&2; exit 1; fi',
+        'exec "$NODE_BIN" "$SCRIPT_DIR/airmic-cli.mjs" "$@"',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  } else if (name === "airmic.ps1") {
+    fs.writeFileSync(
+      target,
+      [
+        "\uFEFF# AirMic 部署 CLI 包装脚本（由 airmic-cli 生成）",
+        '$ErrorActionPreference = "Stop"',
+        "$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path",
+        "$homeDir = Split-Path -Parent $scriptDir",
+        "$node = $null",
+        'foreach ($dir in Get-ChildItem -LiteralPath (Join-Path $homeDir ".runtime") -Directory -Filter "node-*" -ErrorAction SilentlyContinue) {',
+        "  if ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }",
+        '  $candidate = Get-Item -LiteralPath (Join-Path $dir.FullName "node.exe") -ErrorAction SilentlyContinue',
+        "  if ($candidate -and -not ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $node = $candidate.FullName; break }",
+        "}",
+        "if (-not $node) {",
+        "  $cmd = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1",
+        "  if ($cmd) { $node = $cmd.Source }",
+        "}",
+        'if (-not $node) { throw "[AirMic] 未找到 Node.js，请先重新运行 install.ps1 或安装 Node.js 22.13+" }',
+        '& $node (Join-Path $scriptDir "airmic-cli.mjs") @args',
+        "exit $LASTEXITCODE",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  } else if (name === "airmic.cmd") {
+    fs.writeFileSync(
+      target,
+      [
+        "@echo off",
+        "rem AirMic 部署 CLI 包装脚本（由 airmic-cli 生成）",
+        "setlocal DisableDelayedExpansion",
+        'set "SCRIPT_DIR=%~dp0"',
+        'set "NODE_BIN="',
+        'if not defined NODE_BIN for /d %%D in ("%SCRIPT_DIR%..\\.runtime\\node-*") do if exist "%%D\\node.exe" set "NODE_BIN=%%D\\node.exe"',
+        'if not defined NODE_BIN for %%I in (node.exe) do set "NODE_BIN=%%~$PATH:I"',
+        "if not defined NODE_BIN (",
+        "  echo [AirMic] Node.js not found. Run install.ps1 or install Node.js 22.13+. 1>&2",
+        "  exit /b 1",
+        ")",
+        '"%NODE_BIN%" "%SCRIPT_DIR%airmic-cli.mjs" %*',
+        "exit /b %ERRORLEVEL%",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+  }
+  return target;
+}
+
 function copyManagementScripts(home, sourceDir) {
   const binDir = path.join(home, "bin");
   mkdirp(binDir);
   const files = ["airmic-cli.mjs", "airmic.sh", "airmic.ps1", "airmic.cmd"];
   for (const name of files) {
-    let source = sourceDir ? path.join(sourceDir, name) : null;
-    if (!source || !exists(source)) source = path.join(CLI_DIR, name);
-    if (!exists(source)) continue;
+    let source = path.join(CLI_DIR, name);
+    if (name !== "airmic-cli.mjs" && !exists(source) && sourceDir) source = path.join(sourceDir, name);
     const target = path.join(binDir, name);
-    fs.copyFileSync(source, target);
-    if (name.endsWith(".sh") || name.endsWith(".mjs")) {
+    if (exists(source)) {
+      if (path.relative(source, target) !== "") {
+        if (name === "airmic-cli.mjs") {
+          fs.copyFileSync(source, target);
+        } else {
+          const script = fs.readFileSync(source, "utf8").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+          const contents = name === "airmic.cmd" ? script.replace(/\n/g, "\r\n") : name === "airmic.ps1" ? "\uFEFF" + script : script;
+          fs.writeFileSync(target, contents, "utf8");
+        }
+      }
+    }
+    else if (name !== "airmic-cli.mjs") writeManagementWrapper(binDir, name);
+    if (exists(target) && (name.endsWith(".sh") || name.endsWith(".mjs"))) {
       try {
         fs.chmodSync(target, 0o755);
       } catch {
         /* ignore */
       }
+    }
+  }
+  // Linux/macOS 提供无扩展名入口：<安装目录>/bin/airmic status
+  if (!IS_WIN) {
+    const launcher = path.join(binDir, "airmic");
+    try {
+      fs.rmSync(launcher, { force: true });
+      fs.symlinkSync("airmic.sh", launcher);
+    } catch {
+      /* ignore */
     }
   }
 }
@@ -837,7 +1084,7 @@ async function githubLivekitJson(apiPath) {
   return JSON.parse(response.body.toString("utf8"));
 }
 
-async function installLivekitBinary(home, versionArg) {
+async function installLivekitBinary(home, versionArg, workspace) {
   const release = await resolveLivekitRelease(versionArg);
   const tag = release.tag_name ? String(release.tag_name) : versionArg || DEFAULT_LIVEKIT_VERSION;
   const asset = pickLivekitAsset(release.assets);
@@ -846,10 +1093,9 @@ async function installLivekitBinary(home, versionArg) {
     warn("可手动安装 LiveKit 后把二进制放到：" + livekitBinaryPath(home));
     return null;
   }
-  const staging = path.join(home, ".staging", "livekit");
-  fs.rmSync(staging, { recursive: true, force: true });
+  const staging = path.join(workspace, "livekit");
   mkdirp(staging);
-  const archivePath = path.join(staging, asset.name);
+  const archivePath = path.join(staging, IS_WIN ? "livekit.zip" : "livekit.tar.gz");
   log("  下载 LiveKit " + tag + "：" + asset.browser_download_url);
   try {
     await downloadFile(asset.browser_download_url, archivePath);
@@ -879,7 +1125,6 @@ async function installLivekitBinary(home, versionArg) {
   } catch {
     /* ignore */
   }
-  fs.rmSync(staging, { recursive: true, force: true });
   return tag;
 }
 
@@ -893,8 +1138,11 @@ function dateStamp(value) {
 
 function logPath(home, name) {
   const dir = path.join(home, "logs");
+  assertPlainPath(dir, "directory");
   mkdirp(dir);
-  return path.join(dir, name + "-" + dateStamp() + ".log");
+  const target = path.join(dir, name + "-" + dateStamp() + ".log");
+  assertPlainPath(target, "file");
+  return target;
 }
 
 /** 清理按天轮转的日志，只保留最近 keepDays 天（默认 3 天） */
@@ -1149,20 +1397,19 @@ function printAccessInfo(home, env, extra) {
   const port = env.PORT || DEFAULT_PORT;
   const host = displayHost(env.HOST || "127.0.0.1");
   const url = "http://" + host + ":" + port;
-  log("");
-  log("==============================================");
-  log(" " + APP_NAME + " 安装完成");
-  log("==============================================");
-  log(" 安装目录 : " + home);
-  log(" 访问地址 : " + url);
-  log(" 健康检查 : " + url + "/api/health");
-  log(" 初始化   : " + url + "/setup" + (env.SETUP_TOKEN ? "（需要 SETUP_TOKEN 环境变量中的初始化口令）" : ""));
-  log(" 管理命令 : node " + path.join(home, "bin", "airmic-cli.mjs") + " status");
-  log(" 升级检查 : node " + path.join(home, "bin", "airmic-cli.mjs") + " check-update");
-  log(" 日志目录 : " + path.join(home, "logs"));
-  log(" 数据文件 : " + (env.DATABASE_PATH || path.join(home, "data", "airmic.db")));
+  const launcher = IS_WIN ? path.join(home, "bin", "airmic.cmd") : path.join(home, "bin", "airmic");
+  printHeader(APP_NAME + " 安装完成", [
+    field("访问地址", bold(url)),
+    field("初始化", url + "/setup" + (env.SETUP_TOKEN ? "（需要 SETUP_TOKEN 环境变量中的初始化口令）" : "")),
+    field("健康检查", url + "/api/health"),
+    field("安装目录", home),
+    field("管理命令", launcher + " status"),
+    field("升级命令", launcher + " upgrade"),
+    field("日志目录", path.join(home, "logs")),
+    field("数据文件", env.DATABASE_PATH || path.join(home, "data", "airmic.db")),
+  ]);
   if (extra) log(" " + extra);
-  log("==============================================");
+  log(" 下一步：用浏览器打开上面的访问地址，按向导创建管理员并完成语音配置。");
   log("");
 }
 
@@ -1179,13 +1426,6 @@ function hasNpm() {
   } catch {
     return false;
   }
-}
-
-function validateInstallPrereqs() {
-  if (!nodeSatisfies(MIN_NODE_APP)) {
-    fail("Node.js 版本过低：当前 " + process.versions.node + "，AirMic 需要 >= " + MIN_NODE_APP + "（推荐 24 LTS）。请升级 Node.js 后重试。");
-  }
-  if (!hasNpm()) fail("未找到 npm，请安装 Node.js（自带 npm）并确保加入 PATH。");
 }
 
 function readPackageVersion(dir) {
@@ -1210,20 +1450,48 @@ function sanitizeRef(ref) {
   return String(ref || "source").replace(/[^0-9A-Za-z._-]/g, "-");
 }
 
+/** 读取指定 ref（分支/Tag）上的 package.json 版本号；仓库尚未打 Tag 时用于展示与比较。 */
+async function fetchRawPackageVersion(ref) {
+  if (!ref) return null;
+  try {
+    const url = "https://raw.githubusercontent.com/" + REPO + "/" + encodeURIComponent(ref) + "/package.json";
+    const response = await requestBuffer(url, { timeout: 20000 });
+    if (response.status >= 400) return null;
+    const pkg = JSON.parse(response.body.toString("utf8"));
+    return pkg && pkg.version ? String(pkg.version) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 解析 ref 对应提交 SHA。无 Release 时用它与已安装提交比较，判断是否需要升级。 */
+async function resolveCommitSha(ref) {
+  if (!ref) return null;
+  try {
+    const commit = await githubJson("/commits/" + encodeURIComponent(ref));
+    return commit && commit.sha ? String(commit.sha) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveLatestRemote() {
   let release = null;
   try {
     release = await githubJson("/releases/latest");
   } catch (error) {
-    if (!/404/.test(error.message)) warn("检查 GitHub Release 失败：" + error.message);
+    if (error.status !== 404) warn("检查 GitHub Release 失败：" + error.message);
   }
   if (release && release.tag_name) {
+    const ref = String(release.tag_name);
     return {
       kind: "release",
-      ref: String(release.tag_name),
-      url: release.html_url || REPO_URL + "/releases/tag/" + encodeURIComponent(release.tag_name),
-      name: release.name || release.tag_name,
+      ref,
+      url: release.html_url || REPO_URL + "/releases/tag/" + encodeURIComponent(ref),
+      name: release.name || ref,
       publishedAt: release.published_at || null,
+      version: ref.replace(/^v/i, ""),
+      sha: await resolveCommitSha(ref),
     };
   }
   let tags = null;
@@ -1238,12 +1506,15 @@ async function resolveLatestRemote() {
       .filter((entry) => entry.name && entry.version)
       .sort((a, b) => compareVersions(String(b.version.major) + "." + b.version.minor + "." + b.version.patch, String(a.version.major) + "." + a.version.minor + "." + a.version.patch));
     if (sorted.length > 0) {
+      const tagName = sorted[0].name;
       return {
         kind: "tag",
-        ref: sorted[0].name,
-        url: REPO_URL + "/releases/tag/" + encodeURIComponent(sorted[0].name),
-        name: sorted[0].name,
+        ref: tagName,
+        url: REPO_URL + "/releases/tag/" + encodeURIComponent(tagName),
+        name: tagName,
         publishedAt: null,
+        version: tagName.replace(/^v/i, ""),
+        sha: await resolveCommitSha(tagName),
       };
     }
   }
@@ -1260,17 +1531,26 @@ async function resolveLatestRemote() {
     url: REPO_URL + "/commits/" + encodeURIComponent(branch),
     name: "开发分支（" + branch + "）",
     publishedAt: repo && repo.pushed_at ? repo.pushed_at : null,
+    version: await fetchRawPackageVersion(branch),
+    sha: await resolveCommitSha(branch),
   };
 }
 
-async function prepareSourceFromGithub(home, remote) {
-  const archive = path.join(home, ".staging", "source-" + sanitizeRef(remote.ref) + ".tar.gz");
-  const extractDir = path.join(home, ".staging", "source-extract");
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  mkdirp(path.dirname(archive));
-  log("  下载源码：" + sourceArchiveUrl(remote.ref, remote.kind));
+async function resolveSourceRemote(options) {
+  const ref = options.ref || process.env.AIRMIC_REF;
+  if (!ref) return resolveLatestRemote();
+  const commit = await githubJson("/commits/" + encodeURIComponent(ref));
+  if (!/^[0-9a-f]{40}$/i.test(commit?.sha || "")) fail("无法解析 GitHub ref：" + ref);
+  return { kind: "ref", ref, sha: commit.sha, version: await fetchRawPackageVersion(commit.sha) };
+}
+
+async function prepareSourceFromGithub(workspace, remote) {
+  const archive = path.join(workspace, "source.tar.gz");
+  const extractDir = path.join(workspace, "source-extract");
+  const url = sourceArchiveUrl(remote.ref, remote.kind, remote.sha);
+  log("  下载源码：" + url);
   try {
-    await downloadFile(sourceArchiveUrl(remote.ref, remote.kind), archive);
+    await downloadFile(url, archive);
   } catch (error) {
     fail("下载 GitHub 源码失败：" + error.message + "。如果仓库为空或尚无可下载代码，请使用 --source local（当前仓库）或 upgrade --from 本地压缩包。");
   }
@@ -1281,12 +1561,20 @@ async function prepareSourceFromGithub(home, remote) {
   }
   const root = findProjectRoot(extractDir);
   if (!root) fail("GitHub 源码包中没有找到 AirMic 项目（缺少 package.json/server/src/web/src）。");
-  return { root, ref: remote.ref, kind: remote.kind, version: readPackageVersion(root) };
+  return {
+    type: "source",
+    root,
+    ref: remote.ref,
+    kind: remote.kind,
+    version: readPackageVersion(root),
+    commit: remote.sha || null,
+  };
 }
 
-async function fetchLatestRelease() {
+async function fetchLatestRelease(options) {
   try {
-    const release = await githubJson("/releases/latest");
+    const ref = options.ref || process.env.AIRMIC_REF;
+    const release = await githubJson(ref ? "/releases/tags/" + encodeURIComponent(ref) : "/releases/latest");
     if (release && release.tag_name) {
       const tag = String(release.tag_name);
       return {
@@ -1300,89 +1588,146 @@ async function fetchLatestRelease() {
     }
     return null;
   } catch (error) {
-    if (/404/.test(error.message)) return null;
+    if (error.status === 404) return null;
     throw new Error("无法获取 GitHub Release：" + error.message);
   }
 }
 
-async function requireLatestRelease(purpose) {
-  const release = await fetchLatestRelease();
+async function requireLatestRelease(options) {
+  const release = await fetchLatestRelease(options);
   if (!release) {
     fail(
-      "GitHub 仓库 " + REPO + " 尚未发布任何版本（无 Release）。\n" +
-        purpose + " 默认需要从 Release 下载预构建包/镜像，不在服务器上编译。\n" +
-        "请等待发布正式版本（如 v1.1.0）；开发者可用 --source local --build 或 --from 本地预构建包进行测试。",
+      "GitHub 仓库 " + REPO + " 没有对应的 Release。\n" +
+        "当前使用 --source release 强制要求预构建包/镜像。\n" +
+        "去掉 --source（默认 auto）或改用 --source github，即可直接从 GitHub 源码安装并在本机构建。",
     );
   }
   return release;
 }
 
-async function prepareSourceForInstall(home, options) {
-  const source = options.source && options.source !== "release" ? options.source : "local";
-  if (!options.build) {
-    fail(
-      "源码安装需要在目标机器执行 npm ci 与 npm run build；VPS 默认不在本地编译。\n" +
-        "默认请使用 Release 预构建包（不加 --source/--build），或由开发者显式加 --build。",
-    );
+/** Release 中是否同时带预构建包与 .sha256 校验文件；auto 模式据此决定是否回退到源码直装。 */
+function releaseHasBundle(release) {
+  const version = release && release.tag ? String(release.tag).replace(/^v/i, "") : "";
+  if (!version) return false;
+  const expected = bundleArchiveName(version);
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const hasArchive = assets.some((asset) => asset && asset.name === expected);
+  const hasSha = assets.some((asset) => asset && asset.name === expected + ".sha256");
+  return hasArchive && hasSha;
+}
+
+/** 通过 GHCR 匿名 token 探测镜像是否可用；不存在/私有/网络异常都返回 false，由调用方回退本地构建。 */
+async function ghcrImageAvailable(tag) {
+  const repository = REPO.toLowerCase();
+  try {
+    const tokenUrl = "https://ghcr.io/token?service=ghcr.io&scope=" + encodeURIComponent("repository:" + repository + ":pull");
+    const tokenResponse = await requestBuffer(tokenUrl, { timeout: 20000, headers: { Accept: "application/json" } });
+    if (tokenResponse.status < 200 || tokenResponse.status >= 300) return false;
+    const tokenData = JSON.parse(tokenResponse.body.toString("utf8"));
+    const token = tokenData && tokenData.token ? String(tokenData.token) : "";
+    if (!token) return false;
+    const manifestResponse = await requestBuffer("https://ghcr.io/v2/" + repository + "/manifests/" + encodeURIComponent(tag), {
+      timeout: 20000,
+      headers: {
+        Authorization: "Bearer " + token,
+        Accept:
+          "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json",
+      },
+    });
+    return manifestResponse.status >= 200 && manifestResponse.status < 300;
+  } catch {
+    return false;
   }
+}
+
+async function prepareSourceForInstall(workspace, options) {
+  const source = options.source;
   if (source === "local") {
+    if (!options.build) {
+      fail(
+        "--source local 使用当前仓库源码在本机编译，需要显式加 --build。\n" +
+          "VPS 一键安装请直接使用默认 --source auto：有 Release 预构建包时用预构建包，缺失时自动改为从 GitHub 源码构建。",
+      );
+    }
     const root = cliRepoRoot();
     if (!root) {
-      fail("未找到本地 AirMic 源码。请从仓库的 deploy/airmic-cli.mjs 运行，或使用 --source github --build。");
+      fail("未找到本地 AirMic 源码。请从仓库的 deploy/airmic-cli.mjs 运行，或使用 --source github 直接从 GitHub 源码安装。");
     }
-    return { root, ref: detectGitRef(root), kind: "local", version: readPackageVersion(root) };
+    return { type: "source", root, ref: detectGitRef(root), kind: "local", version: readPackageVersion(root), commit: null };
   }
   if (source === "github") {
-    const remote = await resolveLatestRemote();
-    log("  GitHub 源码来源：" + describeRemote(remote));
-    return prepareSourceFromGithub(home, remote);
+    const remote = await resolveSourceRemote(options);
+    log("  GitHub 源码来源：" + describeRemote(remote) + (remote.sha ? "，提交 " + String(remote.sha).slice(0, 8) : ""));
+    return prepareSourceFromGithub(workspace, remote);
   }
-  fail("--source 只支持 release、local 或 github（当前：" + source + "）");
+  fail("--source 只支持 auto、release、github 或 local（当前：" + source + "）");
 }
 
-async function resolveInstallSource(home, options) {
+async function resolveInstallSource(workspace, options) {
   if (options.from) {
     log("  使用 --from 指定的安装包/目录 ...");
-    return prepareFromLocalOrArchive(home, options.from, options);
+    return prepareFromLocalOrArchive(workspace, options.from, options);
   }
   const build = Boolean(options.build);
-  let source = options.source || "release";
-  if (build && source === "release") source = "local";
+  let source = options.source || "auto";
+  if (build && (source === "auto" || source === "release")) source = "local";
+  if (source === "auto") {
+    const release = await fetchLatestRelease(options);
+    if (release && releaseHasBundle(release)) {
+      log("  GitHub 最新 Release：" + release.tag + "（含预构建包，无需编译）");
+      return downloadReleaseBundle(workspace, release);
+    }
+    if (release) {
+      warn("GitHub Release " + release.tag + " 未提供预构建包（" + bundleArchiveName(release.version) + "），改为从 GitHub 源码安装（本机编译）。");
+    } else {
+      warn("GitHub 仓库尚未发布 Release 预构建包，改为直接从 GitHub 源码安装（本机 npm ci + build）。");
+    }
+    source = "github";
+  }
   if (source === "release") {
-    const release = await requireLatestRelease("本地部署");
+    const release = await requireLatestRelease(options);
     log("  GitHub 最新 Release：" + release.tag + (release.assets.length ? "（资产 " + release.assets.length + " 个）" : "（无资产）"));
-    return downloadReleaseBundle(home, release);
+    return downloadReleaseBundle(workspace, release);
   }
-  if (source === "local" || source === "github") {
-    const prepared = await prepareSourceForInstall(home, Object.assign({}, options, { source }));
-    return Object.assign({}, prepared, { type: "source", source: "source-build" });
-  }
-  fail("--source 只支持 release、local 或 github（当前：" + source + "）");
+  const prepared = await prepareSourceForInstall(workspace, { ...options, source });
+  return Object.assign({}, prepared, { type: "source", source: "source-build" });
 }
 
-async function resolveDockerInstallSource(home, options) {
+async function resolveDockerInstallSource(workspace, options) {
   if (options.from) {
-    const prepared = await prepareFromLocalOrArchive(home, options.from, options);
+    const prepared = await prepareFromLocalOrArchive(workspace, options.from, options);
     if (prepared.type === "bundle") {
       return { type: "image", version: prepared.version, ref: prepared.ref, source: "image" };
     }
     if (!options.build) {
-      fail("Docker 模式使用源码包需要显式 --build（在本地构建镜像）；VPS 推荐直接拉取 GHCR 预构建镜像。");
+      fail("Docker 模式使用源码包需要显式 --build（在本地构建镜像）；也可去掉 --from，使用默认 --source auto 直接从 GitHub 安装。");
     }
     return Object.assign({}, prepared, { source: "source-build" });
   }
   const build = Boolean(options.build);
-  let source = options.source || "release";
-  if (build && source === "release") source = "local";
+  let source = options.source || "auto";
+  if (build && (source === "auto" || source === "release")) source = "local";
+  if (source === "auto") {
+    const release = await fetchLatestRelease(options);
+    if (release) {
+      const imageTag = sanitizeImageTag(release.version);
+      log("  检查 GHCR 预构建镜像：" + GHCR_IMAGE + ":" + imageTag + " ...");
+      if (await ghcrImageAvailable(imageTag)) {
+        log("  GitHub 最新 Release：" + release.tag + "（GHCR 镜像可用，无需本地构建）");
+        return { type: "image", version: release.version, ref: release.tag, source: "image", release };
+      }
+      warn("GHCR 镜像 " + imageTag + " 不可用，改为从 GitHub 源码本地构建 Docker 镜像（首次构建需要数分钟）。");
+    } else {
+      warn("GitHub 仓库尚未发布 Release/GHCR 镜像，改为从 GitHub 源码本地构建 Docker 镜像（首次构建需要数分钟）。");
+    }
+    source = "github";
+  }
   if (source === "release") {
-    const release = await requireLatestRelease("Docker 部署");
+    const release = await requireLatestRelease(options);
     return { type: "image", version: release.version, ref: release.tag, source: "image", release };
   }
-  if (source === "local" || source === "github") {
-    const prepared = await prepareSourceForInstall(home, Object.assign({}, options, { source }));
-    return Object.assign({}, prepared, { type: "source", source: "source-build" });
-  }
-  fail("--source 只支持 release、local 或 github（当前：" + source + "）");
+  const prepared = await prepareSourceForInstall(workspace, { ...options, source });
+  return Object.assign({}, prepared, { type: "source", source: "source-build" });
 }
 
 function describeRemote(remote) {
@@ -1396,32 +1741,26 @@ function stopInstalled(home, mode) {
   const info = readVersionInfo(home);
   const actualMode = mode || (info && info.mode) || "local";
   if (actualMode === "docker") {
-    if (hasDocker() && exists(dockerComposeFile(home))) {
+    if (exists(dockerComposeFile(home))) {
+      if (!hasDocker()) fail("未找到 docker 命令，无法停止当前 AirMic 容器。");
       log("  停止已有 Docker 容器...");
-      runDockerCompose(home, ["down"], true);
+      runDockerCompose(home, ["down"]);
     }
   } else {
     stopLocal(home);
   }
 }
 
-function prepareInstallTarget(home, options) {
-  mkdirp(home);
-  const info = readVersionInfo(home);
-  const installed = Boolean(info) || exists(path.join(home, "app"));
-  if (installed && !options.force) {
-    fail("安装目录已存在 AirMic 部署：" + home + "。如需重新安装请加 --force（data/ 与 backups/ 会保留）。");
-  }
-  if (installed && options.force) {
+function prepareInstallTarget(home, { installed }) {
+  if (installed) {
     log("  检测到已有安装，--force 将保留 data/ 与 backups/，重建 app/config/bin/livekit。");
-    stopInstalled(home, info ? info.mode : "local");
+    stopInstalled(home, installedMode(home));
   }
   fs.rmSync(path.join(home, "app"), { recursive: true, force: true });
   fs.rmSync(path.join(home, "config"), { recursive: true, force: true });
-  fs.rmSync(path.join(home, "bin"), { recursive: true, force: true });
   fs.rmSync(path.join(home, "run"), { recursive: true, force: true });
   fs.rmSync(path.join(home, "version.json"), { force: true });
-  if (options.force) fs.rmSync(path.join(home, "livekit", "bin"), { recursive: true, force: true });
+  if (installed) fs.rmSync(path.join(home, "livekit", "bin"), { recursive: true, force: true });
   ensureHomeDirs(home);
 }
 
@@ -1462,11 +1801,16 @@ function assertSafeArchive(archivePath) {
   if (entries.length === 0) fail("压缩包为空：" + archivePath);
   for (const entry of entries) {
     const normalized = entry.split("\\").join("/");
-    if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || normalized.split("/").includes("..")) {
+    const parts = normalized.split("/");
+    if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || parts.includes("..") ||
+        (IS_WIN && parts.some((part) => part !== "." && /[:<>|?*]|[. ]$|^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)))) {
       fail("压缩包包含不安全路径，拒绝解压：" + entry);
     }
   }
-  return entries;
+  const listing = spawnSync("tar", ["-tvf", archivePath], { encoding: "utf8", windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
+  if (listing.status !== 0 || String(listing.stdout).split(/\r?\n/).filter(Boolean).some((entry) => !/^[-d]/.test(entry))) {
+    fail("压缩包包含链接或特殊文件，拒绝解压：" + archivePath);
+  }
 }
 
 function isBundleDir(dir) {
@@ -1526,24 +1870,23 @@ function bundleArchiveName(version) {
   return "airmic-" + String(version).replace(/^v/i, "") + ".tar.gz";
 }
 
-async function downloadReleaseBundle(home, release) {
+async function downloadReleaseBundle(workspace, release) {
   const version = String(release.tag || release.ref || "").replace(/^v/i, "");
-  if (!version) fail("Release 缺少版本号，无法定位预构建包。");
+  if (!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)) fail("Release 版本号无效：" + version);
   const expected = bundleArchiveName(version);
   const assets = Array.isArray(release.assets) ? release.assets : [];
   const archiveAsset = assets.find((asset) => asset && asset.name === expected);
   if (!archiveAsset) {
     fail(
       "该版本未提供预构建包（Release " + release.tag + " 中缺少 " + expected + "）。\n" +
-        "VPS 部署不应现场编译；请等待 Release 资产发布，或由开发者使用 --build 从源码构建。",
+        "可改用 --source github 直接从 GitHub 源码安装（本机编译），或使用 --from 指定离线预构建包。",
     );
   }
   const shaAsset = assets.find((asset) => asset && asset.name === expected + ".sha256");
   if (!shaAsset) {
-    fail("Release 中缺少 " + expected + ".sha256 校验文件，出于安全考虑拒绝安装。可使用 --from 指定本地预构建包。");
+    fail("Release 中缺少 " + expected + ".sha256 校验文件，出于安全考虑拒绝安装。可使用 --source github 从 GitHub 源码安装，或用 --from 指定本地预构建包。");
   }
-  const staging = path.join(home, ".staging", "release-bundle");
-  fs.rmSync(staging, { recursive: true, force: true });
+  const staging = path.join(workspace, "release-bundle");
   mkdirp(staging);
   const archivePath = path.join(staging, expected);
   const shaPath = path.join(staging, expected + ".sha256");
@@ -1557,7 +1900,6 @@ async function downloadReleaseBundle(home, release) {
     fail("预构建包 SHA-256 校验失败：期望 " + expectedHash + "，实际 " + actualHash + "。文件可能损坏或被篡改，已中止。");
   }
   log("  SHA-256 校验通过：" + actualHash.slice(0, 16) + "...");
-  assertSafeArchive(archivePath);
   const extractDir = path.join(staging, "extract");
   mkdirp(extractDir);
   extractArchive(archivePath, extractDir);
@@ -1565,6 +1907,7 @@ async function downloadReleaseBundle(home, release) {
   if (!root) fail("预构建包解压后未找到 AirMic 应用目录（package.json/server/dist/web/dist/node_modules）。");
   validateBundleRoot(root);
   const versionFromPkg = readPackageVersion(root) || version;
+  if (versionFromPkg !== version) fail("Release 标签与预构建包版本不一致：" + release.tag + " / " + versionFromPkg);
   return {
     type: "bundle",
     root,
@@ -1575,9 +1918,8 @@ async function downloadReleaseBundle(home, release) {
   };
 }
 
-async function prepareFromLocalOrArchive(home, from, options) {
-  const staging = path.join(home, ".staging", "from");
-  fs.rmSync(staging, { recursive: true, force: true });
+async function prepareFromLocalOrArchive(workspace, from, options) {
+  const staging = path.join(workspace, "from");
   mkdirp(staging);
   let candidate = null;
   if (isUrl(from)) {
@@ -1585,7 +1927,6 @@ async function prepareFromLocalOrArchive(home, from, options) {
     const archive = path.join(staging, "download" + ext);
     log("  下载安装包：" + from);
     await downloadFile(from, archive);
-    assertSafeArchive(archive);
     const extractDir = path.join(staging, "extract");
     mkdirp(extractDir);
     extractArchive(archive, extractDir);
@@ -1598,7 +1939,6 @@ async function prepareFromLocalOrArchive(home, from, options) {
       candidate = isBundleDir(resolved) || isSourceDir(resolved) ? resolved : findBundleRoot(resolved) || findProjectRoot(resolved);
     } else {
       log("  解压安装包：" + resolved);
-      assertSafeArchive(resolved);
       const extractDir = path.join(staging, "extract");
       mkdirp(extractDir);
       extractArchive(resolved, extractDir);
@@ -1614,8 +1954,8 @@ async function prepareFromLocalOrArchive(home, from, options) {
   if (isSourceDir(candidate)) {
     if (!options.build) {
       fail(
-        "该压缩包是源码包，需要在目标机器编译；VPS 默认不在本地编译。\n" +
-          "请使用官方 Release 预构建包（airmic-<version>.tar.gz），或由开发者显式加 --build 从源码构建。",
+        "该压缩包是源码包，需要在目标机器编译（npm ci + npm run build）。\n" +
+          "请改用官方预构建包，或显式加 --build 确认在本机构建。",
       );
     }
     return { type: "source", root: candidate, version, ref: "local-source", source: "source-build" };
@@ -1625,7 +1965,7 @@ async function prepareFromLocalOrArchive(home, from, options) {
 
 // ============ 安装流程 ============
 
-async function installLocal(home, options, sourceInfo) {
+async function installLocal(home, options, sourceInfo, workspace) {
   const appDir = path.join(home, "app");
   const port = resolvePort(options);
   const host = options.host || "127.0.0.1";
@@ -1635,23 +1975,11 @@ async function installLocal(home, options, sourceInfo) {
   const isBundle = sourceInfo.type === "bundle";
   let version = sourceInfo.version || "0.0.0";
 
-  step(2, 7, isBundle ? "使用预构建包，无需编译（复制到 app/）..." : "复制源码并构建（开发者 --build，npm ci + npm run build）...");
-  if (isBundle) {
-    log("  使用 Release 预构建包，跳过 npm install / build。");
-    copyBundleTree(sourceInfo.root, appDir);
-    version = readPackageVersion(appDir) || version;
-    if (!verifyAppRuntime(appDir)) {
-      fail("预构建包运行时依赖预检失败：无法解析 @airmic/shared。请重新下载预构建包。");
-    }
-  } else {
-    copyProjectTree(sourceInfo.root, appDir);
-    version = readPackageVersion(appDir) || version;
-    if (!hasNpm()) fail("源码构建需要 npm，请安装 Node.js（自带 npm）后重试，或改用默认的 Release 预构建包。");
-    npmInstallAndBuild(appDir);
-    if (!fixWorkspaceLinks(appDir)) {
-      fail("安装预检失败：新构建的应用无法解析 @airmic/shared，请检查 shared/dist 与 node_modules 后重试。");
-    }
-  }
+  fs.rmdirSync(appDir);
+  fs.renameSync(sourceInfo.appSource, appDir);
+  version = readPackageVersion(appDir) || version;
+  const runtimeOk = isBundle ? verifyAppRuntime(appDir) : fixWorkspaceLinks(appDir);
+  if (!runtimeOk) fail("安装预检失败：应用无法解析 @airmic/shared。");
 
   step(3, 7, "生成运行配置与 LiveKit 配置 ...");
   writeAirMicEnv(home, { mode: "local", port, host, keys, setupToken, jwtSecret });
@@ -1664,7 +1992,7 @@ async function installLocal(home, options, sourceInfo) {
   let livekitVersion = null;
   if (!options.noLivekit) {
     step(5, 7, "下载并安装 LiveKit Server ...");
-    livekitVersion = await installLivekitBinary(home, options.livekit_version);
+    livekitVersion = await installLivekitBinary(home, options.livekit_version, workspace);
     if (!livekitVersion) warn("LiveKit 未安装成功，语音暂不可用；可手动把二进制放入 " + path.join(home, "livekit", "bin") + " 后执行 restart。");
   } else {
     step(5, 7, "跳过 LiveKit 下载（--no-livekit），语音暂不可用。");
@@ -1673,6 +2001,7 @@ async function installLocal(home, options, sourceInfo) {
   writeVersionInfo(home, {
     version,
     ref: sourceInfo.ref,
+    commit: sourceInfo.commit || null,
     source: isBundle ? "release-bundle" : "source-build",
     mode: "local",
     livekitVersion,
@@ -1707,7 +2036,7 @@ async function installDocker(home, options, sourceInfo) {
   if (useImage) {
     step(2, 7, "使用 GHCR 预构建镜像，无需编译（" + GHCR_IMAGE + ":" + version + "）...");
   } else {
-    step(2, 7, "复制源码，准备本地 Docker 构建（开发者 --build）...");
+    step(2, 7, "复制 GitHub 源码，准备本地 Docker 镜像构建（首次构建需要数分钟）...");
     copyProjectTree(sourceInfo.root, appDir);
     version = readPackageVersion(appDir) || version;
   }
@@ -1719,7 +2048,7 @@ async function installDocker(home, options, sourceInfo) {
 
   step(4, 7, "准备管理脚本 ...");
   copyManagementScripts(home, useImage ? null : path.join(appDir, "deploy"));
-  writeVersionInfo(home, { version, ref: sourceInfo.ref, source: useImage ? "image" : "source-build", mode: "docker", livekitVersion });
+  writeVersionInfo(home, { version, ref: sourceInfo.ref, commit: sourceInfo.commit || null, source: useImage ? "image" : "source-build", mode: "docker", livekitVersion });
   cleanupOldLogs(home, 3);
 
   if (useImage) {
@@ -1740,7 +2069,7 @@ async function installDocker(home, options, sourceInfo) {
     step(6, 7, "启动容器 ...");
     runDockerCompose(home, ["up", "-d"]);
   } else {
-    step(5, 7, "本地构建并启动 Docker 镜像（开发者 --build，可能较慢）...");
+    step(5, 7, "本地构建并启动 Docker 镜像（从 GitHub 源码构建，首次可能较慢）...");
     runDockerCompose(home, ["up", "-d", "--build"]);
     step(6, 7, "等待服务启动 ...");
   }
@@ -1762,24 +2091,38 @@ async function runInstall(options) {
   } else if (!nodeSatisfies(MIN_NODE_APP)) {
     fail("Node.js 版本过低：当前 " + process.versions.node + "，本地运行 AirMic 需要 >= " + MIN_NODE_APP + "（推荐 24 LTS）。");
   }
-  log("");
-  log("AirMic 部署 CLI v" + CLI_VERSION + "  模式：" + (mode === "docker" ? "Docker" : "本地") + "  安装目录：" + home);
-  log("  默认使用 GitHub Release 预构建包/镜像，不在服务器上编译（开发者可加 --build）。");
-  log("");
-  prepareInstallTarget(home, options);
-  step(1, 7, "解析部署来源（Release 预构建包 / 镜像 / --from 离线包）...");
-  const sourceInfo = mode === "docker" ? await resolveDockerInstallSource(home, options) : await resolveInstallSource(home, options);
-  log("  版本：v" + (sourceInfo.version || "未知") + "，来源：" + describeSource(sourceInfo.source) + "，ref：" + (sourceInfo.ref || "未知"));
-  if (mode === "docker") return installDocker(home, options, sourceInfo);
-  return installLocal(home, options, sourceInfo);
+  printHeader(APP_NAME + " 安装 · " + (mode === "docker" ? "Docker 模式" : "本地模式"), [
+    field("安装目录", home),
+    field("CLI 版本", "v" + CLI_VERSION),
+    field("来源策略", "GitHub Release 预构建包/镜像优先，缺失时直接从 GitHub 源码构建"),
+  ]);
+  return withDeploymentLock(home, "install", async (state) => {
+    if (state.installed && !options.force) fail("该目录已有 AirMic 部署。请使用 upgrade，或加 --force 重新安装：" + home);
+    return withStaging(home, async (workspace) => {
+      step(1, 7, "解析部署来源（Release 预构建包 / GHCR 镜像 / GitHub 源码 / --from 离线包）...");
+      const sourceInfo = mode === "docker" ? await resolveDockerInstallSource(workspace, options) : await resolveInstallSource(workspace, options);
+      log("  版本：v" + (sourceInfo.version || "未知") + "，来源：" + describeSource(sourceInfo.source) + "，ref：" + (sourceInfo.ref || "未知"));
+      if (mode === "local") {
+        step(2, 7, sourceInfo.type === "bundle" ? "准备预构建包，无需编译 ..." : "在临时目录构建源码 ...");
+        sourceInfo.appSource = await prepareUpgradeApp(workspace, { ...sourceInfo, kind: sourceInfo.type }, mode);
+        const runtimeOk = sourceInfo.type === "bundle" ? verifyAppRuntime(sourceInfo.appSource) : fixWorkspaceLinks(sourceInfo.appSource);
+        if (!runtimeOk) fail("待安装应用无法解析 @airmic/shared。");
+      }
+      validateHome(resolveHome(options), "install");
+      prepareInstallTarget(home, state);
+      if (mode === "docker") return installDocker(home, options, sourceInfo);
+      return installLocal(home, options, sourceInfo, workspace);
+    });
+  });
 }
 function writeVersionInfo(home, info) {
   writeJson(path.join(home, "version.json"), {
     version: info.version,
     ref: info.ref,
+    commit: info.commit || null,
     source: info.source || "source-build",
     mode: info.mode,
-    repo: REPO,
+    repo: info.repo || REPO,
     installedAt: info.installedAt || new Date().toISOString(),
     livekitVersion: info.livekitVersion || null,
   });
@@ -1787,7 +2130,7 @@ function writeVersionInfo(home, info) {
 function describeSource(source) {
   if (source === "release-bundle") return "Release 预构建包（无需编译）";
   if (source === "image") return "GHCR 预构建镜像（无需编译）";
-  if (source === "source-build") return "源码构建（开发者模式）";
+  if (source === "source-build") return "源码构建（从 GitHub 源码或本地仓库构建）";
   return "未知/旧版安装";
 }
 
@@ -1797,7 +2140,7 @@ function installedMode(home) {
 }
 
 function ensureInstalled(home) {
-  if (!exists(path.join(home, "version.json")) && !exists(path.join(home, "app"))) {
+  if (!validateHome(home, "manage").installed) {
     fail("未找到 AirMic 安装（" + home + "）。请先执行 install。");
   }
 }
@@ -1840,7 +2183,7 @@ async function startCommand(options) {
 
 async function stopCommand(options) {
   const home = resolveHome(options);
-  if (!exists(home)) fail("安装目录不存在：" + home);
+  ensureInstalled(home);
   const mode = options.mode || installedMode(home);
   log("AirMic 停止（" + (mode === "docker" ? "Docker" : "本地") + "模式）");
   if (mode === "docker") {
@@ -1866,32 +2209,36 @@ async function statusCommand(options) {
   const mode = options.mode || (info.mode === "docker" ? "docker" : "local");
   const env = loadRuntimeEnv(home);
   const port = Number(env.PORT || DEFAULT_PORT);
-  log("");
-  log("AirMic 部署状态");
-  log("  安装目录 : " + home);
-  log("  部署模式 : " + (mode === "docker" ? "Docker" : "本地"));
-  log("  当前版本 : v" + (readAppVersion(home) || info.version || "未知"));
-  log("  Git ref  : " + (info.ref || "未知"));
-  log("  安装来源 : " + describeSource(info.source));
-  log("  LiveKit  : " + (info.livekitVersion ? info.livekitVersion : mode === "docker" ? DEFAULT_LIVEKIT_VERSION + "（容器）" : "未安装/未记录"));
-  log("  访问地址 : http://" + displayHost(env.HOST) + ":" + port);
-  if (mode === "docker") {
-    if (!hasDocker()) warn("未找到 docker 命令，无法读取容器状态。");
-    else runDockerCompose(home, ["ps"], true);
-  } else {
+  const health = await quickHealth(env.HOST, port);
+  const healthText = health.ok
+    ? "正常" + (health.body && health.body.version ? "（v" + health.body.version + "）" : "")
+    : "异常" + (health.error ? "（" + health.error + "）" : health.status ? "（HTTP " + health.status + "）" : "");
+  const rows = [
+    field("安装目录", home),
+    field("部署模式", mode === "docker" ? "Docker" : "本地"),
+    field("当前版本", "v" + (readAppVersion(home) || info.version || "未知")),
+    field("Git ref", info.ref || "未知"),
+    field("提交版本", info.commit ? String(info.commit).slice(0, 8) : "未记录（旧版安装）"),
+    field("安装来源", describeSource(info.source)),
+    field("LiveKit", info.livekitVersion ? info.livekitVersion : mode === "docker" ? DEFAULT_LIVEKIT_VERSION + "（容器）" : "未安装/未记录"),
+    field("访问地址", "http://" + displayHost(env.HOST) + ":" + port),
+  ];
+  if (mode !== "docker") {
     const cleanupPid = cleanupDaemonPid(home);
-    log("  日志清理 : " + (cleanupPid && isProcessAlive(cleanupPid) ? "运行中（PID " + cleanupPid + "）" : "未运行"));
+    rows.push(field("日志清理", cleanupPid && isProcessAlive(cleanupPid) ? "运行中（PID " + cleanupPid + "）" : "未运行"));
     for (const name of ["airmic", "livekit"]) {
       const pid = readPid(home, name);
       const alive = pid && isProcessAlive(pid);
-      log("  " + name + " 进程 : " + (alive ? "运行中（PID " + pid + "）" : pid ? "已退出（PID " + pid + "）" : "未运行"));
+      rows.push(field(name + " 进程", alive ? "运行中（PID " + pid + "）" : pid ? "已退出（PID " + pid + "）" : "未运行"));
     }
   }
-  const health = await quickHealth(env.HOST, port);
-  if (health.ok) log("  健康检查 : 正常" + (health.body && health.body.version ? "（v" + health.body.version + "）" : ""));
-  else log("  健康检查 : 异常" + (health.error ? "（" + health.error + "）" : health.status ? "（HTTP " + health.status + "）" : ""));
-  log("  日志目录 : " + path.join(home, "logs"));
-  log("");
+  rows.push(field("健康检查", paint(health.ok ? "green" : "yellow", healthText)));
+  rows.push(field("日志目录", path.join(home, "logs")));
+  printHeader(APP_NAME + " 部署状态", rows);
+  if (mode === "docker") {
+    if (!hasDocker()) warn("未找到 docker 命令，无法读取容器状态。");
+    else runDockerCompose(home, ["ps"], true);
+  }
   return 0;
 }
 
@@ -1933,7 +2280,7 @@ async function checkUpdateCommand(options) {
   const emitLog = jsonMode ? (line) => console.error(line) : (line) => console.log(line);
   let remote;
   try {
-    remote = await resolveLatestRemote();
+    remote = await resolveSourceRemote(options);
   } catch (error) {
     const payload = { ok: false, currentVersion: localVersion, error: error.message, checkedAt: new Date().toISOString() };
     if (jsonMode) console.log(JSON.stringify(payload, null, 2));
@@ -1943,18 +2290,33 @@ async function checkUpdateCommand(options) {
   let latestVersion = null;
   let updateAvailable = false;
   let error = null;
+  const installedCommit = info && info.commit ? String(info.commit) : null;
+  const latestCommit = remote.sha ? String(remote.sha) : null;
   if (remote.kind === "release" || remote.kind === "tag") {
     const normalized = normalizeVersion(remote.ref);
     latestVersion = normalized ? String(remote.ref).replace(/^v/i, "") : null;
     updateAvailable = latestVersion ? compareVersions(latestVersion, localVersion) > 0 : false;
   } else {
-    updateAvailable = true;
-    error = "仓库尚未发布版本 Tag/Release，已回退默认分支 " + remote.ref + " 检查提交。注意：默认 upgrade 只使用 Release 预构建包/镜像，发布 v* 标签后才能在线升级；开发者可用 --build 或 --from。建议在 GitHub 上打标签（如 v1.1.0）以获得版本化更新。";
+    latestVersion = remote.version || null;
+    if (latestCommit && installedCommit) {
+      updateAvailable = latestCommit !== installedCommit;
+    } else if (latestVersion) {
+      updateAvailable = compareVersions(latestVersion, localVersion) > 0;
+    } else {
+      updateAvailable = true;
+    }
+    if (remote.kind === "branch") {
+      error =
+        "仓库尚未发布版本 Tag/Release：upgrade 会直接从默认分支 " + remote.ref + " 的 GitHub 源码重新构建安装（本机编译，无需 clone 仓库）。" +
+        "建议在 GitHub 上打标签（如 v1.1.0）以获得预构建包与版本化更新。";
+    }
   }
   const result = {
     ok: true,
     currentVersion: localVersion,
+    currentCommit: installedCommit,
     latestVersion,
+    latestCommit,
     latestRef: remote.ref,
     latestSource: remote.kind,
     updateAvailable,
@@ -1971,10 +2333,11 @@ async function checkUpdateCommand(options) {
   } else {
     log("");
     log("AirMic 在线更新检查");
-    log("  当前版本 : v" + localVersion);
+    log("  当前版本 : v" + localVersion + (installedCommit ? "（提交 " + installedCommit.slice(0, 8) + "）" : ""));
     log("  GitHub   : " + REPO);
     log("  最新来源 : " + describeRemote(remote));
-    log("  最新版本 : " + (latestVersion ? "v" + latestVersion : "（无 Tag/Release）"));
+    log("  最新版本 : " + (latestVersion ? "v" + latestVersion : "（无 Tag/Release，使用 " + remote.ref + " 源码）"));
+    if (latestCommit) log("  最新提交 : " + latestCommit.slice(0, 8));
     log("  更新状态 : " + (updateAvailable ? "有新版本可用" : "已是最新"));
     if (remote.url) log("  发布页面 : " + remote.url);
     if (error) log("  说明     : " + error);
@@ -1990,7 +2353,7 @@ async function checkUpdateCommand(options) {
 function backupDatabase(home) {
   const db = path.join(home, "data", "airmic.db");
   if (!exists(db)) return null;
-  const base = path.join(home, "backups", "airmic-db-" + nowStamp());
+  const base = path.join(home, "backups", "airmic-db-" + nowStamp() + "-" + randomHex(4));
   mkdirp(path.dirname(base));
   fs.copyFileSync(db, base + ".db");
   for (const ext of ["-wal", "-shm"]) {
@@ -2015,19 +2378,15 @@ function isUrl(value) {
   return /^https?:\/\//i.test(String(value));
 }
 
-async function extractSourceArchive(home, archivePath, label) {
-  const extractDir = path.join(home, ".staging", "extract-" + label + "-" + nowStamp());
-  mkdirp(extractDir);
-  extractArchive(archivePath, extractDir);
-  const root = findProjectRoot(extractDir);
-  if (!root) fail("压缩包中没有找到 AirMic 项目（缺少 package.json/server/src/web/src）：" + archivePath);
-  return { root, ref: "local-archive", kind: "local" };
+function releaseAlreadyInstalled(release, info, source, options) {
+  const order = compareVersions(release.version, info.version || "0.0.0");
+  return !options.force && (order < 0 || (order === 0 && info.source === source));
 }
 
-async function resolveUpgradeTarget(home, info, options) {
+async function resolveUpgradeTarget(workspace, info, options) {
   const mode = info.mode === "docker" ? "docker" : "local";
   if (options.from) {
-    const prepared = await prepareFromLocalOrArchive(home, options.from, options);
+    const prepared = await prepareFromLocalOrArchive(workspace, options.from, options);
     if (prepared.type === "bundle") {
       log("  使用预构建包，无需编译：" + prepared.version);
       return {
@@ -2041,36 +2400,77 @@ async function resolveUpgradeTarget(home, info, options) {
     return Object.assign({}, prepared, { kind: "source", source: "source-build" });
   }
   const build = Boolean(options.build);
-  let source = options.source || "release";
-  if (build && source === "release") source = "local";
+  let source = options.source || "auto";
+  if (build && (source === "auto" || source === "release")) source = "local";
+
+  if (source === "auto") {
+    const release = await fetchLatestRelease(options);
+    if (mode === "docker") {
+      const imageTag = release ? sanitizeImageTag(release.version) : null;
+      if (release && imageTag && (await ghcrImageAvailable(imageTag))) {
+        log("  GitHub 最新 Release：" + release.tag + "（GHCR 镜像可用）");
+        if (releaseAlreadyInstalled(release, info, "image", options)) {
+          return { kind: "latest", version: release.version, ref: release.tag, release };
+        }
+        return { kind: "image", version: release.version, ref: release.tag, source: "image", release };
+      }
+      warn(release ? "GHCR 镜像 " + imageTag + " 不可用，改为从 GitHub 源码升级（本地重建镜像）。" : "仓库尚未发布 Release/GHCR 镜像，改为从 GitHub 源码升级（本地重建镜像）。");
+      source = "github";
+    } else if (release && releaseHasBundle(release)) {
+      log("  GitHub 最新 Release：" + release.tag + "（含预构建包）");
+      if (releaseAlreadyInstalled(release, info, "release-bundle", options)) {
+        return { kind: "latest", version: release.version, ref: release.tag, release };
+      }
+      const bundle = await downloadReleaseBundle(workspace, release);
+      return Object.assign({}, bundle, { kind: "bundle", source: "release-bundle" });
+    } else {
+      warn(release ? "Release " + release.tag + " 未提供预构建包，改为从 GitHub 源码升级（本机重新构建）。" : "仓库尚未发布 Release，改为直接从 GitHub 源码升级（本机重新构建）。");
+      source = "github";
+    }
+  }
+
   if (source === "release") {
-    const release = await requireLatestRelease("在线升级");
+    const release = await requireLatestRelease(options);
     log("  GitHub 最新 Release：" + release.tag);
-    if (!options.force && compareVersions(release.version, info.version || "0.0.0") <= 0) {
+    if (releaseAlreadyInstalled(release, info, mode === "docker" ? "image" : "release-bundle", options)) {
       return { kind: "latest", version: release.version, ref: release.tag, release };
     }
     if (mode === "docker") {
       return { kind: "image", version: release.version, ref: release.tag, source: "image", release };
     }
-    const bundle = await downloadReleaseBundle(home, release);
+    const bundle = await downloadReleaseBundle(workspace, release);
     return Object.assign({}, bundle, { kind: "bundle", source: "release-bundle" });
   }
+
   if (source === "local" || source === "github") {
-    const prepared = await prepareSourceForInstall(home, Object.assign({}, options, { source }));
+    if (source === "github") {
+      const remote = await resolveSourceRemote(options);
+      log("  GitHub 源码来源：" + describeRemote(remote) + (remote.sha ? "，提交 " + String(remote.sha).slice(0, 8) : ""));
+      if (!options.force && remote.sha && info.commit && String(remote.sha) === String(info.commit)) {
+        return { kind: "latest", version: info.version || null, ref: remote.ref, commit: remote.sha };
+      }
+      const prepared = await prepareSourceFromGithub(workspace, remote);
+      return Object.assign({}, prepared, { kind: "source", source: "source-build" });
+    }
+    const prepared = await prepareSourceForInstall(workspace, { ...options, source });
     return Object.assign({}, prepared, { kind: "source", source: "source-build" });
   }
-  fail("--source 只支持 release、local 或 github（当前：" + source + "）");
+  fail("--source 只支持 auto、release、github 或 local（当前：" + source + "）");
 }
 
-async function prepareUpgradeApp(home, target, mode, options) {
+async function prepareUpgradeApp(workspace, target, mode) {
   if (target.kind === "image") return null;
-  if (target.kind === "bundle") return target.appSource || target.root;
+  const appNext = path.join(workspace, "app-next");
+  if (target.kind === "bundle") {
+    const bundle = target.appSource || target.root;
+    if (pathIsWithin(workspace, bundle)) fs.renameSync(bundle, appNext);
+    else copyBundleTree(bundle, appNext);
+    return appNext;
+  }
   if (target.kind === "source") {
-    const appNext = path.join(home, ".staging", "app-next");
-    fs.rmSync(appNext, { recursive: true, force: true });
     copyProjectTree(target.root, appNext);
     if (mode === "local") {
-      log("  构建新版本（开发者 --build，npm ci + npm run build）...");
+      log("  构建新版本（从 GitHub 源码构建，npm ci + npm run build）...");
       if (!hasNpm()) fail("源码升级需要 npm；VPS 请使用 Release 预构建包，或安装 Node/npm 后重试。");
       npmInstallAndBuild(appNext);
     }
@@ -2082,27 +2482,32 @@ async function prepareUpgradeApp(home, target, mode, options) {
 async function upgradeCommand(options) {
   const home = resolveHome(options);
   ensureInstalled(home);
+  if (options.check) return checkUpdateCommand(options);
+  return withDeploymentLock(home, "upgrade", () =>
+    withStaging(home, (workspace) => upgradeInstalled(home, workspace, options)));
+}
+
+async function upgradeInstalled(home, workspace, options) {
   const info = readVersionInfo(home) || {};
   const mode = info.mode === "docker" ? "docker" : "local";
-  if (options.check) return checkUpdateCommand(options);
 
-  log("");
-  log("AirMic OTA 升级（当前 v" + (info.version || "未知") + "，模式：" + (mode === "docker" ? "Docker" : "本地") + "）");
-  log("  默认下载 Release 预构建包/拉取 GHCR 镜像，不在服务器上编译（开发者可加 --build）。");
-  log("");
+  printHeader(APP_NAME + " OTA 升级", [
+    field("当前版本", "v" + (info.version || "未知") + (info.commit ? "（提交 " + String(info.commit).slice(0, 8) + "）" : "")),
+    field("部署模式", mode === "docker" ? "Docker" : "本地"),
+    field("安装目录", home),
+    field("来源策略", "Release 预构建包/镜像优先，缺失时直接从 GitHub 源码重建"),
+  ]);
 
-  step(1, 7, "解析升级来源（Release 预构建包 / 镜像 / --from 离线包）...");
-  const target = await resolveUpgradeTarget(home, info, options);
+  step(1, 7, "解析升级来源（Release 预构建包 / GHCR 镜像 / GitHub 源码 / --from 离线包）...");
+  const target = await resolveUpgradeTarget(workspace, info, options);
   if (target.kind === "latest") {
-    log("  已是最新版本（当前 v" + (info.version || "未知") + "，GitHub：" + target.ref + "），无需升级。");
+    log(
+      "  已是最新版本（当前 v" + (info.version || "未知") + (info.commit ? "，提交 " + String(info.commit).slice(0, 8) : "") + "，GitHub：" + target.ref + "），无需升级。",
+    );
     log("  如需强制重新安装同版本：upgrade --force");
     return 0;
   }
-  log("  目标版本：v" + target.version + "，来源：" + describeSource(target.source) + "，ref：" + (target.ref || "未知"));
-  if (target.kind === "image" && !options.force && !options.from && compareVersions(target.version, info.version || "0.0.0") <= 0) {
-    log("  已是最新镜像版本，无需升级。");
-    return 0;
-  }
+  log("  目标版本：" + (target.version ? "v" + target.version : target.ref) + "，来源：" + describeSource(target.source) + "，ref：" + (target.ref || "未知"));
 
   const oldCompose = mode === "docker" && exists(dockerComposeFile(home)) ? fs.readFileSync(dockerComposeFile(home), "utf8") : null;
 
@@ -2119,49 +2524,41 @@ async function upgradeCommand(options) {
       );
     }
   } else {
-    appSource = await prepareUpgradeApp(home, target, mode, options);
+    appSource = await prepareUpgradeApp(workspace, target, mode);
     if (target.kind === "source" && mode === "local" && !fixWorkspaceLinks(appSource)) {
       fail("新版本源码构建后无法解析 @airmic/shared，升级中止（旧版本服务未改动）。");
     }
   }
 
+  validateHome(resolveHome(options), "upgrade");
   const env = loadRuntimeEnv(home);
   const port = Number(env.PORT || DEFAULT_PORT);
-  const oldVersion = info.version || "unknown";
+  const oldVersion = sanitizeRef(info.version || "unknown");
   const oldApp = path.join(home, "app");
-  const backupApp = path.join(home, "backups", "app-" + oldVersion + "-" + nowStamp());
+  const backupApp = path.join(home, "backups", "app-" + oldVersion + "-" + nowStamp() + "-" + randomHex(4));
   let appMoved = false;
-
-  step(3, 7, "停止当前服务 ...");
-  stopInstalled(home, mode);
-
-  step(4, 7, "备份数据库与旧版本 ...");
-  const dbBackup = backupDatabase(home);
-  log("  " + (dbBackup ? "数据库备份：" + dbBackup : "未找到数据库文件，跳过备份"));
-  if (appSource) {
-    if (exists(oldApp)) {
-      mkdirp(path.dirname(backupApp));
-      fs.renameSync(oldApp, backupApp);
-      appMoved = true;
-    }
-    fs.renameSync(appSource, oldApp);
-    if (target.kind === "source") fixWorkspaceLinks(oldApp);
-    else if (!verifyAppRuntime(oldApp)) warn("预构建包应用目录运行时预检失败（@airmic/shared 无法解析），将继续启动并依赖健康检查回滚。");
-    copyManagementScripts(home, path.join(oldApp, "deploy"));
-  } else {
-    copyManagementScripts(home, null);
-  }
-  writeVersionInfo(home, {
-    version: target.version,
-    ref: target.ref,
-    source: target.source,
-    mode,
-    livekitVersion: info.livekitVersion || null,
-    installedAt: new Date().toISOString(),
-  });
-
-  step(5, 7, "启动新版本 ...");
+  let appReplaced = false;
+  let dbBackup;
   try {
+    step(3, 7, "停止当前服务 ...");
+    stopInstalled(home, mode);
+    step(4, 7, "备份数据库与旧版本 ...");
+    dbBackup = backupDatabase(home);
+    log("  " + (dbBackup ? "数据库备份：" + dbBackup : "未找到数据库文件，跳过备份"));
+    if (appSource) {
+      if (exists(oldApp)) {
+        mkdirp(path.dirname(backupApp));
+        fs.renameSync(oldApp, backupApp);
+        appMoved = true;
+      }
+      fs.renameSync(appSource, oldApp);
+      appReplaced = true;
+      if (mode === "local") {
+        const runtimeOk = target.kind === "source" ? fixWorkspaceLinks(oldApp) : verifyAppRuntime(oldApp);
+        if (!runtimeOk) fail("新版本无法解析 @airmic/shared。");
+      }
+    }
+    step(5, 7, "启动新版本 ...");
     if (mode === "docker") {
       const livekitVersion = info.livekitVersion && /^v/.test(String(info.livekitVersion)) ? info.livekitVersion : DEFAULT_LIVEKIT_VERSION;
       if (target.kind === "image") {
@@ -2182,6 +2579,15 @@ async function upgradeCommand(options) {
       const health = await fetchHealth(env.HOST, port, 120000);
       log("  健康检查通过：v" + (health.version || target.version));
     }
+    copyManagementScripts(home, appSource ? path.join(oldApp, "deploy") : null);
+    writeVersionInfo(home, {
+      version: target.version,
+      ref: target.ref,
+      commit: target.commit || null,
+      source: target.source,
+      mode,
+      livekitVersion: info.livekitVersion || null,
+    });
   } catch (error) {
     warn("升级失败：" + error.message);
     warn("开始自动回滚到 v" + oldVersion + " ...");
@@ -2195,12 +2601,9 @@ async function upgradeCommand(options) {
       /* ignore */
     }
     restoreDatabase(home, dbBackup);
-    if (appMoved) {
-      fs.rmSync(oldApp, { recursive: true, force: true });
-      if (exists(backupApp)) fs.renameSync(backupApp, oldApp);
-    }
+    if (appReplaced) fs.rmSync(oldApp, { recursive: true, force: true });
+    if (appMoved) fs.renameSync(backupApp, oldApp);
     if (oldCompose) fs.writeFileSync(dockerComposeFile(home), oldCompose, "utf8");
-    fs.rmSync(path.join(home, ".staging"), { recursive: true, force: true });
     if (info && info.version) writeVersionInfo(home, info);
     else fs.rmSync(path.join(home, "version.json"), { force: true });
     try {
@@ -2226,7 +2629,6 @@ async function upgradeCommand(options) {
   }
 
   step(6, 7, "清理临时文件 ...");
-  fs.rmSync(path.join(home, ".staging"), { recursive: true, force: true });
   step(7, 7, "升级完成：v" + oldVersion + " -> v" + target.version + "（" + describeSource(target.source) + "）");
   if (appMoved) log("  旧版本 app 备份：" + backupApp);
   log("  数据库备份    ：" + (dbBackup || "无"));
@@ -2246,43 +2648,47 @@ function confirm(question) {
 
 async function uninstallCommand(options) {
   const home = resolveHome(options);
-  const info = readVersionInfo(home);
-  if (!exists(home) || (!info && !exists(path.join(home, "app")))) {
-    fail("未找到 AirMic 安装目录（" + home + "）。");
-  }
-  const mode = info && info.mode === "docker" ? "docker" : "local";
-  if (!options.yes) {
-    if (!process.stdin.isTTY) fail("当前为非交互环境，请加 --yes 确认卸载。");
-    const ok = await confirm("确认卸载 " + home + " 下的 AirMic（data/ 与 backups/ 默认保留）？");
-    if (!ok) {
-      log("已取消。");
-      return 0;
+  printHeader(APP_NAME + " 卸载", [
+    field("安装目录", home),
+    field("清理范围", options.purge ? "程序 + 数据/备份（--purge）" : "仅程序，保留 data/ 与 backups/"),
+  ]);
+  const completed = await withDeploymentLock(home, "uninstall", async (state) => {
+    if (!state.installed && !state.owned) fail("未找到 AirMic 安装目录：" + home);
+    if (!options.yes) {
+      if (!process.stdin.isTTY) fail("当前为非交互环境，请加 --yes 确认卸载。");
+      const scope = options.purge ? "（同时删除 AirMic 的 data/ 与 backups/）" : "（保留 data/ 与 backups/）";
+      if (!(await confirm("确认卸载 " + home + " 下的 AirMic" + scope + "？"))) {
+        log("已取消。");
+        return false;
+      }
     }
-  }
-  log("正在停止服务 ...");
-  stopInstalled(home, mode);
-  if (mode === "docker" && hasDocker()) {
-    try {
-      runDockerCompose(home, ["down"], true);
-    } catch {
-      /* ignore */
+    validateHome(resolveHome(options), "uninstall");
+    if (options.purge && IS_WIN && pathIsWithin(path.join(home, ".runtime"), process.execPath)) {
+      fail("Windows 正在使用安装目录里的 Node。请通过仓库的一键脚本执行 uninstall --purge，以便从临时目录运行。");
     }
-  }
+    markHome(home);
+    if (state.installed) stopInstalled(home, installedMode(home));
+    const directories = options.purge ? [...MANAGED_DIRS, ...RETAINED_DIRS] : MANAGED_DIRS.filter((dir) => dir !== ".runtime");
+    for (const dir of directories) {
+      const target = path.join(home, dir);
+      if (assertPlainPath(target, "directory")) fs.rmSync(target, { recursive: true });
+    }
+    fs.rmSync(path.join(home, "version.json"), { force: true });
+    if (options.purge) fs.unlinkSync(path.join(home, HOME_MARKER));
+    return true;
+  });
+  if (!completed) return 0;
   if (options.purge) {
-    fs.rmSync(home, { recursive: true, force: true });
-    log("已删除整个安装目录：" + home);
-    return 0;
+    try {
+      fs.rmdirSync(home);
+      log("已删除 AirMic 安装目录：" + home);
+    } catch (error) {
+      if (error.code !== "ENOTEMPTY" && error.code !== "EEXIST") throw error;
+      log("已清除 AirMic 文件与数据，安装目录中的其他文件已保留：" + home);
+    }
+  } else {
+    log("已卸载 AirMic 程序，data/ 与 backups/ 保留于：" + home);
   }
-  for (const dir of ["app", "bin", "config", "livekit", "logs", "run", ".staging"]) {
-    fs.rmSync(path.join(home, dir), { recursive: true, force: true });
-  }
-  fs.rmSync(path.join(home, "version.json"), { force: true });
-  log("");
-  log("已卸载 AirMic 程序文件，以下数据已保留：");
-  log("  data/    : " + path.join(home, "data"));
-  log("  backups/ : " + path.join(home, "backups"));
-  log("如需全部删除：node " + CLI_FILE + " uninstall --dir \"" + home + "\" --purge --yes");
-  log("或直接删除目录：" + home);
   return 0;
 }
 
@@ -2297,14 +2703,14 @@ function printHelp() {
     "（安装后也可直接使用安装目录 bin/airmic、bin/airmic.ps1、bin/airmic.cmd）",
     "",
     "命令：",
-    "  install              安装部署（默认本地模式；从 GitHub Release 下载预构建包，不在服务器编译）",
+    "  install              安装部署（默认本地模式；优先 Release 预构建包，无 Release 时直接从 GitHub 源码构建）",
     "  start                启动已安装的服务",
     "  stop                 停止服务",
     "  restart              重启服务",
     "  status               查看进程、健康检查、版本、安装来源与访问地址",
     "  logs                 查看日志（本地每日文件 / Docker compose logs）",
     "  check-update         检查 GitHub 最新版本（退出码：0 最新、10 有更新、1 失败）",
-    "  upgrade              在线 OTA 升级（下载预构建包/镜像，自动备份、原子切换、失败回滚，不编译）",
+    "  upgrade              在线 OTA 升级（自动识别 Release/源码来源；自动备份、原子切换、失败自动回滚）",
     "  uninstall            卸载（默认保留 data/ 与 backups/）",
     "  docker-up            以 Docker 模式启动",
     "  docker-down          以 Docker 模式停止",
@@ -2316,8 +2722,9 @@ function printHelp() {
     "install 选项：",
     "  --mode local|docker      部署模式（默认 local）",
     "  --dir <路径>             安装目录（默认 Windows: %USERPROFILE%\\.airmic，Linux/macOS: ~/.airmic；或环境变量 AIRMIC_HOME）",
-    "  --source release|local|github  部署来源（默认 release=GitHub Release 预构建包/镜像）",
-    "  --build                  开发者模式：允许 --source local/github 源码安装（npm ci + npm run build，VPS 不推荐）",
+    "  --source auto|release|github|local",
+    "                           部署来源（默认 auto：Release 预构建包/镜像优先，缺失时直接用 GitHub 源码构建）",
+    "  --build                  开发者模式：使用当前仓库源码构建（等价 --source local；VPS 不推荐）",
     "  --from <tar.gz|zip|URL|目录>  从离线预构建包安装（自动识别预构建包/源码包）",
     "  --port <端口>            AirMic 端口（默认 " + DEFAULT_PORT + "）",
     "  --host <地址>            本地模式监听地址（默认 127.0.0.1，可选 0.0.0.0）",
@@ -2329,27 +2736,32 @@ function printHelp() {
     "",
     "upgrade 选项：",
     "  --check                  只检查是否有新版本（同 check-update）",
-    "  --force                  强制升级/重装当前版本（默认从最新 Release 下载预构建包/镜像）",
+    "  --force                  强制升级/重装当前版本（默认 Release 优先，缺失时从 GitHub 源码重建）",
+    "  --source auto|release|github  升级来源（默认 auto，含义同 install）",
     "  --from <tar.gz|zip|URL|目录>  从离线预构建包升级（自动识别预构建包；源码包需 --build）",
     "  --build                  开发者模式：允许源码升级构建（VPS 不推荐）",
     "",
     "uninstall 选项：",
     "  --yes                    跳过确认（非交互环境必须）",
-    "  --purge                  连同 data/、backups/ 删除整个安装目录",
+    "  --purge                  同时删除 AirMic 数据和备份",
     "",
     "check-update 选项：",
     "  --json                   以 JSON 输出检查结果（便于脚本集成）",
     "",
     "其他：",
     "  --dir <路径>             对所有命令生效，用于指定安装目录",
+    "  --repo <owner/name>      GitHub 仓库",
+    "  --ref <分支|Tag|提交>     指定安装或升级的 GitHub 版本",
     "  logs --lines <N>         显示最近 N 行日志（默认 100）",
+    "  --no-color               关闭彩色输出（也可设置 NO_COLOR=1）",
     "  GITHUB_TOKEN             可选环境变量，提高 GitHub API 限额",
     "",
     "示例：",
-    "  node deploy/airmic-cli.mjs install --mode local --yes          # 默认下载 Release 预构建包",
+    "  node deploy/airmic-cli.mjs install --yes                       # auto：Release 优先，缺失则 GitHub 源码构建",
+    "  node deploy/airmic-cli.mjs install --source github --yes       # 强制从 GitHub 源码安装（本机编译）",
+    "  node deploy/airmic-cli.mjs install --mode docker --yes         # Docker：GHCR 镜像优先，缺失则本地构建",
     "  node deploy/airmic-cli.mjs install --from ./airmic-1.1.0.tar.gz --yes   # 离线预构建包",
-    "  node deploy/airmic-cli.mjs install --mode docker --yes         # 拉取 GHCR 镜像",
-    "  node deploy/airmic-cli.mjs install --source local --build      # 开发者：源码构建",
+    "  node deploy/airmic-cli.mjs install --source local --build      # 开发者：当前仓库源码构建",
     "  node deploy/airmic-cli.mjs install --mode docker --port 9811 --yes",
     "  node deploy/airmic-cli.mjs check-update --json",
     "  node deploy/airmic-cli.mjs upgrade --from ./airmic-1.1.0.tar.gz --force",
@@ -2386,8 +2798,30 @@ async function main() {
     return 0;
   }
 
+  if (command === "__validate-home") {
+    if (!COMMANDS.includes(options.action) || options.action === "help") fail("未知部署动作。");
+    const home = resolveHome(options);
+    if (["version", "check-update"].includes(options.action) && !options.prepare_runtime) {
+      log(home);
+      return 0;
+    }
+    const state = validateHome(home, options.action);
+    if (options.action === "install" && state.installed && !options.force) {
+      fail("该目录已有 AirMic 部署。请使用 upgrade，或加 --force 重新安装：" + home);
+    }
+    if (options.prepare_runtime) {
+      markHome(home);
+      const runtime = path.join(home, ".runtime");
+      assertPlainPath(runtime, "directory");
+      mkdirp(runtime);
+    }
+    log(home);
+    return 0;
+  }
+
   if (command === "__log-cleanup") {
     const home = resolveHome(options);
+    ensureInstalled(home);
     cleanupOldLogs(home, 3);
     setInterval(() => {
       try {
@@ -2399,6 +2833,12 @@ async function main() {
     process.on("SIGTERM", () => process.exit(0));
     process.on("SIGINT", () => process.exit(0));
     return new Promise(() => {});
+  }
+
+  if (COMMANDS.includes(command) && command !== "help") {
+    const home = resolveHome(options);
+    const installedRepo = assertPlainPath(path.join(home, "version.json"), "file") ? readVersionInfo(home)?.repo : null;
+    configureRepository(options, installedRepo);
   }
 
   switch (command) {
@@ -2452,8 +2892,10 @@ if (isDirectRun) {
       if (typeof code === "number") process.exitCode = code;
     })
     .catch((error) => {
+      const message = error && error.message ? error.message : String(error);
       console.error("");
-      console.error("[错误] " + (error && error.message ? error.message : String(error)));
+      console.error(paint("red", "[错误]") + " " + message);
+      console.error(dim("  提示：执行 help 查看用法与参数；问题反馈：" + REPO_URL + "/issues"));
       process.exitCode = 1;
     });
 }

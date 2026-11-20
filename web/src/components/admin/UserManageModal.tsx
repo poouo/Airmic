@@ -1,9 +1,11 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { Role, RoomSummary } from "@airmic/shared";
 import { ROLE_LABELS } from "@airmic/shared";
-import { Ban, KeyRound, LogOut, MicOff, MoveRight, ShieldAlert, Trash2, UserRound } from "lucide-react";
-import { Avatar, Badge, Button, Input, Modal, Select, Textarea } from "@/components/ui";
+import { Ban, KeyRound, LogOut, MicOff, MoveRight, ShieldAlert, Trash2, UserRound, type LucideIcon } from "lucide-react";
+import { Alert, Avatar, Badge, Button, Divider, Input, Modal, Select } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { cn } from "@/lib/format";
 import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 import { RoleBadge, OnlineDot, type ManagedUser } from "./shared";
@@ -22,6 +24,20 @@ const BAN_DURATIONS = [
   { value: "43200", label: "封禁 30 天" },
   { value: "0", label: "永久封禁" },
 ];
+
+function GroupTitle({ icon: Icon, children, danger }: { icon: LucideIcon; children: ReactNode; danger?: boolean }) {
+  return (
+    <h3
+      className={cn(
+        "flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em]",
+        danger ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {children}
+    </h3>
+  );
+}
 
 export default function UserManageModal({ user, rooms, onClose, onChanged }: UserManageModalProps) {
   const self = useAuthStore((state) => state.user);
@@ -143,56 +159,73 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
   const roomOptions = [{ value: "", label: "大厅（不在任何房间）" }, ...rooms.map((room) => ({ value: String(room.id), label: room.name }))];
 
   return (
-    <Modal open onClose={onClose} title="管理用户" subtitle="对该用户执行管理操作，危险操作会二次确认" size="lg" footer={<Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>}>
+    <Modal
+      open
+      onClose={onClose}
+      title="管理用户"
+      subtitle="对该用户执行管理操作，危险操作会二次确认"
+      size="lg"
+      footer={
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          关闭
+        </Button>
+      }
+    >
       <div className="space-y-5">
-        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-ink-900/50 p-3.5">
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-3.5">
           <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-semibold text-mist-100">{user.displayName}</p>
+              <p className="truncate text-sm font-semibold text-foreground">{user.displayName}</p>
               <RoleBadge role={user.role} />
               {user.isGuest && <Badge>游客</Badge>}
               {user.isBanned && <Badge tone="bad">已封禁</Badge>}
             </div>
-            <p className="mt-0.5 truncate text-xs text-mist-500">@{user.username} · ID {user.id}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              @{user.username} · ID {user.id}
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px]">
               <OnlineDot online={user.online} />
-              <span className="text-mist-500">所在位置：{user.roomName ?? "大厅"}</span>
+              <span className="text-muted-foreground">所在位置：{user.roomName ?? "大厅"}</span>
             </div>
           </div>
         </div>
 
         {isSelf && (
-          <div className="flex items-center gap-2 rounded-xl border border-warn-500/30 bg-warn-500/10 px-3 py-2 text-xs text-warn-400">
-            <ShieldAlert className="h-4 w-4 shrink-0" />
-            这是你自己的账号，不能踢出、封禁或删除自己，也不能修改自己的角色。
-          </div>
+          <Alert tone="warning">
+            <span className="flex items-start gap-2">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              这是你自己的账号，不能踢出、封禁或删除自己，也不能修改自己的角色。
+            </span>
+          </Alert>
         )}
 
-        {actionError && <div className="rounded-xl border border-bad-500/30 bg-bad-500/10 px-3 py-2 text-xs text-bad-400">{actionError}</div>}
+        {actionError && <Alert tone="error">{actionError}</Alert>}
 
         {canManageUsers && (
-          <section className="space-y-2">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-              <UserRound className="h-3.5 w-3.5" /> 角色
-            </h3>
+          <section className="space-y-2.5">
+            <GroupTitle icon={UserRound}>角色</GroupTitle>
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-[10rem] flex-1">
-                <Select label="角色" options={(["admin", "moderator", "user", "guest"] as Role[]).map((item) => ({ value: item, label: ROLE_LABELS[item] }))} value={role} disabled={isSelf} onChange={(event) => setRole(event.target.value as Role)} />
+                <Select
+                  label="角色"
+                  options={(["admin", "moderator", "user", "guest"] as Role[]).map((item) => ({ value: item, label: ROLE_LABELS[item] }))}
+                  value={role}
+                  disabled={isSelf}
+                  onChange={(event) => setRole(event.target.value as Role)}
+                />
               </div>
               <Button variant="secondary" size="sm" disabled={isSelf || role === user.role} loading={busy === "role"} onClick={() => void changeRole()}>
                 保存角色
               </Button>
             </div>
-            {user.role === "admin" && <p className="text-[11px] text-mist-500">管理员账号不可封禁；降级或删除时服务器会校验是否还有其它管理员。</p>}
+            {user.role === "admin" && <p className="text-xs text-muted-foreground">管理员账号不可封禁；降级或删除时服务器会校验是否还有其它管理员。</p>}
           </section>
         )}
 
         {canModerate && (
-          <section className="space-y-2">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-              <MicOff className="h-3.5 w-3.5" /> 语音管理
-            </h3>
+          <section className="space-y-2.5">
+            <GroupTitle icon={MicOff}>语音管理</GroupTitle>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" icon={<MicOff className="h-3.5 w-3.5" />} disabled={!user.online || isSelf} loading={busy === "mute"} onClick={() => void forceMute(true)}>
                 强制静音
@@ -201,8 +234,8 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
                 解除强制静音
               </Button>
             </div>
-            {!user.online && <p className="text-[11px] text-mist-500">用户不在线，无法执行语音管理操作。</p>}
-            <div className="flex flex-wrap items-end gap-2 rounded-xl border border-white/10 bg-ink-900/40 p-2.5">
+            {!user.online && <p className="text-xs text-muted-foreground">用户不在线，无法执行语音管理操作。</p>}
+            <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-muted/40 p-2.5">
               <div className="min-w-[12rem] flex-1">
                 <Select label="移动到" options={roomOptions} value={moveRoomId} onChange={(event) => setMoveRoomId(event.target.value)} />
               </div>
@@ -214,10 +247,8 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
         )}
 
         {canKick && (
-          <section className="space-y-2">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-              <LogOut className="h-3.5 w-3.5" /> 踢出
-            </h3>
+          <section className="space-y-2.5">
+            <GroupTitle icon={LogOut}>踢出</GroupTitle>
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-[10rem] flex-1">
                 <Select
@@ -241,16 +272,14 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
         )}
 
         {canBan && (
-          <section className="space-y-2">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mist-500">
-              <Ban className="h-3.5 w-3.5" /> 封禁
-            </h3>
+          <section className="space-y-2.5">
+            <GroupTitle icon={Ban}>封禁</GroupTitle>
             <div className="grid gap-2 sm:grid-cols-2">
               <Select label="封禁时长" options={BAN_DURATIONS} value={banDuration} onChange={(event) => setBanDuration(event.target.value)} />
               <Input label="封禁原因" value={banReason} maxLength={200} placeholder="例如：刷屏、辱骂他人" onChange={(event) => setBanReason(event.target.value)} />
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] text-mist-500">{user.role === "admin" ? "管理员账号不可封禁。" : "封禁后该用户的登录会话会立即失效。"}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">{user.role === "admin" ? "管理员账号不可封禁。" : "封禁后该用户的登录会话会立即失效。"}</p>
               <Button variant="danger" size="sm" icon={<Ban className="h-3.5 w-3.5" />} disabled={isSelf || user.role === "admin"} loading={busy === "ban"} onClick={() => void ban()}>
                 封禁用户
               </Button>
@@ -259,14 +288,15 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
         )}
 
         {canManageUsers && (
-          <section className="space-y-2 border-t border-white/5 pt-4">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-bad-400">
-              <ShieldAlert className="h-3.5 w-3.5" /> 危险操作
-            </h3>
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bad-500/20 bg-bad-500/5 px-3 py-2.5">
+          <section className="space-y-2.5">
+            <Divider />
+            <GroupTitle icon={ShieldAlert} danger>
+              危险操作
+            </GroupTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/20 bg-destructive/5 px-3.5 py-3">
               <div>
-                <p className="text-xs text-mist-200">删除账号</p>
-                <p className="text-[11px] text-mist-500">永久删除该用户，不能删除自己或最后一名管理员。</p>
+                <p className="text-sm font-medium text-foreground">删除账号</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">永久删除该用户，不能删除自己或最后一名管理员。</p>
               </div>
               <Button variant="danger" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} disabled={isSelf} loading={busy === "delete"} onClick={() => void removeUser()}>
                 删除账号
@@ -276,7 +306,7 @@ export default function UserManageModal({ user, rooms, onClose, onChanged }: Use
         )}
 
         {!canManageUsers && !canKick && !canModerate && !canBan && (
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2.5 text-xs text-mist-400">
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-muted-foreground">
             <KeyRound className="h-4 w-4" />
             你当前没有可对用户执行的管理权限。
           </div>
