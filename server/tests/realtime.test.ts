@@ -807,7 +807,7 @@ test("request_rooms / request_online_users 返回即时快照", TEST_OPTIONS, ()
   }),
 );
 
-test("心跳：应用层 ping 返回 pong，服务端发送 ping，两次无响应后断开", TEST_OPTIONS, () =>
+test("心跳：应用层 ping 返回 pong，服务端发送 ping，多次无响应后断开", TEST_OPTIONS, () =>
   withSession(async (session) => {
     const alice = await session.registerUser("alice");
     const { ws } = await session.connectWithHello(alice.client);

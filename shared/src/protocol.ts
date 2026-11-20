@@ -15,8 +15,8 @@ import type {
 export const WS_PATH = "/ws";
 /** 单条 WebSocket 消息最大字节数 */
 export const WS_MAX_MESSAGE_BYTES = 256 * 1024;
-/** WebSocket 心跳间隔 */
-export const WS_HEARTBEAT_INTERVAL_MS = 25_000;
+/** WebSocket 心跳间隔；同时决定成员延迟的采样频率（2 秒一次，够实时又不算吵） */
+export const WS_HEARTBEAT_INTERVAL_MS = 2_000;
 
 export const WS_CLOSE_CODES = {
   normal: 1000,

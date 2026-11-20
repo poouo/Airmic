@@ -42,7 +42,8 @@ const SIGNAL_RATE_LIMIT = { limit: 120, windowMs: 10_000 } as const;
 const CLOSE_WATCHDOG_MS = 2_000;
 
 /** 心跳：连续两次收不到 pong 后强制断开 */
-const HEARTBEAT_MAX_MISSED = 2;
+// 心跳间隔 2s；连续 15 次收不到 pong（约 30s）才判定连接已死，兼顾延迟采样与弱网容忍
+const HEARTBEAT_MAX_MISSED = 15;
 
 export interface HubLogger {
   warn(message: string): void;
