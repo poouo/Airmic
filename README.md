@@ -252,7 +252,7 @@ $s = (irm https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.ps
 安装完成后：
 
 - 默认安装目录：Windows `%USERPROFILE%\.airmic`、Linux/macOS `~/.airmic`（可用 `--dir` 或环境变量 `AIRMIC_HOME` 修改）。
-- 访问 `http://<主机>:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质）；本地模式默认只监听 `127.0.0.1`，需要从其它机器访问时用 `--host 0.0.0.0`，并自行配置反向代理与 HTTPS。
+- 访问 `http://<主机>:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质）；本地模式默认监听 `0.0.0.0`（所有网卡），装完即可从公网/局域网访问，记得在云安全组或防火墙放行 9811；只想给本机用时加 `--host 127.0.0.1`。语音需要 HTTPS（反向代理或证书）。
 - 管理入口：`<安装目录>/bin/airmic`（Windows `<安装目录>\bin\airmic.cmd`），也可直接调用 `bin/airmic-cli.mjs`（同时提供 `airmic.sh` / `airmic.ps1` 包装脚本）：
 
 ```bash
@@ -282,7 +282,7 @@ node ~/.airmic/bin/airmic-cli.mjs uninstall       # 卸载（保留 data/backups
 | `--yes / --force` | 显式确认卸载（非交互环境必填）/ 强制重装（保留 `data/`、`backups/`） |
 | `--purge` | 卸载时同时删除 AirMic 的 `data/`、`backups/` 和自带运行时 |
 | `--port <端口>` | AirMic 端口，默认 9811 |
-| `--host <地址>` | 本地模式监听地址，默认 127.0.0.1 |
+| `--host <地址>` | 本地模式监听地址，默认 0.0.0.0（所有网卡） |
 | `--no-livekit` | 跳过 LiveKit 下载/启动（语音不可用，适合快速验证） |
 | `--livekit-version <vX>` | 指定 LiveKit 版本（默认最新 Release） |
 | `--setup-token [值]` | 设置初始化口令；不带值时自动生成随机口令 |

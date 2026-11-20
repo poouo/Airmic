@@ -133,7 +133,7 @@ AirMic 一键安装引导脚本（Linux / macOS / WSL）
   --build                 开发者模式：使用当前仓库源码构建（需要已 clone 仓库）
   --from <包|URL|目录>    从离线预构建包安装/升级
   --port <端口>           AirMic 端口（默认 9811）
-  --host <地址>           本地模式监听地址（默认 127.0.0.1）
+  --host <地址>           本地模式监听地址（默认 0.0.0.0 所有网卡；仅本机用可设 127.0.0.1）
   --no-livekit            跳过 LiveKit 下载与启动（语音不可用，便于快速验证）
   --livekit-version <v>   指定 LiveKit 版本
   --setup-token [值]      设置初始化口令

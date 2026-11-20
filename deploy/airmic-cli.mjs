@@ -27,7 +27,7 @@ import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const CLI_VERSION = "1.1.3";
+const CLI_VERSION = "1.1.4";
 const APP_NAME = "AirMic";
 const DEFAULT_REPO = "poouo/Airmic";
 const HOME_MARKER = ".airmic-install.json";
@@ -758,7 +758,7 @@ function generateAirMicEnv(options) {
     "# 修改后重启：node bin/airmic-cli.mjs restart",
     "",
     "NODE_ENV=production",
-    "HOST=" + (local ? options.host : "0.0.0.0"),
+    "HOST=" + (options.host || "0.0.0.0"),
     "PORT=" + options.port,
     "DATABASE_PATH=" + (local ? toPosix(path.join(options.home, "data", "airmic.db")) : "/data/airmic.db"),
     "WEB_DIST=" + (local ? toPosix(path.join(options.home, "app", "web", "dist")) : "/app/web/dist"),
@@ -1227,6 +1227,21 @@ function displayHost(host) {
   return host;
 }
 
+/** 监听所有网卡（0.0.0.0/::）时枚举本机非回环 IPv4，给出部署后可直接访问的地址。 */
+function accessUrls(host, port) {
+  if (!host || host === "0.0.0.0" || host === "::") {
+    const ips = [];
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const item of list || []) {
+        if (item && item.family === "IPv4" && !item.internal && !ips.includes(item.address)) ips.push(item.address);
+      }
+    }
+    if (ips.length === 0) ips.push("127.0.0.1");
+    return ips.map((ip) => "http://" + ip + ":" + port);
+  }
+  return ["http://" + displayHost(host) + ":" + port];
+}
+
 async function fetchHealth(host, port, timeoutMs) {
   const targetHost = displayHost(host);
   const override = Number(process.env.AIRMIC_HEALTH_TIMEOUT_MS || 0);
@@ -1395,13 +1410,14 @@ function tailFile(filePath, lines) {
 
 function printAccessInfo(home, env, extra) {
   const port = env.PORT || DEFAULT_PORT;
-  const host = displayHost(env.HOST || "127.0.0.1");
-  const url = "http://" + host + ":" + port;
+  const urls = accessUrls(env.HOST || "0.0.0.0", port);
+  const url = urls[0];
   const launcher = IS_WIN ? path.join(home, "bin", "airmic.cmd") : path.join(home, "bin", "airmic");
   printHeader(APP_NAME + " 安装完成", [
-    field("访问地址", bold(url)),
+    field("访问地址", bold(urls.join("  "))),
+    field("本机自测", "http://127.0.0.1:" + port),
     field("初始化", url + "/setup" + (env.SETUP_TOKEN ? "（需要 SETUP_TOKEN 环境变量中的初始化口令）" : "")),
-    field("健康检查", url + "/api/health"),
+    field("健康检查", "http://127.0.0.1:" + port + "/api/health"),
     field("安装目录", home),
     field("管理命令", launcher + " status"),
     field("升级命令", launcher + " upgrade"),
@@ -1409,6 +1425,10 @@ function printAccessInfo(home, env, extra) {
     field("数据文件", env.DATABASE_PATH || path.join(home, "data", "airmic.db")),
   ]);
   if (extra) log(" " + extra);
+  if (!env.HOST || env.HOST === "0.0.0.0" || env.HOST === "::") {
+    log(" 提示：已在所有网卡监听。公网访问请在云安全组/防火墙放行 " + port + " 端口；");
+    log("       语音需要 HTTPS（反向代理或证书），并在后台把 LiveKit 地址填成浏览器可达的 wss:// 地址。");
+  }
   log(" 下一步：用浏览器打开上面的访问地址，按向导创建管理员并完成语音配置。");
   log("");
 }
@@ -1776,6 +1796,22 @@ function resolveSetupToken(options) {
   return provided || randomHex(16);
 }
 
+/**
+ * 监听非回环地址时，安装阶段必须给初始化向导加口令：
+ * 否则公网任何人都能抢在站长之前打开 /setup 成为管理员。
+ * 显式传了 --setup-token 就用传入值；只监听本机（127.0.0.1/localhost/::1）则不加口令。
+ */
+function resolveSetupTokenForHost(options, host) {
+  const explicit = resolveSetupToken(options);
+  if (explicit) return explicit;
+  const loopback = !host || host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (loopback) return null;
+  const token = randomHex(16);
+  warn("监听地址不是本机回环（" + host + "）：已自动生成初始化口令，防止公网用户抢先完成初始化。");
+  log("  初始化口令：" + token + "（初始化向导会要求输入，完成后即可忽略）");
+  return token;
+}
+
 // ============ 预构建包（Release Bundle）工具 ============
 
 function sha256File(filePath) {
@@ -1968,9 +2004,10 @@ async function prepareFromLocalOrArchive(workspace, from, options) {
 async function installLocal(home, options, sourceInfo, workspace) {
   const appDir = path.join(home, "app");
   const port = resolvePort(options);
-  const host = options.host || "127.0.0.1";
+  // 默认监听所有网卡：装完即可从公网/局域网访问（只给本机用可显式 --host 127.0.0.1）
+  const host = options.host || "0.0.0.0";
   const keys = generateKeys();
-  const setupToken = resolveSetupToken(options);
+  const setupToken = resolveSetupTokenForHost(options, host);
   const jwtSecret = randomHex(32);
   const isBundle = sourceInfo.type === "bundle";
   let version = sourceInfo.version || "0.0.0";
@@ -2027,7 +2064,7 @@ async function installDocker(home, options, sourceInfo) {
   const appDir = path.join(home, "app");
   const port = resolvePort(options);
   const keys = generateKeys();
-  const setupToken = resolveSetupToken(options);
+  const setupToken = resolveSetupTokenForHost(options, "0.0.0.0");
   const jwtSecret = randomHex(32);
   const livekitVersion = options.livekit_version && options.livekit_version !== "latest" ? options.livekit_version : DEFAULT_LIVEKIT_VERSION;
   const useImage = sourceInfo.type === "image";
@@ -2158,7 +2195,7 @@ async function startLocalMode(home) {
   else log("  AirMic 已在运行（PID " + app.pid + "）");
   const health = await fetchHealth(env.HOST, env.PORT || DEFAULT_PORT, 90000);
   log("  健康检查通过：版本 " + (health.version || readAppVersion(home) || "未知"));
-  log("  访问地址：http://" + displayHost(env.HOST) + ":" + (env.PORT || DEFAULT_PORT));
+  log("  访问地址：" + accessUrls(env.HOST || "0.0.0.0", env.PORT || DEFAULT_PORT).join("  "));
   return 0;
 }
 
@@ -2169,7 +2206,7 @@ async function startDockerMode(home) {
   const port = Number(env.PORT || (readVersionInfo(home) && readVersionInfo(home).port) || DEFAULT_PORT);
   const health = await fetchHealth("127.0.0.1", port, 180000);
   log("  健康检查通过：版本 " + (health.version || readAppVersion(home) || "未知"));
-  log("  访问地址：http://127.0.0.1:" + port);
+  log("  访问地址：" + accessUrls("0.0.0.0", port).join("  "));
   return 0;
 }
 
@@ -2221,7 +2258,7 @@ async function statusCommand(options) {
     field("提交版本", info.commit ? String(info.commit).slice(0, 8) : "未记录（旧版安装）"),
     field("安装来源", describeSource(info.source)),
     field("LiveKit", info.livekitVersion ? info.livekitVersion : mode === "docker" ? DEFAULT_LIVEKIT_VERSION + "（容器）" : "未安装/未记录"),
-    field("访问地址", "http://" + displayHost(env.HOST) + ":" + port),
+    field("访问地址", accessUrls(env.HOST || "0.0.0.0", port).join("  ")),
   ];
   if (mode !== "docker") {
     const cleanupPid = cleanupDaemonPid(home);
@@ -2727,7 +2764,7 @@ function printHelp() {
     "  --build                  开发者模式：使用当前仓库源码构建（等价 --source local；VPS 不推荐）",
     "  --from <tar.gz|zip|URL|目录>  从离线预构建包安装（自动识别预构建包/源码包）",
     "  --port <端口>            AirMic 端口（默认 " + DEFAULT_PORT + "）",
-    "  --host <地址>            本地模式监听地址（默认 127.0.0.1，可选 0.0.0.0）",
+    "  --host <地址>            本地模式监听地址（默认 0.0.0.0 所有网卡；仅本机使用可设 127.0.0.1）",
     "  --no-livekit             跳过 LiveKit 下载与启动（语音不可用，适合快速验证）",
     "  --livekit-version <vX>   指定 LiveKit 版本（默认最新 Release）",
     "  --setup-token [值]       设置初始化口令；不带值时自动生成随机口令",
@@ -2913,4 +2950,5 @@ export {
   parseEnvFile,
   resolveLatestRemote,
   checkUpdateCommand,
+  accessUrls,
 };

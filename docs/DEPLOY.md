@@ -519,7 +519,7 @@ docker compose up -d --build airmic
 
 ### 5.1 架构约定
 
-- AirMic 监听 `127.0.0.1:9811`（`HOST=127.0.0.1`），只接受本机代理的请求。
+- AirMic 监听 `127.0.0.1:9811`（`HOST=127.0.0.1`，安装时显式加 `--host 127.0.0.1`），只接受本机代理的请求。默认安装是 `HOST=0.0.0.0`，直接对外暴露端口时不经过反代。
 - `.env` 设置 `TRUST_PROXY=true`，让服务端从 `X-Forwarded-For` 获取真实 IP（用于封禁、审计、登录限流）。
 - WebSocket `/ws` 必须转发 `Upgrade` / `Connection` 头，并放大读超时；否则聊天、房间状态会周期性断开。
 - LiveKit 的 wss 使用单独域名与 server 块（第 2.6 节），AirMic 的反代不需要代理媒体端口。
@@ -1086,7 +1086,7 @@ bash scripts/install.sh install --mode docker --source local --build --yes
 | `--force` | 覆盖已有安装 / 强制重装当前或最新版本 |
 | `--purge` | 卸载时连 `data/`、`backups/` 一起删除 |
 | `--port <端口>` | AirMic 监听端口，默认 `9811` |
-| `--host <地址>` | AirMic 监听地址（默认 `127.0.0.1`，可选 `0.0.0.0`） |
+| `--host <地址>` | AirMic 监听地址（默认 `0.0.0.0` 所有网卡；反代部署建议显式设为 `127.0.0.1`） |
 | `--no-livekit` | 跳过 LiveKit（语音不可用，用于快速验证） |
 | `--livekit-version <vX>` | 指定 LiveKit Server 版本 |
 | `--setup-token [值]` | 设置初始化口令；不带值时自动生成 |

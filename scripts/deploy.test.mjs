@@ -114,3 +114,22 @@ test("a failed forced reinstall leaves the current application and version in pl
   assert.ok(fs.existsSync(path.join(home, "version.json")));
   assert.deepEqual(fs.readdirSync(path.join(home, ".staging")), []);
 });
+
+test("generated env listens on all interfaces by default so a fresh deploy is reachable", async () => {
+  const { generateAirMicEnv } = await import("../deploy/airmic-cli.mjs");
+  const base = { mode: "local", home: "/opt/airmic", port: 9811, keys: { apiKey: "k", apiSecret: "s" } };
+
+  assert.match(generateAirMicEnv(base), /^HOST=0\.0\.0\.0$/m);
+  assert.match(generateAirMicEnv({ ...base, host: "127.0.0.1" }), /^HOST=127\.0\.0\.1$/m);
+});
+
+test("access urls enumerate reachable addresses when bound to all interfaces", async () => {
+  const { accessUrls } = await import("../deploy/airmic-cli.mjs");
+
+  const all = accessUrls("0.0.0.0", 9811);
+  assert.ok(all.length >= 1);
+  assert.ok(all.every((url) => /^http:\/\/[^/]+:9811$/.test(url)), all.join(","));
+
+  assert.deepEqual(accessUrls("127.0.0.1", 9811), ["http://127.0.0.1:9811"]);
+  assert.deepEqual(accessUrls("10.0.0.5", 9811), ["http://10.0.0.5:9811"]);
+});
