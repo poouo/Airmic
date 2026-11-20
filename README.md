@@ -418,6 +418,23 @@ npm run test:e2e         # 浏览器端到端测试（需先 npm run build，本
 - [docs/FRONTEND.md](docs/FRONTEND.md)：前端结构、页面功能与语音引擎契约。
 - [docs/DEPLOY.md](docs/DEPLOY.md)：生产部署（systemd / Docker / Nginx / Caddy / TLS / TURN / 备份恢复 / 升级排障）。
 
+## 参考与致谢
+
+AirMic 为原创实现，没有直接复制第三方代码；产品形态与部分交互参考了以下软件/项目，并据此确定了当前的功能取舍：
+
+| 项目 | 参考点 |
+| --- | --- |
+| [TeamSpeak](https://www.teamspeak.com/) | 服务器/频道/房间密码、角色与权限、管理员踢人/封禁/强制静音、语音编解码质量设置 |
+| [Discord](https://discord.com/) | 左侧频道栏 + 右侧聊天 + 底部语音控制栏的布局、说话高亮、游客/邀请制服务器 |
+| [Mumble](https://www.mumble.info/) / [mumble-web](https://github.com/Johni0702/mumble-web) | 低延迟语音、语音活动检测、网页端语音客户端的可行性 |
+| [TeaSpeak](https://github.com/TeaSpeak/TeaSpeak) | 自建 TS 协议服务端的部署与账号体系设计 |
+| [Jitsi Meet](https://github.com/jitsi/jitsi-meet) | 浏览器 WebRTC 会议体验、TURN/ICE 部署与排障经验 |
+| [LiveKit](https://github.com/livekit/livekit) / [mediasoup](https://github.com/versatica/mediasoup) | 未来升级 SFU 模式（大房间）时可选的媒体服务器 |
+| [coturn](https://github.com/coturn/coturn) | 公网 NAT 穿透所需的 TURN 服务（部署文档提供配置样例） |
+
+其中 Mesh 语音、SDP 音质修饰、perfect negotiation 等实现基于浏览器标准 WebRTC API 自行编写；
+如果后续需要每房间数十人以上的规模，建议按路线图迁移到 LiveKit/mediasoup 的 SFU 架构。
+
 ## 许可证
 
 [MIT](LICENSE)
