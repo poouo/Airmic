@@ -30,6 +30,7 @@ import type {
   SetupStatusResponse,
   UpdateBanRequest,
   UpdateCheckResponse,
+  SystemUpgradeResponse,
   UpdateProfileRequest,
   UpdateRoomRequest,
   UpdateSettingsRequest,
@@ -99,6 +100,7 @@ export const api = {
   system: {
     update: (force = false) =>
       request<UpdateCheckResponse>("GET", "/api/system/update" + (force ? "?force=1" : "")),
+    upgrade: () => request<SystemUpgradeResponse>("POST", "/api/system/upgrade"),
   },
 
   setup: {

@@ -214,6 +214,13 @@ export interface CreateRoomRequest {
 
 export type UpdateRoomRequest = Partial<CreateRoomRequest>;
 
+/** 网页后台一键升级的启动结果 */
+export interface SystemUpgradeResponse {
+  started: boolean;
+  /** 升级进程输出日志的绝对路径，便于失败排查 */
+  logPath: string;
+}
+
 export interface RoomMessagesResponse {
   messages: ChatMessage[];
 }

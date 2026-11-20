@@ -3,6 +3,7 @@ import type { UpdateCheckResponse } from "@airmic/shared";
 import { ArrowUpRight, Github, RefreshCw, Sparkles } from "lucide-react";
 import { Alert, Badge, Button } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { useUiStore } from "@/stores/ui";
 import { formatDateTime } from "@/lib/format";
 import { SectionCard } from "./shared";
 
@@ -29,6 +30,65 @@ export default function UpdateCard() {
   }, [check]);
 
   const updateAvailable = info?.updateAvailable ?? false;
+
+  const [starting, setStarting] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeLog, setUpgradeLog] = useState<string | null>(null);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [beforeVersion, setBeforeVersion] = useState<string | null>(null);
+
+  const startUpgrade = useCallback(async () => {
+    const ok = await useUiStore.getState().confirm({
+      title: "确认升级到最新版本？",
+      message: "会下载预构建包、备份数据库并重启服务，页面在新版本就绪后自动刷新；失败会自动回滚。",
+      confirmText: "开始升级",
+    });
+    if (!ok) return;
+    setStarting(true);
+    setUpgradeError(null);
+    try {
+      const result = await api.system.upgrade();
+      setUpgradeLog(result.logPath);
+      setBeforeVersion(info?.currentVersion ?? null);
+      setUpgrading(true);
+    } catch (caught) {
+      setUpgradeError(errorMessage(caught));
+    } finally {
+      setStarting(false);
+    }
+  }, [info?.currentVersion]);
+
+  // 升级期间轮询 /api/health：版本号变了说明新版本已起来，直接刷新页面
+  useEffect(() => {
+    if (!upgrading || !beforeVersion) return;
+    let stopped = false;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      if (stopped) return;
+      if (Date.now() - startedAt > 5 * 60_000) {
+        stopped = true;
+        window.clearInterval(timer);
+        setUpgrading(false);
+        setUpgradeError("升级超时（5 分钟）。请查看服务器日志：" + (upgradeLog ?? ""));
+        return;
+      }
+      void fetch("/api/health", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: { version?: string } | null) => {
+          if (stopped || !data?.version) return;
+          if (data.version !== beforeVersion) {
+            stopped = true;
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [upgrading, beforeVersion, upgradeLog]);
 
   return (
     <SectionCard
@@ -84,14 +144,30 @@ export default function UpdateCard() {
 
           {updateAvailable && (
             <div className="rounded-xl border border-brand/20 bg-brand/5 px-3.5 py-3 leading-relaxed">
-              <p className="text-sm font-medium text-foreground">发现新版本，升级方式：</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                在服务器部署目录执行{" "}
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">./deploy/airmic.sh upgrade</code>
-                （Windows 使用 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">.\deploy\airmic.ps1 upgrade</code>
-                ）；Docker 部署会自动重建镜像并重启。升级前会自动备份数据库，失败自动回滚。
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{info.upgradeHint}</p>
+              <p className="text-sm font-medium text-foreground">发现新版本 v{info.latestVersion ?? info.latestRef}</p>
+              {upgrading ? (
+                <div className="mt-2 space-y-1.5">
+                  <p className="flex items-center gap-2 text-xs text-foreground">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    升级已开始，正在下载并重启服务；就绪后本页面会自动刷新（约 1-2 分钟）。
+                  </p>
+                  {upgradeLog && <p className="break-all text-[11px] text-muted-foreground">升级日志：{upgradeLog}</p>}
+                </div>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    点下方按钮即可在本页升级：自动下载预构建包、备份数据库并重启服务，失败会自动回滚。
+                    Docker 部署请改在宿主机执行 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">airmic upgrade</code> 重建镜像。
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button size="sm" loading={starting} onClick={() => void startUpgrade()}>
+                      一键升级到 v{info.latestVersion ?? info.latestRef}
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">{info.upgradeHint}</span>
+                  </div>
+                </>
+              )}
+              {upgradeError && <Alert tone="error">{upgradeError}</Alert>}
             </div>
           )}
 
