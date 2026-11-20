@@ -75,7 +75,7 @@ interface AuthState {
   clearError: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   status: "loading",
   submitting: false,
@@ -95,10 +95,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   async login(username, password) {
     set({ submitting: true, error: null });
     try {
+      const wasGuest = get().user?.isGuest === true;
       const result = await api.auth.login({ username, password });
       rememberName(result.user);
       allowAutoGuest();
       set({ user: result.user, status: "authenticated", submitting: false });
+      if (wasGuest) {
+        // 游客切换到正式账号：Cookie 已换，重载页面让实时连接用新身份重建
+        socket.disconnect();
+        socket.stopReconnect();
+        window.location.replace("/");
+      }
     } catch (error) {
       set({ submitting: false, error: errorMessage(error) });
       throw error;
@@ -108,10 +115,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   async register(payload) {
     set({ submitting: true, error: null });
     try {
+      const wasGuest = get().user?.isGuest === true;
       const result = await api.auth.register(payload);
       rememberName(result.user);
       allowAutoGuest();
       set({ user: result.user, status: "authenticated", submitting: false });
+      if (wasGuest) {
+        socket.disconnect();
+        socket.stopReconnect();
+        window.location.replace("/");
+      }
     } catch (error) {
       set({ submitting: false, error: errorMessage(error) });
       throw error;

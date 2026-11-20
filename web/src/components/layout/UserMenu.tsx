@@ -126,6 +126,20 @@ export default function UserMenu() {
                 role="menuitem"
                 onClick={() => {
                   setOpen(false);
+                  navigate("/login");
+                }}
+                className={itemClass}
+              >
+                <UserRound className="h-4 w-4 text-muted-foreground" />
+                登录已有账号
+              </button>
+            )}
+            {user.isGuest && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
                   openModal("upgrade");
                 }}
                 className={itemClass}
