@@ -7,10 +7,7 @@ REPO_DIR="${1:?用法: run-install-tests.sh <repo-dir>}"
 SCRIPT="$REPO_DIR/scripts/install.sh"
 ROOT="$(mktemp -d 2>/dev/null || mktemp -d -t airmic-test)"
 BIN="$ROOT/fakebin"
-# docker shim 单独放一个目录：需要模拟“没有 docker”的主机时，只去掉这一层即可，
-# 不必依赖真实 PATH 里是否恰好有 docker（CI runner 就自带 /usr/bin/docker）。
-DOCKER_BIN="$ROOT/dockerbin"
-mkdir -p "$BIN" "$DOCKER_BIN"
+mkdir -p "$BIN"
 PASS=0
 FAIL=0
 
@@ -98,7 +95,7 @@ esac
 exit 0
 EOS
 
-cat >"$DOCKER_BIN/docker" <<'EOS'
+cat >"$BIN/docker" <<'EOS'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo "Docker version 27.0.0, build fake"; exit 0; fi
 if [ "${1:-}" = "info" ]; then exit 0; fi
@@ -106,9 +103,9 @@ if [ "${1:-}" = "compose" ] && [ "${2:-}" = "version" ]; then echo "Docker Compo
 exit 0
 EOS
 
-chmod +x "$BIN"/* "$DOCKER_BIN"/*
+chmod +x "$BIN"/*
 
-BASE_PATH="$DOCKER_BIN:$BIN:$PATH"
+BASE_PATH="$BIN:$PATH"
 
 run_dry() {
   # $1 = name; rest = args
@@ -153,43 +150,25 @@ assert_contains "old-node: 计划下载 Node" "将下载并校验 Node v22.19.0"
 
 echo "== 5) Docker 缺失 dry-run =="
 FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_LIBC=glibc FAKE_NODE_VERSION=22.19.0
-# CI runner 自带真实 docker：只把 shim 挪走不够，`command -v docker` 会命中
-# /usr/bin/docker，导致这两个用例在 CI 上误判。这里改成过滤掉含真实 docker 的 PATH 目录。
-NO_DOCKER_PATH=""
-_old_ifs="$IFS"; IFS=':'
-for _p in $PATH; do
-  [ -n "$_p" ] || continue
-  [ -x "$_p/docker" ] && continue
-  NO_DOCKER_PATH="${NO_DOCKER_PATH:+$NO_DOCKER_PATH:}$_p"
-done
-IFS="$_old_ifs"
-
-if [ -z "$(env PATH="$BIN:$NO_DOCKER_PATH" bash -c 'command -v docker' 2>/dev/null)" ]; then
-  report_pass "docker-missing: PATH 已屏蔽真实 docker"
+# CI runner 自带真实 docker（/usr/bin/docker），把 shim 挪走仍会命中真实二进制。
+# 用 AIRMIC_DOCKER_BIN 指向一个不存在的路径，确定性地模拟"这台机器没有 docker"，
+# 而不是去改 PATH（过滤掉 /usr/bin 会连带弄丢 uname/grep 等基础命令）。
+export AIRMIC_DOCKER_BIN="$ROOT/no-such-docker/docker"
+if [ ! -x "$AIRMIC_DOCKER_BIN" ]; then
+  report_pass "docker-missing: 已构造无 docker 的检测路径"
 else
-  report_fail "docker-missing: PATH 已屏蔽真实 docker" "一个不含 docker 的 PATH" "0" "$NO_DOCKER_PATH"
+  report_fail "docker-missing: 已构造无 docker 的检测路径" "一个不存在的 docker 路径" "0" "$AIRMIC_DOCKER_BIN"
 fi
 
-run_dry_no_docker() {
-  local name="$1"
-  shift
-  local out code
-  out="$(env PATH="$BIN:$NO_DOCKER_PATH" FAKE_UNAME_S="${FAKE_UNAME_S:-Linux}" FAKE_UNAME_M="${FAKE_UNAME_M:-x86_64}" FAKE_LIBC="${FAKE_LIBC:-glibc}" FAKE_NODE_VERSION="${FAKE_NODE_VERSION:-22.19.0}" FAKE_CURL_FAIL="${FAKE_CURL_FAIL:-0}" bash "$SCRIPT" --dry-run "$@" </dev/null 2>&1)"
-  code=$?
-  printf '%s\n' "$out"
-  LAST_CODE=$code
-  LAST_OUT="$out"
-  CASE_NAME="$name"
-}
-
-run_dry_no_docker "docker-missing" install --mode docker
+run_dry "docker-missing" install --mode docker
 assert_code "docker-missing: 退出码 0" 0 "$LAST_CODE" "$LAST_OUT"
 assert_contains "docker-missing: 提示缺 Docker" "未检测到 Docker" "$LAST_CODE" "$LAST_OUT"
 
 echo "== 6) Docker 缺失 + --install-docker dry-run =="
-run_dry_no_docker "docker-install" install --mode=docker --install-docker
+run_dry "docker-install" install --mode=docker --install-docker
 assert_code "docker-install: 退出码 0" 0 "$LAST_CODE" "$LAST_OUT"
 assert_contains "docker-install: 自动安装计划" "自动安装 Docker" "$LAST_CODE" "$LAST_OUT"
+unset AIRMIC_DOCKER_BIN
 
 echo "== 7) Docker 就绪 dry-run =="
 FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_LIBC=glibc FAKE_NODE_VERSION=22.19.0

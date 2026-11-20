@@ -150,7 +150,8 @@ AirMic 一键安装引导脚本（Linux / macOS / WSL）
 
 环境变量：
   AIRMIC_REPO / AIRMIC_REF / AIRMIC_HOME / AIRMIC_NODE_VERSION / AIRMIC_NODE_MIRROR /
-  AIRMIC_RAW_BASE / AIRMIC_SKIP_NODE_INSTALL / AIRMIC_SKIP_PREREQ / AIRMIC_LANGUAGE / GITHUB_TOKEN
+  AIRMIC_RAW_BASE / AIRMIC_SKIP_NODE_INSTALL / AIRMIC_SKIP_PREREQ / AIRMIC_LANGUAGE /
+  AIRMIC_DOCKER_BIN（docker 可执行文件路径，默认 docker）/ GITHUB_TOKEN
 
 示例：
   # 本地模式安装（自动准备 Node，无需 clone）
@@ -575,14 +576,19 @@ cache_node_runtime() {
 
 # ============ Docker ============
 
-docker_cli_ready() { have docker; }
+# docker 可执行文件：默认走 PATH；AIRMIC_DOCKER_BIN 可指向具体路径
+# （安装到非标准位置时使用，也让"本机没有 docker"的回归测试能确定性地模拟）
+DOCKER_BIN="${AIRMIC_DOCKER_BIN:-docker}"
+have_docker() { command -v "$DOCKER_BIN" >/dev/null 2>&1 || [ -x "$DOCKER_BIN" ]; }
+
+docker_cli_ready() { have_docker; }
 
 docker_compose_ready() {
-  have docker || return 1
-  docker compose version >/dev/null 2>&1
+  have_docker || return 1
+  "$DOCKER_BIN" compose version >/dev/null 2>&1
 }
 
-docker_daemon_ready() { have docker && docker info >/dev/null 2>&1; }
+docker_daemon_ready() { have_docker && "$DOCKER_BIN" info >/dev/null 2>&1; }
 
 install_compose_plugin() {
   local compose_arch plugin_dir url
