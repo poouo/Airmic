@@ -27,7 +27,7 @@ import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const CLI_VERSION = "1.1.2";
+const CLI_VERSION = "1.1.3";
 const APP_NAME = "AirMic";
 const DEFAULT_REPO = "poouo/Airmic";
 const HOME_MARKER = ".airmic-install.json";

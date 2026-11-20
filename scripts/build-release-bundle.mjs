@@ -173,6 +173,35 @@ function pruneDevLeftovers(stageDir) {
   log("  已清理残留开发依赖：" + removed + " 个顶层包");
 }
 
+/**
+ * 删除打包目录里的软链/硬链/设备等非普通文件。
+ * Linux 上 npm 会给依赖生成 node_modules/**.bin 软链，目标指向构建机的绝对路径
+ * （安装后必然是死链）；而安装端的解压安全校验只接受普通文件与目录，
+ * 带链接的包会被直接拒绝：`压缩包包含链接或特殊文件，拒绝解压`。
+ */
+function stripNonRegularEntries(rootDir) {
+  const removed = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      const relative = path.relative(rootDir, full).split(path.sep).join("/");
+      if (entry.isSymbolicLink()) {
+        let target = "";
+        try { target = fs.readlinkSync(full); } catch { /* 读不到链接目标也不影响删除 */ }
+        fs.unlinkSync(full);
+        removed.push(relative + " -> " + target);
+      } else if (entry.isDirectory()) {
+        walk(full);
+      } else if (!entry.isFile()) {
+        fs.unlinkSync(full);
+        removed.push(relative + " (特殊文件)");
+      }
+    }
+  };
+  walk(rootDir);
+  return removed;
+}
+
 function writeBundlePayload(stageDir, bundleDir, version) {
   const items = ["package.json", "server/package.json", "server/dist", "web/dist", "shared/package.json", "shared/dist"];
   for (const item of items) {
@@ -203,6 +232,12 @@ function writeBundlePayload(stageDir, bundleDir, version) {
   removeDir(fastifySendTest);
   log("  已打包 @airmic/shared（真实目录）");
 
+  // 去掉所有链接与特殊文件（Linux 上 npm 生成的 node_modules/**.bin 软链）
+  const stripped = stripNonRegularEntries(bundleDir);
+  if (stripped.length) {
+    log("  已移除 " + stripped.length + " 个链接/特殊文件：" + stripped.slice(0, 3).join("；") +
+      (stripped.length > 3 ? " …" : ""));
+  }
 }
 
 function tarCandidates() {
@@ -226,6 +261,7 @@ function createTarGz(bundleParentDir, bundleName, tarPath) {
   // 且部分 GNU tar 缺少 gzip 子命令；此方式只依赖 tar 写归档 + Node 内置 zlib。
   let lastError = "";
   let created = false;
+  let usedCandidate = null;
   for (const candidate of tarCandidates()) {
     const result = spawnSync(candidate.command, candidate.extra.concat(["-cf", tarOnlyPath, "-C", bundleParentDir, bundleName]), {
       stdio: "inherit",
@@ -237,11 +273,29 @@ function createTarGz(bundleParentDir, bundleName, tarPath) {
     }
     if (result.status === 0 && exists(tarOnlyPath) && fs.statSync(tarOnlyPath).size > 0) {
       created = true;
+      usedCandidate = candidate;
       break;
     }
     lastError = "退出码 " + result.status;
   }
   if (!created) fail("创建 tar 归档失败：" + lastError);
+
+  // 发布前自检：安装端只接受普通文件与目录，带链接的包会在解压阶段被拒绝。
+  // 这里提前失败，避免把坏包发到 Release 上。
+  const listing = spawnSync(usedCandidate.command, usedCandidate.extra.concat(["-tvf", tarOnlyPath]), {
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listing.status !== 0) fail("无法读取刚创建的 tar 归档：退出码 " + listing.status);
+  const badEntries = String(listing.stdout || "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((entry) => !/^[-d]/.test(entry));
+  if (badEntries.length) {
+    fail("tar 归档包含链接或特殊文件（安装端会拒绝解压）：\n  " + badEntries.slice(0, 5).join("\n  "));
+  }
+
   fs.writeFileSync(tarPath, zlib.gzipSync(fs.readFileSync(tarOnlyPath), { level: 9 }));
   fs.rmSync(tarOnlyPath, { force: true });
   if (!exists(tarPath) || fs.statSync(tarPath).size === 0) fail("tar.gz 未生成：" + tarPath);
