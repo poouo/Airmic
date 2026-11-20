@@ -2,8 +2,23 @@ import { useState } from "react";
 import type { AudioSettings, CreateRoomRequest, RoomSummary, UpdateRoomRequest } from "@airmic/shared";
 import { diffAudioSettings } from "@airmic/shared";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Modal, Select, Switch, Textarea } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  FieldShell,
+  Input,
+  Modal,
+  Select,
+  Switch,
+  Textarea,
+} from "@/components/ui";
+import { ROOM_ICONS } from "@/components/room/roomIcons";
 import { api, errorMessage } from "@/lib/api";
+import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useUiStore } from "@/stores/ui";
 import AudioSettingsEditor from "./AudioSettingsEditor";
@@ -26,6 +41,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
 
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
+  const [channel, setChannel] = useState(initial.channel);
+  const [icon, setIcon] = useState(initial.icon);
   const [category, setCategory] = useState(initial.category);
   const [maxUsers, setMaxUsers] = useState(String(initial.maxUsers));
   const [maxUsersDirty, setMaxUsersDirty] = useState(false);
@@ -49,6 +66,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     const trimmed = name.trim();
     if (!trimmed) return "请填写房间名称";
     if (Array.from(trimmed).length > 40) return "房间名称最多 40 个字符";
+    if (Array.from(channel.trim()).length > 20) return "频道名称最多 20 个字符";
     if (Array.from(description).length > 200) return "房间简介最多 200 个字符";
     if (requirePassword) {
       if (!password && !initial.hasPassword) return "请设置房间密码（至少 4 位）";
@@ -70,6 +88,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     const payload: CreateRoomRequest = {
       name: name.trim(),
       description: description.trim(),
+      channel: channel.trim(),
+      icon,
       category,
       locked,
       screenShareEnabled,
@@ -167,12 +187,47 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
             <CardHeader title="基本信息" />
             <CardContent className="space-y-3">
               <Input label="房间名称" required value={name} maxLength={40} placeholder="例如：周末开黑房" onChange={(event) => setName(event.target.value)} />
+              <Input
+                label="频道"
+                value={channel}
+                maxLength={20}
+                placeholder="默认频道"
+                hint="一级分组，例如「游戏频道」；输入已有的频道名即可复用"
+                onChange={(event) => setChannel(event.target.value)}
+              />
               <Select
-                label="房间分类"
+                label="游戏"
+                hint="频道下的二级分组，例如「开黑房间」"
                 options={categories.map((item) => ({ value: item, label: item }))}
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
               />
+              <FieldShell label="房间图标" hint="选一个代表房间的小图标，会显示在导航与房间卡片上">
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="房间图标">
+                  {ROOM_ICONS.map((item) => {
+                    const selected = item.key === icon;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        aria-label={item.label}
+                        aria-pressed={selected}
+                        title={item.label}
+                        onClick={() => setIcon(item.key)}
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-field border outline-none transition-colors",
+                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                          selected
+                            ? "border-brand/50 bg-brand/10 text-brand ring-1 ring-brand/30"
+                            : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        <item.Icon className="h-4 w-4" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </FieldShell>
               <Textarea
                 label="房间简介"
                 hint="选填，最多 200 个字符"

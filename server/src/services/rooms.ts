@@ -14,6 +14,8 @@ export interface RoomRow {
   name: string;
   description: string;
   category: string;
+  channel: string;
+  icon: string;
   password_hash: string | null;
   max_users: number;
   sort_order: number;
@@ -37,13 +39,15 @@ export interface MessageRow {
 }
 
 const ROOM_COLUMNS =
-  "id, name, description, category, password_hash, max_users, sort_order, locked, screen_share_enabled, " +
+  "id, name, description, category, channel, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, " +
   "audio_override, created_by, created_at, updated_at";
 
 export interface RoomInput {
   name?: string;
   description?: string;
   category?: string;
+  channel?: string;
+  icon?: string;
   password?: string | null;
   maxUsers?: number;
   sortOrder?: number;
@@ -68,7 +72,7 @@ export class RoomsService {
 
   list(counts: Map<number, number>): RoomSummary[] {
     const rows = this.db.all<RoomRow>(
-      "SELECT " + ROOM_COLUMNS + " FROM rooms ORDER BY category ASC, sort_order ASC, id ASC",
+      "SELECT " + ROOM_COLUMNS + " FROM rooms ORDER BY channel ASC, category ASC, sort_order ASC, id ASC",
     );
     return rows.map((row) => this.toSummary(row, counts.get(row.id) ?? 0));
   }
@@ -97,6 +101,8 @@ export class RoomsService {
       name: row.name,
       description: row.description,
       category: row.category,
+      channel: row.channel,
+      icon: row.icon,
       hasPassword: row.password_hash !== null,
       maxUsers: this.maxUsersFor(row),
       userCount,
@@ -156,20 +162,28 @@ export class RoomsService {
 
   create(input: CreateRoomInput, actorId: number | null): RoomRow {
     const defaults = this.settings.get();
+    const channel = (input.channel ?? "默认频道").trim() || "默认频道";
     const category = (input.category ?? defaults.roomCategories[0] ?? "开黑房间").trim() || "开黑房间";
+    const icon = (input.icon ?? "gamepad").trim() || "gamepad";
     const passwordHash = input.password ? hashRoomPassword(input.password) : null;
     const nextSort =
       input.sortOrder ??
       (Number(
-        this.db.get<{ max: number | null }>("SELECT MAX(sort_order) AS max FROM rooms WHERE category = ?", category)?.max ?? 0,
+        this.db.get<{ max: number | null }>(
+          "SELECT MAX(sort_order) AS max FROM rooms WHERE channel = ? AND category = ?",
+          channel,
+          category,
+        )?.max ?? 0,
       ) + 10);
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO rooms (name, description, category, password_hash, max_users, sort_order, locked, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO rooms (name, description, category, channel, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.name.trim(),
       (input.description ?? "").trim(),
       category,
+      channel,
+      icon,
       passwordHash,
       clampRoomMaxUsers(input.maxUsers),
       nextSort,
@@ -202,6 +216,14 @@ export class RoomsService {
     if (input.category !== undefined) {
       fields.push("category = ?");
       params.push(input.category.trim() || "开黑房间");
+    }
+    if (input.channel !== undefined) {
+      fields.push("channel = ?");
+      params.push(input.channel.trim() || "默认频道");
+    }
+    if (input.icon !== undefined) {
+      fields.push("icon = ?");
+      params.push(input.icon.trim() || "gamepad");
     }
     if (input.password !== undefined) {
       fields.push("password_hash = ?");

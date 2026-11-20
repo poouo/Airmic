@@ -114,3 +114,40 @@ export function groupRoomsByCategory(rooms: RoomSummary[]): { category: string; 
     }))
     .sort((a, b) => a.category.localeCompare(b.category, "zh-CN"));
 }
+
+export interface RoomGameGroup {
+  category: string;
+  rooms: RoomSummary[];
+}
+
+export interface RoomChannelGroup {
+  channel: string;
+  games: RoomGameGroup[];
+}
+
+/**
+ * 三级导航分组：频道（channel）→ 游戏（category）→ 房间。
+ * 频道、游戏均按房间列表中的出现顺序分组，组内按 sortOrder / id 排序。
+ */
+export function groupRoomsByChannel(rooms: RoomSummary[]): RoomChannelGroup[] {
+  const channelMap = new Map<string, Map<string, RoomSummary[]>>();
+  for (const room of rooms) {
+    const channel = room.channel || "默认频道";
+    const category = room.category || "开黑房间";
+    let gameMap = channelMap.get(channel);
+    if (!gameMap) {
+      gameMap = new Map<string, RoomSummary[]>();
+      channelMap.set(channel, gameMap);
+    }
+    const list = gameMap.get(category);
+    if (list) list.push(room);
+    else gameMap.set(category, [room]);
+  }
+  return [...channelMap.entries()].map(([channel, gameMap]) => ({
+    channel,
+    games: [...gameMap.entries()].map(([category, list]) => ({
+      category,
+      rooms: [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
+    })),
+  }));
+}

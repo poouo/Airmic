@@ -123,7 +123,14 @@ CREATE INDEX IF NOT EXISTS idx_app_logs_level ON app_logs(level, created_at DESC
 CREATE INDEX IF NOT EXISTS idx_app_logs_category ON app_logs(category, created_at DESC);
 `;
 
+const V3 = `
+ALTER TABLE rooms ADD COLUMN channel TEXT NOT NULL DEFAULT '默认频道';
+ALTER TABLE rooms ADD COLUMN icon TEXT NOT NULL DEFAULT 'gamepad';
+CREATE INDEX IF NOT EXISTS idx_rooms_channel ON rooms(channel, category, sort_order, id);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
   { version: 2, name: "app-logs", sql: V2 },
+  { version: 3, name: "room-channel-icon", sql: V3 },
 ];

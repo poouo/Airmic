@@ -13,7 +13,7 @@ import { canCreateRoom, canManageRooms } from "@/components/lobby/access";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
 import LobbyRoomGrid from "@/components/lobby/LobbyRoomGrid";
 import RoomFormModal from "@/components/lobby/RoomFormModal";
-import { createRoomInitial, detailRoomInitial, summaryRoomInitial } from "@/components/lobby/roomForm";
+import { channelOptions, createRoomInitial, detailRoomInitial, summaryRoomInitial } from "@/components/lobby/roomForm";
 
 type FormTarget =
   | { kind: "create" }
@@ -171,7 +171,7 @@ export default function LobbyPage() {
         <RoomFormModal
           initial={
             formTarget.kind === "create"
-              ? createRoomInitial(audioBase, categories)
+              ? createRoomInitial(audioBase, categories, channelOptions(rooms))
               : formTarget.detail
                 ? detailRoomInitial(formTarget.detail)
                 : summaryRoomInitial(formTarget.room, audioBase)

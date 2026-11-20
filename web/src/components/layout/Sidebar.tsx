@@ -7,7 +7,7 @@ import { useRoomStore } from "@/stores/room";
 import { useUiStore } from "@/stores/ui";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
 import RoomFormModal from "@/components/lobby/RoomFormModal";
-import { createRoomInitial } from "@/components/lobby/roomForm";
+import { channelOptions, createRoomInitial } from "@/components/lobby/roomForm";
 import { canCreateRoom } from "@/components/lobby/access";
 import OnlineUsersList from "./OnlineUsersList";
 import RoomNavList from "./RoomNavList";
@@ -22,6 +22,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const server = useAppStore((state) => state.server);
+  const rooms = useAppStore((state) => state.rooms);
   const currentRoomId = useRoomStore((state) => state.snapshot?.room.id ?? null);
   const [joinTarget, setJoinTarget] = useState<RoomSummary | null>(null);
   const [creating, setCreating] = useState(false);
@@ -68,7 +69,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
       {joinTarget && <JoinRoomPasswordModal room={joinTarget} onClose={() => setJoinTarget(null)} />}
       {creating && (
         <RoomFormModal
-          initial={createRoomInitial(audioBase, categories)}
+          initial={createRoomInitial(audioBase, categories, channelOptions(rooms))}
           audioBase={audioBase}
           onClose={() => setCreating(false)}
           onSaved={(room) => {

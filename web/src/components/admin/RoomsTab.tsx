@@ -8,7 +8,7 @@ import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 import RoomFormModal from "@/components/lobby/RoomFormModal";
-import { createRoomInitial, detailRoomInitial, summaryRoomInitial } from "@/components/lobby/roomForm";
+import { channelOptions, createRoomInitial, detailRoomInitial, summaryRoomInitial } from "@/components/lobby/roomForm";
 import { useAsyncData } from "./useAsyncData";
 import { AdminErrorPanel, AdminLoading, SectionCard, TableShell, TBody, Td, Th, THead, Tr } from "./shared";
 
@@ -204,7 +204,7 @@ export default function RoomsTab() {
         <RoomFormModal
           initial={
             form.kind === "create"
-              ? createRoomInitial(audioBase, categories)
+              ? createRoomInitial(audioBase, categories, channelOptions(appRooms))
               : isRoomDetail(form.room)
                 ? detailRoomInitial(form.room)
                 : summaryRoomInitial(form.room, audioBase)

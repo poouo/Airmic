@@ -4,6 +4,7 @@ import type { RoomDetail } from "@airmic/shared";
 import { Badge, Button, IconButton } from "@/components/ui";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 import { useAppStore } from "@/stores/app";
+import { RoomIcon, iconLabel } from "./roomIcons";
 
 export interface RoomHeaderProps {
   room: RoomDetail;
@@ -37,6 +38,9 @@ export function RoomHeader({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
+            <span title={iconLabel(room.icon)} className="inline-flex shrink-0">
+              <RoomIcon icon={room.icon} className="h-4 w-4 text-muted-foreground" />
+            </span>
             <h1 className="truncate text-sm font-semibold tracking-tight text-foreground sm:text-base">{room.name}</h1>
             {room.hasPassword && (
               <span title="房间已设置密码" className="shrink-0 text-muted-foreground">

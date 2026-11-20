@@ -6,6 +6,10 @@ export interface RoomFormInitial {
   name: string;
   description: string;
   category: string;
+  /** 一级分组（频道） */
+  channel: string;
+  /** 房间图标 key（对应 ROOM_ICONS） */
+  icon: string;
   hasPassword: boolean;
   /** 0 表示跟随服务器房间人数上限 */
   maxUsers: number;
@@ -18,12 +22,14 @@ export interface RoomFormInitial {
   audioKnown: boolean;
 }
 
-export function createRoomInitial(base: AudioSettings, categories: string[]): RoomFormInitial {
+export function createRoomInitial(base: AudioSettings, categories: string[], channels: string[] = []): RoomFormInitial {
   return {
     id: null,
     name: "",
     description: "",
     category: categories[0] ?? "开黑房间",
+    channel: channels[0] ?? "默认频道",
+    icon: "gamepad",
     hasPassword: false,
     maxUsers: 0,
     locked: false,
@@ -40,6 +46,8 @@ export function detailRoomInitial(room: RoomDetail): RoomFormInitial {
     name: room.name,
     description: room.description,
     category: room.category,
+    channel: room.channel,
+    icon: room.icon,
     hasPassword: room.hasPassword,
     maxUsers: room.maxUsers,
     locked: room.locked,
@@ -57,6 +65,8 @@ export function summaryRoomInitial(room: RoomSummary, base: AudioSettings): Room
     name: room.name,
     description: room.description,
     category: room.category,
+    channel: room.channel,
+    icon: room.icon,
     hasPassword: room.hasPassword,
     maxUsers: room.maxUsers,
     locked: room.locked,
@@ -71,5 +81,15 @@ export function summaryRoomInitial(room: RoomSummary, base: AudioSettings): Room
 export function categoryOptions(categories: string[], current: string): string[] {
   const list = categories.length > 0 ? [...categories] : ["开黑房间"];
   if (current && !list.includes(current)) list.unshift(current);
+  return list;
+}
+
+/** 从现有房间中提取频道列表（按出现顺序去重），用于创建房间时选择默认频道 */
+export function channelOptions(rooms: RoomSummary[]): string[] {
+  const list: string[] = [];
+  for (const room of rooms) {
+    const channel = room.channel || "默认频道";
+    if (!list.includes(channel)) list.push(channel);
+  }
   return list;
 }

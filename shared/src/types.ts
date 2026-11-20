@@ -127,6 +127,10 @@ export interface RoomSummary {
   name: string;
   description: string;
   category: string;
+  /** 一级分组（频道） */
+  channel: string;
+  /** 房间图标 key（对应前端 ROOM_ICONS） */
+  icon: string;
   hasPassword: boolean;
   maxUsers: number;
   userCount: number;

@@ -199,6 +199,10 @@ export interface CreateRoomRequest {
   name: string;
   description?: string;
   category?: string;
+  /** 一级分组（频道）；缺省为“默认频道” */
+  channel?: string;
+  /** 房间图标 key；缺省为 gamepad */
+  icon?: string;
   /** 设置房间密码；null / "" 表示无密码 */
   password?: string | null;
   maxUsers?: number;

@@ -1,6 +1,7 @@
 import type { RoomSummary } from "@airmic/shared";
 import { KeyRound, Lock, LockKeyhole, MessageSquare, MonitorUp, Pencil, Users } from "lucide-react";
 import { Badge, Button, IconButton } from "@/components/ui";
+import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
 import { cn } from "@/lib/format";
 
 export interface RoomCardProps {
@@ -37,6 +38,9 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
+            <span title={iconLabel(room.icon)} className="inline-flex shrink-0">
+              <RoomIcon icon={room.icon} className="h-3.5 w-3.5 text-muted-foreground" />
+            </span>
             <span className="truncate">{room.name}</span>
             {room.hasPassword && <Lock className="h-3.5 w-3.5 shrink-0 text-warning" aria-label="房间有密码" />}
             {room.locked && <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="房间已锁定" />}
