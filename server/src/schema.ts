@@ -105,6 +105,25 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+const V2 = `
+CREATE TABLE IF NOT EXISTS app_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL,
+  level       TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  meta        TEXT,
+  user_id     INTEGER,
+  username    TEXT,
+  ip          TEXT,
+  request_id  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_app_logs_created ON app_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_level ON app_logs(level, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_category ON app_logs(category, created_at DESC);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
+  { version: 2, name: "app-logs", sql: V2 },
 ];

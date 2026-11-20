@@ -5,6 +5,8 @@ import {
   WS_CLOSE_CODES,
   WS_HEARTBEAT_INTERVAL_MS,
   type ClientMessage,
+  type LogCategory,
+  type LogLevel,
   type OnlineUser,
   type PeerInfo,
   type PeerStatePatch,
@@ -107,12 +109,23 @@ export class Hub implements HubLike {
   /** @fastify/websocket 的 /ws 路由入口 */
   handleConnection(socket: WebSocket, request: FastifyRequest): void {
     if (this.closing) {
+      this.log("warn", "ws", "服务器正在关闭，拒绝 WebSocket 连接", { reason: "shutdown" }, null, {
+        ip: getClientIp(request),
+      });
       closeSocketWithWatchdog(socket, WS_CLOSE_CODES.shutdown, "服务器正在关闭");
       return;
     }
     try {
       this.processConnection(socket, request);
     } catch (error) {
+      this.log(
+        "error",
+        "ws",
+        "WebSocket 连接处理异常",
+        { reason: describeError(error).slice(0, 500) },
+        null,
+        { ip: getClientIp(request) },
+      );
       this.logError("处理 WebSocket 连接时出错", error);
       closeSocketWithWatchdog(socket, CLOSE_CODE_INTERNAL_ERROR, "服务器内部错误");
     }
@@ -122,6 +135,7 @@ export class Hub implements HubLike {
     const ip = getClientIp(request);
     const token = AuthService.extractTokenFromCookieHeader(request.headers.cookie);
     if (!token) {
+      this.log("warn", "security", "WebSocket 认证失败", { reason: "缺少登录凭证", ip }, null, { ip });
       closeSocketWithWatchdog(socket, CLOSE_CODE_UNAUTHORIZED, "请先登录");
       return;
     }
@@ -130,8 +144,12 @@ export class Hub implements HubLike {
     if (!auth) {
       const ban = this.detectBan(token, ip);
       if (ban) {
+        this.log("warn", "security", "封禁用户尝试连接", { reason: ban.reason || "账号或 IP 已被封禁", ip }, null, {
+          ip,
+        });
         closeSocketWithWatchdog(socket, CLOSE_CODE_REJECTED, "账号已被封禁" + (ban.reason ? "：" + ban.reason : ""));
       } else {
+        this.log("warn", "security", "WebSocket 认证失败", { reason: "登录凭证无效或已过期", ip }, null, { ip });
         closeSocketWithWatchdog(socket, CLOSE_CODE_UNAUTHORIZED, "请先登录");
       }
       return;
@@ -139,6 +157,14 @@ export class Hub implements HubLike {
 
     const ban = this.services.bans.findActive(auth.user.id, ip);
     if (ban) {
+      this.log(
+        "warn",
+        "security",
+        "封禁用户尝试连接",
+        { reason: ban.reason || "账号或 IP 已被封禁", ip },
+        null,
+        { userId: auth.user.id, username: auth.user.username, ip },
+      );
       closeSocketWithWatchdog(socket, CLOSE_CODE_REJECTED, "账号已被封禁：" + ban.reason);
       return;
     }
@@ -147,6 +173,14 @@ export class Hub implements HubLike {
     const settings = this.services.settings.get();
     // 同一账号重连时占用原有名额，不按"新用户"判断满员
     if (!existing && settings.maxUsers > 0 && this.connections.size >= settings.maxUsers) {
+      this.log(
+        "warn",
+        "ws",
+        "服务器人数已满，拒绝 WebSocket 连接",
+        { reason: "server_full", online: this.connections.size, maxUsers: settings.maxUsers, ip },
+        null,
+        { userId: auth.user.id, username: auth.user.username, ip },
+      );
       closeSocketWithWatchdog(socket, CLOSE_CODE_REJECTED, "服务器人数已满");
       return;
     }
@@ -174,16 +208,23 @@ export class Hub implements HubLike {
       conn.missedHeartbeats = 0;
     });
     socket.on("message", (data: RawData, isBinary: boolean) => this.handleRawMessage(conn, data, isBinary));
-    socket.on("close", () => this.handleSocketClose(conn));
+    socket.on("close", (code: number, reason: Buffer) => this.handleSocketClose(conn, code, reason.toString()));
     socket.on("error", (error: Error) => {
       this.logWarn("WebSocket 连接错误（用户 " + conn.userId + "）：" + describeError(error));
     });
 
-    if (existing) this.replaceConnection(existing);
+    if (existing) this.replaceConnection(existing, conn.id);
 
     this.peakOnline = Math.max(this.peakOnline, this.connections.size);
     this.sendHello(conn);
     this.broadcastOnlineUsers();
+    this.log(
+      "info",
+      "ws",
+      "WebSocket 已连接",
+      { userId: conn.userId, username: conn.user.username, connectionId: conn.id },
+      conn,
+    );
   }
 
   /** 认证失败时尝试识别被封禁的账号/IP，用于返回更准确的关闭码 */
@@ -205,11 +246,25 @@ export class Hub implements HubLike {
   }
 
   /** 新连接替换旧连接：清理旧连接的房间状态并关闭它 */
-  private replaceConnection(existing: ClientConnection): void {
+  private replaceConnection(existing: ClientConnection, replacedByConnectionId: string): void {
     existing.closed = true;
     this.connections.delete(existing.id);
+    this.log(
+      "info",
+      "ws",
+      "旧 WebSocket 连接被新连接替换",
+      {
+        userId: existing.userId,
+        username: existing.user.username,
+        connectionId: existing.id,
+        replacedByConnectionId,
+        reason: "账号已在其他地方登录",
+      },
+      existing,
+    );
     const roomId = existing.roomId;
     if (roomId !== null) {
+      const room = this.services.rooms.findById(roomId);
       existing.roomId = null;
       existing.state.screenSharing = false;
       existing.state.speaking = false;
@@ -221,6 +276,13 @@ export class Hub implements HubLike {
       };
       this.broadcastToRoom(roomId, peerLeft, existing.id);
       this.sendNoticeToRoom(roomId, "info", existing.user.displayName + " 离开了房间", existing.id);
+      this.log(
+        "info",
+        "room",
+        "离开房间",
+        { userId: existing.userId, roomId, roomName: room?.name ?? null, reason: "账号已在其他地方登录" },
+        existing,
+      );
       this.broadcastRooms();
       this.broadcastOnlineUsers();
     }
@@ -241,7 +303,7 @@ export class Hub implements HubLike {
   }
 
   /** 连接关闭（含被替换、被踢、网络断开）后的统一清理 */
-  private handleSocketClose(conn: ClientConnection): void {
+  private handleSocketClose(conn: ClientConnection, closeCode: number, closeReason: string): void {
     if (conn.closeTimer) {
       clearTimeout(conn.closeTimer);
       conn.closeTimer = null;
@@ -256,9 +318,33 @@ export class Hub implements HubLike {
       conn.roomId = null;
       return;
     }
+    const previousRoomId = conn.roomId;
+    const previousRoom = previousRoomId !== null ? this.services.rooms.findById(previousRoomId) : undefined;
     const wasInRoom = conn.roomId !== null;
     this.detachFromRoom(conn, "断开连接", conn.user.displayName + " 断开了连接");
-    if (wasInRoom) this.broadcastRooms();
+    this.log(
+      "info",
+      "ws",
+      "WebSocket 已断开",
+      {
+        userId: conn.userId,
+        username: conn.user.username,
+        roomId: previousRoomId,
+        reason: closeReason || "连接关闭",
+        closeCode,
+      },
+      conn,
+    );
+    if (wasInRoom) {
+      this.log(
+        "info",
+        "room",
+        "离开房间",
+        { userId: conn.userId, roomId: previousRoomId, roomName: previousRoom?.name ?? null, reason: "连接断开" },
+        conn,
+      );
+      this.broadcastRooms();
+    }
     this.broadcastOnlineUsers();
   }
 
@@ -363,7 +449,16 @@ export class Hub implements HubLike {
     }
 
     if (conn.roomId !== null) {
+      const previousRoomId = conn.roomId;
+      const previousRoom = this.services.rooms.findById(previousRoomId);
       this.detachFromRoom(conn, "切换房间", conn.user.displayName + " 离开了房间");
+      this.log(
+        "info",
+        "room",
+        "离开房间",
+        { userId: conn.userId, roomId: previousRoomId, roomName: previousRoom?.name ?? null, reason: "切换房间" },
+        conn,
+      );
       this.sendRoomLeft(conn, "切换房间");
     }
     this.attachToRoom(conn, row);
@@ -374,7 +469,16 @@ export class Hub implements HubLike {
       this.sendError(conn, "not_in_room", "你当前不在任何房间", "leave_room");
       return;
     }
+    const roomId = conn.roomId;
+    const room = this.services.rooms.findById(roomId);
     this.detachFromRoom(conn, "离开房间", conn.user.displayName + " 离开了房间");
+    this.log(
+      "info",
+      "room",
+      "离开房间",
+      { userId: conn.userId, roomId, roomName: room?.name ?? null, reason: "用户主动离开" },
+      conn,
+    );
     this.sendRoomLeft(conn);
     this.broadcastRooms();
     this.broadcastOnlineUsers();
@@ -385,6 +489,7 @@ export class Hub implements HubLike {
     conn.joinedAt = nowIso();
     conn.state.speaking = false;
     conn.state.screenSharing = false;
+    this.log("info", "room", "加入房间", { userId: conn.userId, roomId: row.id, roomName: row.name }, conn);
     this.sendRoomJoined(conn, row);
 
     const peer = this.toPeerInfo(conn);
@@ -522,6 +627,7 @@ export class Hub implements HubLike {
         conn.id,
       );
       this.sendNoticeToRoom(roomId, "info", conn.user.displayName + " 开始共享屏幕", conn.id);
+      this.log("info", "voice", "开始屏幕共享", { roomId, userId: conn.userId }, conn);
     } else {
       if (!conn.state.screenSharing) return;
       conn.state.screenSharing = false;
@@ -531,6 +637,7 @@ export class Hub implements HubLike {
         conn.id,
       );
       this.sendNoticeToRoom(roomId, "info", conn.user.displayName + " 停止了屏幕共享", conn.id);
+      this.log("info", "voice", "停止屏幕共享", { roomId, userId: conn.userId }, conn);
     }
     this.broadcastOnlineUsers();
   }
@@ -659,17 +766,25 @@ export class Hub implements HubLike {
     if (!conn || conn.closed) return false;
     const text = reason.trim() || (scope === "server" ? "你已被管理员踢出服务器" : "你已被管理员请出房间");
     if (scope === "room") {
-      if (conn.roomId === null) return false;
+      const roomId = conn.roomId;
+      if (roomId === null) return false;
+      this.log("info", "admin", "管理员将用户移出房间", { userId, scope, reason: text, roomId }, conn);
+      const room = this.services.rooms.findById(roomId);
       this.send(conn, { t: "kicked", scope: "room", reason: text });
       this.detachFromRoom(conn, text, conn.user.displayName + " 被移出了房间");
+      this.log("info", "room", "被移出房间", { userId, roomId, roomName: room?.name ?? null, reason: text }, conn);
       this.sendRoomLeft(conn, text);
       this.broadcastRooms();
       this.broadcastOnlineUsers();
       return true;
     }
+    this.log("info", "admin", "管理员踢出用户（服务器）", { userId, scope, reason: text, roomId: conn.roomId }, conn);
     this.send(conn, { t: "kicked", scope: "server", reason: text });
     if (conn.roomId !== null) {
+      const roomId = conn.roomId;
+      const room = this.services.rooms.findById(roomId);
       this.detachFromRoom(conn, text, conn.user.displayName + " 被移出了房间");
+      this.log("info", "room", "被移出房间", { userId, roomId, roomName: room?.name ?? null, reason: text }, conn);
       this.broadcastRooms();
       this.broadcastOnlineUsers();
     }
@@ -681,9 +796,13 @@ export class Hub implements HubLike {
     const conn = this.byUser.get(userId);
     if (!conn || conn.closed) return false;
     const text = reason.trim() || "你的登录状态已失效";
+    this.log("info", "admin", "管理员断开用户连接", { userId, reason: text }, conn);
     this.send(conn, { t: "session_ended", reason: text });
     if (conn.roomId !== null) {
+      const roomId = conn.roomId;
+      const room = this.services.rooms.findById(roomId);
       this.detachFromRoom(conn, text, conn.user.displayName + " 断开了连接");
+      this.log("info", "room", "离开房间", { userId, roomId, roomName: room?.name ?? null, reason: text }, conn);
       this.broadcastRooms();
       this.broadcastOnlineUsers();
     }
@@ -694,6 +813,13 @@ export class Hub implements HubLike {
   forceMute(userId: number, muted: boolean, reason?: string): boolean {
     const conn = this.byUser.get(userId);
     if (!conn || conn.closed) return false;
+    this.log(
+      "info",
+      "admin",
+      muted ? "管理员强制静音用户" : "管理员解除用户强制静音",
+      { userId, muted, reason: reason ?? null, roomId: conn.roomId },
+      conn,
+    );
     conn.state.forceMuted = muted;
     conn.state.muted = muted;
     const patch: PeerStatePatch = { muted, forceMuted: muted };
@@ -714,9 +840,25 @@ export class Hub implements HubLike {
   moveToRoom(userId: number, roomId: number | null): boolean {
     const conn = this.byUser.get(userId);
     if (!conn || conn.closed) return false;
+    this.log(
+      "info",
+      "admin",
+      roomId === null ? "管理员将用户移回大厅" : "管理员移动用户房间",
+      { userId, roomId, scope: "room" },
+      conn,
+    );
     if (roomId === null) {
       if (conn.roomId === null) return true;
+      const previousRoomId = conn.roomId;
+      const previousRoom = this.services.rooms.findById(previousRoomId);
       this.detachFromRoom(conn, "管理员将你移出了房间", conn.user.displayName + " 离开了房间");
+      this.log(
+        "info",
+        "room",
+        "离开房间",
+        { userId, roomId: previousRoomId, roomName: previousRoom?.name ?? null, reason: "管理员移出房间" },
+        conn,
+      );
       this.sendRoomLeft(conn, "管理员将你移出了房间");
       this.broadcastRooms();
       this.broadcastOnlineUsers();
@@ -729,7 +871,16 @@ export class Hub implements HubLike {
     const currentUsers = this.getRoomCounts().get(roomId) ?? 0;
     if (currentUsers >= this.services.rooms.maxUsersFor(row)) return false;
     if (conn.roomId !== null) {
+      const previousRoomId = conn.roomId;
+      const previousRoom = this.services.rooms.findById(previousRoomId);
       this.detachFromRoom(conn, "管理员移动了你的房间", conn.user.displayName + " 被移动到了其他房间");
+      this.log(
+        "info",
+        "room",
+        "离开房间",
+        { userId, roomId: previousRoomId, roomName: previousRoom?.name ?? null, reason: "管理员移动房间" },
+        conn,
+      );
       this.sendRoomLeft(conn, "管理员移动了你的房间");
     }
     this.attachToRoom(conn, row);
@@ -775,6 +926,7 @@ export class Hub implements HubLike {
       conn.joinedAt = null;
       conn.state.speaking = false;
       conn.state.screenSharing = false;
+      this.log("info", "room", "离开房间", { userId: conn.userId, roomId, reason: text }, conn);
       this.send(conn, { t: "room_deleted", roomId });
       this.sendRoomLeft(conn, text);
     }
@@ -871,6 +1023,16 @@ export class Hub implements HubLike {
     } else {
       this.send(conn, { t: "error", code, message });
     }
+    // 客户端错误写入运行日志（rate_limited 属于预期内的高频反馈，不记录；其余做频率上限避免刷屏）
+    if (code !== "rate_limited" && globalRateLimiter.hit("ws:error-log:" + conn.id, 30, 60_000)) {
+      this.log(
+        "warn",
+        "ws",
+        "客户端操作失败：" + message,
+        { code, request: request ?? null, userId: conn.userId, roomId: conn.roomId },
+        conn,
+      );
+    }
   }
 
   private broadcast(message: ServerMessage): void {
@@ -948,6 +1110,34 @@ export class Hub implements HubLike {
       forceMuted: conn.state.forceMuted,
       joinedAt: conn.joinedAt ?? nowIso(),
     };
+  }
+
+  /**
+   * 写入运行日志（管理后台排障用）。
+   * 任何异常都不能影响实时层主流程；不记录 cookie/token、聊天正文与 SDP/ICE 内容。
+   * meta 中只放排障需要的标识与小字段，避免日志表膨胀。
+   */
+  private log(
+    level: LogLevel,
+    category: LogCategory,
+    message: string,
+    meta?: unknown,
+    conn?: ClientConnection | null,
+    extra?: { userId?: number; username?: string; ip?: string },
+  ): void {
+    try {
+      this.services.logs.write({
+        level,
+        category,
+        message,
+        meta,
+        userId: extra?.userId ?? conn?.userId ?? null,
+        username: extra?.username ?? conn?.user.username ?? null,
+        ip: extra?.ip ?? conn?.ip ?? null,
+      });
+    } catch {
+      /* 日志写入失败不影响业务 */
+    }
   }
 
   private logWarn(message: string): void {

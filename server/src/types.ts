@@ -6,6 +6,8 @@ import type { AuthService } from "./services/auth.js";
 import type { BansService } from "./services/bans.js";
 import type { RoomsService } from "./services/rooms.js";
 import type { SettingsService } from "./services/settings.js";
+import type { UpdateService } from "./services/update.js";
+import type { LogsService } from "./services/logs.js";
 import type { UsersService } from "./services/users.js";
 
 export interface AuthContext {
@@ -23,5 +25,7 @@ export interface Services {
   bans: BansService;
   audit: AuditService;
   auth: AuthService;
+  update: UpdateService;
+  logs: LogsService;
   startedAt: string;
 }

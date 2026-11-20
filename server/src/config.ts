@@ -52,6 +52,12 @@ export interface AppConfig {
   livekitUrl: string | null;
   livekitApiKey: string | null;
   livekitApiSecret: string | null;
+  /** GitHub 仓库（owner/repo），用于在线检查新版本 */
+  githubRepo: string;
+  /** GitHub Token（可选，提高 API 速率限制/访问私有仓库） */
+  githubToken: string | null;
+  /** 运行日志保留天数（默认 3 天，到点自动清理） */
+  logRetentionDays: number;
   userSessionTtlDays: number;
   guestSessionTtlHours: number;
 }
@@ -86,6 +92,9 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     livekitUrl: process.env.LIVEKIT_URL?.trim() || null,
     livekitApiKey: process.env.LIVEKIT_API_KEY?.trim() || null,
     livekitApiSecret: process.env.LIVEKIT_API_SECRET?.trim() || null,
+    githubRepo: process.env.AIRMIC_REPO?.trim() || "poouo/Airmic",
+    githubToken: process.env.GITHUB_TOKEN?.trim() || null,
+    logRetentionDays: Math.min(30, Math.max(1, Number(process.env.LOG_RETENTION_DAYS ?? 3) || 3)),
     userSessionTtlDays: Number(process.env.USER_SESSION_TTL_DAYS ?? 30),
     guestSessionTtlHours: Number(process.env.GUEST_SESSION_TTL_HOURS ?? 24),
   };

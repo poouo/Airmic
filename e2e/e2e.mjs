@@ -209,6 +209,24 @@ async function main() {
       return "管理后台正常";
     });
 
+    await step("14b. 管理后台运行日志：分页查看与导出", async () => {
+      await adminPage.page.getByRole("button", { name: "运行日志", exact: true }).first().click();
+      await adminPage.page.waitForTimeout(1200);
+      const body = await adminPage.page.innerText("body");
+      for (const keyword of ["运行日志", "导出 CSV", "导出 JSON", "级别", "分类"]) {
+        if (!body.includes(keyword)) throw new Error("日志页缺少：" + keyword);
+      }
+      if (!/共 \d+ 条/.test(body)) throw new Error("日志分页信息未显示");
+      await browser.screenshot(adminPage.page, "08-admin-logs");
+      const exportResponse = await adminPage.page.request.get(server.url + "/api/admin/logs/export?format=csv");
+      if (exportResponse.status() !== 200) throw new Error("日志导出失败 HTTP " + exportResponse.status());
+      const contentType = exportResponse.headers()["content-type"] ?? "";
+      if (!contentType.includes("text/csv")) throw new Error("导出 Content-Type 不正确：" + contentType);
+      const csv = await exportResponse.text();
+      if (!csv.includes("时间")) throw new Error("导出 CSV 缺少表头");
+      return "分页与 CSV 导出正常";
+    });
+
     await step("15. 离开房间返回大厅", async () => {
       await guestPage.page.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" });
       await guestPage.page.waitForTimeout(1500);

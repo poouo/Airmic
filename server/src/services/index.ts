@@ -8,6 +8,8 @@ import { AuthService } from "./auth.js";
 import { BansService } from "./bans.js";
 import { RoomsService } from "./rooms.js";
 import { SettingsService } from "./settings.js";
+import { UpdateService } from "./update.js";
+import { LogsService } from "./logs.js";
 import { UsersService } from "./users.js";
 
 export function createServices(config: AppConfig): Services {
@@ -18,6 +20,8 @@ export function createServices(config: AppConfig): Services {
   const bans = new BansService(db, users);
   const audit = new AuditService(db);
   const auth = new AuthService(db, users, settings, config);
+  const update = new UpdateService(config);
+  const logs = new LogsService(db, config);
 
   const services: Services = {
     config,
@@ -28,6 +32,8 @@ export function createServices(config: AppConfig): Services {
     bans,
     audit,
     auth,
+    update,
+    logs,
     startedAt: nowIso(),
   };
 

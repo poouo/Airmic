@@ -63,7 +63,8 @@
 
 | 管理后台 · 服务器设置（LiveKit 语音中转配置） | |
 | --- | --- |
-| ![管理后台设置](docs/screenshots/admin-settings.png) | 媒体经服务端 LiveKit SFU 中转，不做客户端 P2P；单房间可配置 50-100+ 人。 |
+| ![管理后台设置](docs/screenshots/admin-settings.png) | ![运行日志](docs/screenshots/admin-logs.png) |
+| 媒体经服务端 LiveKit SFU 中转，不做客户端 P2P；单房间可配置 50-100+ 人。 | 管理后台「运行日志」：分页/筛选/导出 CSV/JSON，默认保留 3 天。 |
 
 > 截图来自自动化 E2E 测试（真实无头 Chrome + 虚拟麦克风 + 真实 LiveKit SFU 音频连接）。
 
@@ -95,6 +96,8 @@ AirMic 与这类软件一样采用**服务端语音转发**：客户端把音频
 
 ## 快速开始
 
+> 想一条命令完成部署（含 LiveKit、初始化目录、升级/卸载）？见下方「一键部署（本地 / Docker）」章节。
+
 ### 环境要求
 
 - **Node.js ≥ 22.13**（推荐 24 LTS，以 `package.json` 的 `engines` 字段为准）；npm ≥ 10。
@@ -103,7 +106,7 @@ AirMic 与这类软件一样采用**服务端语音转发**：客户端把音频
 - 现代浏览器：Chrome / Edge / Firefox / Safari 16+（需要支持 WebRTC、WebSocket 与 ES2022）。
 - 麦克风；浏览器要求 **HTTPS 或 localhost** 才能使用麦克风，生产环境请让 LiveKit 也使用 **wss**。
 
-### 方式 A：Docker Compose（推荐，一条命令含语音服务）
+### 方式 A：Docker Compose（手动）
 
 ```bash
 cp .env.example .env          # Windows: Copy-Item .env.example .env
@@ -118,7 +121,7 @@ docker compose up -d --build
 - 打开 <http://localhost:9811/setup> 完成初始化（创建管理员、服务器信息、LiveKit 配置），完成后自动登录并进入大厅。
 - 生产环境请按 [docs/DEPLOY.md](docs/DEPLOY.md) 配置 Nginx/Caddy 的 HTTPS 与 LiveKit 的 wss 反向代理。
 
-### 方式 B：本地开发
+### 方式 B：本地运行（手动）
 
 ```bash
 # 1) 启动一个本地 LiveKit 开发服务器（二选一）
@@ -162,6 +165,128 @@ npm run dev
 - 初始化接口有 IP 限流（10 次/10 分钟）并防止并发重复初始化。
 - 如果不使用向导，也可以沿用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量在启动时创建管理员（仅在没有管理员时生效）。
 - LiveKit 的 API Secret 只保存在服务器（数据库）中，不会下发给普通客户端；公开接口只暴露 `livekitUrl` 与 `voiceAvailable`。
+
+## 一键部署（本地 / Docker）
+
+除了按「快速开始」手工部署，仓库还提供**零依赖的部署 CLI**（仅使用 Node 内置模块）：一键复制源码、构建、生成配置、下载并启动 LiveKit、写入统一安装目录，并支持状态/日志/在线检查更新/OTA 升级/回滚/卸载。
+
+```bash
+# Linux / macOS：本地部署（Node + 本地 LiveKit）
+./deploy/install-local.sh --yes
+
+# Windows PowerShell：本地部署
+.\deploy\install-local.ps1 --yes
+
+# Docker 一键部署（AirMic + LiveKit 一起启动）
+./deploy/install-docker.sh --yes          # Linux / macOS
+.\deploy\install-docker.ps1 --yes          # Windows PowerShell
+```
+
+也可在仓库根目录直接调用同一 CLI：`npm run deploy:local`、`npm run deploy:docker`、`npm run upgrade`。
+
+安装完成后：
+
+- 默认安装目录：Windows `%USERPROFILE%\.airmic`、Linux/macOS `~/.airmic`（可用 `--dir` 或环境变量 `AIRMIC_HOME` 修改）。
+- 访问 `http://127.0.0.1:9811/setup` 完成初始化（创建管理员、配置 LiveKit 与音质）。
+- 管理命令位于安装目录 `bin/airmic-cli.mjs`（同时提供 `airmic.sh` / `airmic.ps1` / `airmic.cmd` 包装脚本）：
+
+```bash
+node ~/.airmic/bin/airmic-cli.mjs status          # 进程 / 健康检查 / 版本 / 访问地址
+node ~/.airmic/bin/airmic-cli.mjs start           # 启动
+node ~/.airmic/bin/airmic-cli.mjs stop            # 停止
+node ~/.airmic/bin/airmic-cli.mjs restart         # 重启
+node ~/.airmic/bin/airmic-cli.mjs logs --lines 200 # 查看本地日志
+node ~/.airmic/bin/airmic-cli.mjs check-update    # 检查 GitHub 新版本
+node ~/.airmic/bin/airmic-cli.mjs upgrade         # 在线 OTA 升级
+node ~/.airmic/bin/airmic-cli.mjs uninstall       # 卸载（保留 data/backups）
+```
+
+常用 install 选项：
+
+| 选项 | 说明 |
+| --- | --- |
+| `--mode local / docker` | 部署模式，默认 `local` |
+| `--dir <路径>` | 安装目录（默认 `~/.airmic` / `%USERPROFILE%\.airmic`） |
+| `--source local / github` | 源码来源：`local` 当前仓库；`github` 下载最新 Release/Tag/默认分支源码 |
+| `--port <端口>` | AirMic 端口，默认 9811 |
+| `--host <地址>` | 本地模式监听地址，默认 127.0.0.1 |
+| `--no-livekit` | 跳过 LiveKit 下载/启动（语音不可用，适合快速验证） |
+| `--livekit-version <vX>` | 指定 LiveKit 版本（默认最新 Release） |
+| `--setup-token [值]` | 设置初始化口令；不带值时自动生成随机口令 |
+| `--yes / --force` | 自动确认 / 目标已存在时强制重装（保留 data、backups） |
+
+> 本地模式需要 **Node.js >= 22.13**；Docker 模式需要 Docker + Docker Compose v2。CLI 会把 AirMic 与 LiveKit 的 stdout/stderr 写入 `logs/airmic-YYYY-MM-DD.log`、`logs/livekit-YYYY-MM-DD.log`，按天轮转并自动保留最近 **3 天**。
+
+## 统一安装目录结构
+
+无论本地还是 Docker 模式，CLI 都把全部产物放进同一个安装目录（`AIRMIC_HOME`），不向仓库或系统目录零散输出：
+
+```text
+~/.airmic/                     # Windows: %USERPROFILE%\.airmic
+├─ app/                        # 源码与构建产物（升级时整体替换）
+├─ data/                       # SQLite 数据（升级保留；Docker 挂载为 /data）
+├─ config/
+│  ├─ airmic.env               # 运行配置（JWT/端口/LiveKit/日志等，权限 600）
+│  ├─ livekit.yaml             # LiveKit 配置
+│  └─ docker-compose.yml       # Docker 模式生成的 compose
+├─ livekit/bin/                # livekit-server[.exe]（本地模式）
+├─ logs/                       # airmic-YYYY-MM-DD.log、livekit-YYYY-MM-DD.log（保留 3 天）
+├─ backups/                    # 数据库备份 airmic-db-*.db、旧版本 app-<版本>-<时间>/
+├─ run/                        # airmic.pid、livekit.pid、log-cleanup.pid
+├─ bin/                        # airmic-cli.mjs 与 airmic.sh/ps1/cmd
+└─ version.json                # {version, ref, mode, repo, installedAt, livekitVersion}
+```
+
+## 在线检查更新与 OTA 升级
+
+### 检查更新（CLI + 管理后台）
+
+```bash
+node ~/.airmic/bin/airmic-cli.mjs check-update
+node ~/.airmic/bin/airmic-cli.mjs check-update --json   # 脚本集成
+```
+
+检查顺序：GitHub **最新 Release** → **Tags**（取最高语义版本）→ 仓库**默认分支**（仓库还没有 Tag/Release 时回退，并提示可用默认分支升级）。
+退出码：`0` 已是最新、`10` 有新版本、`1` 检查失败。版本来自安装目录 `version.json`（或 `app/package.json`）。
+
+管理后台 → **系统更新** 卡片也可以只读检查 GitHub 最新版本（`GET /api/system/update`），不会自动执行升级；升级请使用 CLI。GitHub API 受限时可设置环境变量 `GITHUB_TOKEN`（或写到 `config/airmic.env`）提高限额。
+
+### OTA 升级
+
+```bash
+node ~/.airmic/bin/airmic-cli.mjs upgrade            # 先检查，有更新再升级
+node ~/.airmic/bin/airmic-cli.mjs upgrade --check     # 只检查
+node ~/.airmic/bin/airmic-cli.mjs upgrade --force     # 忽略版本检查，强制从 GitHub 升级
+node ~/.airmic/bin/airmic-cli.mjs upgrade --from /path/to/source.tar.gz --force   # 离线/本地包
+```
+
+升级流程（自动、可回滚）：
+
+1. 检查版本（`--force` / `--from` 可跳过）并下载/解压新版本源码到 `.staging/app-next`（支持目录、`.zip`、`.tar.gz`、URL）；
+2. 在暂存目录执行 `npm ci` + `npm run build`（Docker 模式由镜像构建完成）；
+3. 停止当前服务，备份数据库到 `backups/airmic-db-<时间>.db`（含 WAL/SHM），旧版本 app 移动到 `backups/app-<旧版本>-<时间>/`；
+4. 原子替换 `app/` 为新版本，修正 `node_modules/@airmic` 工作区链接并做 `@airmic/shared` 运行时预检（失败自动复制 shared 包兜底）；
+5. 启动新版本并做健康检查；**任何一步失败都会自动回滚**到旧版本 app + 备份数据库并重启，CLI 以非 0 退出。
+
+数据目录 `data/`、配置 `config/`、LiveKit 二进制与日志、备份都会保留；升级成功后可手动清理 `backups/` 中的旧条目。
+
+## 升级 / 回滚 / 卸载
+
+- **手动回滚**：若升级后需要回滚，停止服务后从 `backups/app-<版本>-<时间>` 恢复 app 目录、从 `backups/airmic-db-<时间>.db` 恢复数据库（删除旧 `-wal/-shm`），再 `start`。
+- **卸载**（默认保留数据与备份）：
+
+```bash
+node ~/.airmic/bin/airmic-cli.mjs uninstall --yes           # 删除程序文件，保留 data/、backups/
+node ~/.airmic/bin/airmic-cli.mjs uninstall --purge --yes   # 删除整个安装目录
+```
+
+```powershell
+# Windows PowerShell 等价写法
+node "$env:USERPROFILE\.airmic\bin\airmic-cli.mjs" uninstall --yes
+node "$env:USERPROFILE\.airmic\bin\airmic-cli.mjs" uninstall --purge --yes
+```
+
+> 卸载会先停止本地进程/日志清理守护进程（Docker 模式执行 `docker compose down`），再删除 app/bin/config/livekit/logs/run；**默认保留 `data/` 与 `backups/`**，除非加 `--purge`。
 
 ## 部署与语音服务（LiveKit）
 
@@ -261,7 +386,10 @@ LiveKit 不做混音，每个成员要向房间内其他 **N-1** 人各转发一
 | `TRUST_PROXY` | `false` | 是否信任反向代理的 `X-Forwarded-For`。放在 Nginx/Caddy/负载均衡后面时设为 `true`。 |
 | `SSL_KEY` / `SSL_CERT` | （空） | AirMic 自身 HTTPS（PEM）。通常由反向代理终止 TLS，留空即可。 |
 | `WEB_DIST` | `./web/dist` | 前端构建产物目录。 |
+| `LOG_RETENTION_DAYS` | `3` | 管理后台运行日志（SQLite `app_logs`）保留天数，范围 1–30；超期自动清理。 |
 | `LOG_LEVEL` | 生产 `info` / 开发 `debug` | `fatal`、`error`、`warn`、`info`、`debug`、`trace`、`silent`。 |
+| `GITHUB_TOKEN` | （空） | 可选：检查 GitHub 更新/下载源码时使用的 Token，可提高 API 速率限制。 |
+| `AIRMIC_REPO` | `poouo/Airmic` | 在线更新检查使用的 GitHub 仓库（`owner/repo`）。 |
 | `CORS_ORIGIN` | （未使用） | 预留项；当前前后端同源部署。 |
 | `BACKUP_DIR` | `./backups` | 仅备份脚本：备份输出目录。 |
 | `RETENTION` | `10` | 仅备份脚本：保留最近 N 份备份。 |
@@ -338,9 +466,12 @@ LiveKit 不做混音，每个成员要向房间内其他 **N-1** 人各转发一
 | `npm start` | 启动生产服务（需先 build） |
 | `npm test` | 后端集成测试（`node:test`，含初始化向导、LiveKit 令牌、实时层等用例） |
 | `npm run typecheck` | 全仓库 TypeScript 类型检查 |
-| `npm run test:e2e` | 端到端测试（Playwright + 真实 LiveKit，16 步验证；需先 `npm run build`，见"测试与验证"） |
+| `npm run test:e2e` | 端到端测试（Playwright + 真实 LiveKit，17 步验证；需先 `npm run build`，见"测试与验证"） |
 | `npm run backup` | 备份 SQLite 数据库到 `backups/` |
 | `npm run cert` | 生成本地自签 HTTPS 证书到 `certs/` |
+| `node deploy/airmic-cli.mjs install` | 一键部署（本地/Docker，见「一键部署」章节） |
+| `node deploy/airmic-cli.mjs check-update` / `upgrade` | 检查 GitHub 新版本 / OTA 升级（自动备份与回滚） |
+| `node deploy/airmic-cli.mjs status` / `logs` / `uninstall` | 状态 / 日志 / 卸载 |
 | `npm run build -w @airmic/shared` | 修改 `shared/` 后单独构建共享包 |
 
 ### 备份
@@ -379,7 +510,14 @@ AirMic/
 │  ├─ backup.mjs             # SQLite 备份（VACUUM INTO + 校验 + 轮换）
 │  └─ generate-cert.mjs      # 局域网自签 HTTPS 证书
 ├─ e2e/                      # Playwright 端到端测试（npm run test:e2e）
+├─ .github/workflows/
+│  └─ release.yml            # tag v* 触发：创建 Release + 构建推送 ghcr 镜像
 ├─ deploy/
+│  ├─ airmic-cli.mjs         # 部署 CLI（本地/Docker 安装、状态、升级、卸载）
+│  ├─ airmic.sh/.ps1/.cmd    # CLI 包装脚本
+│  ├─ install-local.*        # 一键本地部署
+│  ├─ install-docker.*       # 一键 Docker 部署
+│  ├─ upgrade.* / uninstall.*# OTA 升级 / 卸载
 │  ├─ livekit.yaml           # LiveKit SFU 配置（端口/密钥/external IP/TURN）
 │  ├─ livekit.service        # LiveKit systemd unit（二进制部署）
 │  ├─ nginx.conf             # Nginx HTTPS + WS 反向代理（AirMic + LiveKit）
@@ -405,6 +543,38 @@ AirMic/
 │  └─ dist/                  # 构建产物（生产由 Fastify 托管）
 └─ data/                     # 运行时 SQLite 数据库（gitignored，需备份）
 ```
+
+## 运行日志与排障
+
+AirMic 有两类日志，排障时配合使用：
+
+### 1. 管理后台「运行日志」
+
+管理后台左侧 **运行日志**（需要 `manage_server` 或 `view_audit` 权限）读取服务端 SQLite 的 `app_logs` 表：
+
+- 按 **级别**（trace/debug/info/warn/error/fatal）、**分类**（http/ws/auth/admin/system/room/voice/error/security）、**关键字** 筛选；
+- 分页浏览，点击行可展开 `meta` 详情；支持一键 **导出 CSV / JSON**；
+- 默认只保留最近 **3 天**，超期自动清理（可配置 `LOG_RETENTION_DAYS`，范围 1–30）；
+- 记录内容：HTTP 请求结果、认证/安全事件、管理操作、实时事件、异常等；**不会记录请求体、密码、聊天正文、媒体内容**。
+
+### 2. 服务器文件日志
+
+- **CLI 安装的本地模式**：AirMic 与 LiveKit 的 stdout/stderr 分别写入安装目录 `logs/airmic-YYYY-MM-DD.log`、`logs/livekit-YYYY-MM-DD.log`；启动时与后台清理进程每 6 小时清理一次，只保留最近 **3 天**。
+  - 查看：`node ~/.airmic/bin/airmic-cli.mjs logs --lines 200`
+  - 也可以用 `tail -f` / PowerShell `Get-Content -Wait` 直接跟踪文件。
+- **Docker 模式**：使用 `docker compose -f ~/.airmic/config/docker-compose.yml logs -f --tail=200`；生成的 compose 已配置 `json-file` 日志轮转（`max-size: 10m`、`max-file: 3`），避免日志无限增长。
+- **手工部署**（直接 `npm start`）：日志输出到终端，可用 systemd/Nginx 或进程管理器收集。
+
+### 常见问题定位
+
+| 现象 | 优先查看 | 可能原因 |
+| --- | --- | --- |
+| 登录失败/提示密码错误 | 运行日志筛选 `category=auth/security`、位置 `level=warn`；文件日志搜索 `login` | 密码错误、账号被封禁、IP 限流（过多失败） |
+| 进房间提示密码错误 | 运行日志/WS 日志中的房间入房错误 | 房间密码不一致、缓存了旧密码，重新输入 |
+| 语音令牌 400 `voice_not_configured` | 运行日志 `category=voice`；`/api/server` 的 `voiceAvailable` | LiveKit URL/API Key/Secret 未配置或清空 |
+| 语音令牌 403“请先加入房间” | 浏览器 Network/WS；运行日志 `category=voice` | 还没通过 `/ws` 加入房间，刷新/重进房间 |
+| WebRTC 连不上/没声音 | 浏览器 DevTools → Network/Console；LiveKit 文件日志（`logs/livekit-*.log` / `docker compose logs livekit`） | 7881/tcp、7882/udp 未放行，wss 证书错误，NAT 环境需启用 LiveKit 内置 TURN |
+| 服务启动失败 | CLI `status`、`logs`；`data/` 权限；端口占用 | Node 版本过低、数据库被占用、9811/7880 端口冲突 |
 
 ## 常见问题（FAQ）
 
@@ -498,7 +668,7 @@ AirMic/
 ## 测试与验证
 
 ```bash
-npm test                 # 后端集成测试（node:test，共 72 个用例：认证/房间/管理/实时层/初始化向导/LiveKit 令牌等）
+npm test                 # 后端集成测试（node:test，共 85 个用例：认证/房间/管理/实时层/初始化向导/LiveKit 令牌等）
 npm run typecheck        # 全仓库 TypeScript 类型检查
 npm run test:e2e         # 浏览器端到端测试（需先 npm run build，且本机有 Chrome/Edge 与 LiveKit）
 ```
@@ -508,6 +678,26 @@ npm run test:e2e         # 浏览器端到端测试（需先 npm run build，且
   - LiveKit 可执行文件查找顺序：`AIRMIC_LIVEKIT_BIN` → `.tools/livekit/livekit-server(.exe)` → `/usr/local/bin/livekit-server` → `/usr/bin/livekit-server`；也可以先手动运行 `livekit-server --dev`。
   - 验证：初始化向导 → 注册/房间 → 双人进入 → **经 LiveKit SFU 建立真实音频收发** → 聊天/静音状态 → 屏幕共享 → 离开，并输出截图到 `e2e/artifacts/`。
   - 没有 LiveKit 可执行文件时会输出警告，语音相关用例会失败；可先用 `AIRMIC_LIVEKIT_BIN` 指定二进制，或手动启动 `livekit-server --dev`。
+
+## 发版流程
+
+1. 更新版本号：`package.json`、`shared/src/audio.ts` 的 `APP_VERSION`（应保持一致），并构建验证 `npm run build` / `npm test`。
+2. 提交并推送 `main` 分支。
+3. 打标签并推送：
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+4. GitHub Actions（`.github/workflows/release.yml`）在 `v*` 标签触发后：
+   - 创建 GitHub Release（自动生成 Release Notes）；
+   - 构建 AirMic Docker 镜像并推送到 GitHub Container Registry：`ghcr.io/<owner>/<repo>`（标签含 `1.2.0`、`1.2`、`1`、`latest`）。
+5. 客户端/管理员检查更新：
+   - CLI：`airmic-cli.mjs check-update`（有新版本退出码 10）、`upgrade` 执行 OTA；
+   - 管理后台：**系统更新** 卡片展示 GitHub 最新版本与发布链接（只读）。
+
+> 仓库还没有 Tag/Release 时，检查更新会回退到默认分支并提示"可用默认分支升级"；正式发版建议始终打 `v*` 标签。
 
 ## 相关文档
 

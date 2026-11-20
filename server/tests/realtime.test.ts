@@ -1023,3 +1023,136 @@ test("shutdown 通知所有连接 close 1001 并清空在线状态", TEST_OPTION
   }
 });
 
+// ============================================================
+// 11. 运行日志（管理后台排障）
+// ============================================================
+
+test("运行日志：认证失败、连接、加入/离开房间与失败消息写入对应分类", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const roomId = await session.createRoom({ name: "日志测试房" });
+
+    // 未认证连接被拒绝 → security 警告
+    const anonymous = await session.connect(null);
+    await anonymous.waitForClose();
+
+    const alice = await session.registerUser("alice");
+    const { ws } = await session.connectWithHello(alice.client);
+    ws.send({ t: "join_room", roomId });
+    await ws.waitFor("room_joined");
+
+    // 非法消息 → ws warn 客户端操作失败
+    ws.sendRaw("这不是 JSON");
+    await ws.waitFor("error");
+
+    // 主动离开房间 → room info 离开房间
+    ws.send({ t: "leave_room" });
+    await ws.waitFor("room_left");
+
+    session.ctx.services.logs.flushNow();
+    const logs = session.ctx.services.logs.list({ page: 1, pageSize: 200 }).items;
+    const hasLog = (category: string, level: string, text: string): boolean =>
+      logs.some((row) => row.category === category && row.level === level && row.message.includes(text));
+
+    assert.ok(hasLog("security", "warn", "WebSocket 认证失败"), "应记录未认证连接");
+    assert.ok(hasLog("ws", "info", "WebSocket 已连接"), "应记录 WebSocket 连接建立");
+    assert.ok(hasLog("room", "info", "加入房间"), "应记录加入房间");
+    assert.ok(hasLog("ws", "warn", "客户端操作失败"), "应记录客户端错误消息");
+    assert.ok(hasLog("room", "info", "离开房间"), "应记录离开房间");
+
+    const joinLog = logs.find((row) => row.category === "room" && row.message.includes("加入房间"));
+    assert.ok(joinLog, "应存在加入房间日志");
+    assert.equal(joinLog.userId, alice.userId);
+    assert.equal(joinLog.username, "alice");
+    const joinMeta = JSON.parse(joinLog.meta ?? "{}") as { userId: number; roomId: number; roomName: string };
+    assert.equal(joinMeta.userId, alice.userId);
+    assert.equal(joinMeta.roomId, roomId);
+    assert.equal(joinMeta.roomName, "日志测试房");
+
+    const connectLog = logs.find((row) => row.category === "ws" && row.message === "WebSocket 已连接");
+    assert.ok(connectLog, "应存在连接日志");
+    const connectMeta = JSON.parse(connectLog.meta ?? "{}") as { connectionId: string; userId: number };
+    assert.equal(connectMeta.userId, alice.userId);
+    assert.equal(typeof connectMeta.connectionId, "string");
+
+    const errorLog = logs.find((row) => row.category === "ws" && row.message.includes("客户端操作失败"));
+    assert.ok(errorLog, "应存在客户端错误日志");
+    const errorMeta = JSON.parse(errorLog.meta ?? "{}") as { code: string; request: string | null; userId: number };
+    assert.equal(errorMeta.code, "bad_request");
+    assert.equal(errorMeta.userId, alice.userId);
+  }),
+);
+
+test("运行日志：屏幕共享/强制静音/踢人/断开记录分类，rate_limited 不写日志", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const roomId = await session.createRoom({ name: "事件日志房" });
+    const alice = await session.registerUser("alice");
+    const bob = await session.registerUser("bob");
+    const aliceWs = await session.connectWithHello(alice.client);
+    const bobWs = await session.connectWithHello(bob.client);
+    await joinRoom(aliceWs.ws, roomId);
+    await joinRoom(bobWs.ws, roomId);
+
+    // 屏幕共享开始/停止 → voice
+    aliceWs.ws.send({ t: "screen_share", active: true });
+    await bobWs.ws.waitFor(
+      "peer_state",
+      (message) => message.userId === alice.userId && message.state.screenSharing === true,
+    );
+    aliceWs.ws.send({ t: "screen_share", active: false });
+    await bobWs.ws.waitFor(
+      "peer_state",
+      (message) => message.userId === alice.userId && message.state.screenSharing === false,
+    );
+
+    // 管理员强制静音 → admin
+    const mute = await session.admin.post("/api/admin/users/" + bob.userId + "/mute", {
+      muted: true,
+      reason: "日志测试静音",
+    });
+    assert.equal(mute.status, 200, JSON.stringify(mute.body));
+    await bobWs.ws.waitFor("force_muted", (message) => message.muted === true);
+
+    // 聊天限流：rate_limited 属于预期高频反馈，不应写入运行日志
+    for (let index = 0; index < 6; index += 1) {
+      aliceWs.ws.send({ t: "chat", content: "日志限流 " + index });
+    }
+    const rateLimited = await aliceWs.ws.waitFor("error", (message) => message.code === "rate_limited");
+    assert.equal(rateLimited.code, "rate_limited");
+
+    // 管理员踢出房间 → admin + room 被移出房间
+    const kick = await session.admin.post("/api/admin/users/" + bob.userId + "/kick", {
+      scope: "room",
+      reason: "日志测试踢出",
+    });
+    assert.equal(kick.status, 200, JSON.stringify(kick.body));
+    await bobWs.ws.waitFor("kicked", (message) => message.scope === "room");
+
+    // 管理员断开连接 → admin + ws 已断开
+    const disconnected = session.hub.disconnectUser(bob.userId, "日志测试断开");
+    assert.equal(disconnected, true);
+    await bobWs.ws.waitFor("session_ended");
+    await bobWs.ws.waitForClose();
+    await sleep(100);
+
+    session.ctx.services.logs.flushNow();
+    const logs = session.ctx.services.logs.list({ page: 1, pageSize: 200 }).items;
+    const hasLog = (category: string, level: string, text: string): boolean =>
+      logs.some((row) => row.category === category && row.level === level && row.message.includes(text));
+
+    assert.ok(hasLog("voice", "info", "开始屏幕共享"), "应记录开始屏幕共享");
+    assert.ok(hasLog("voice", "info", "停止屏幕共享"), "应记录停止屏幕共享");
+    assert.ok(hasLog("admin", "info", "强制静音"), "应记录管理员强制静音");
+    assert.ok(hasLog("admin", "info", "移出房间"), "应记录管理员踢出房间");
+    assert.ok(hasLog("admin", "info", "断开用户连接"), "应记录管理员断开连接");
+    assert.ok(hasLog("room", "info", "被移出房间"), "应记录用户被移出房间");
+    assert.ok(hasLog("ws", "info", "WebSocket 已断开"), "应记录 WebSocket 断开");
+
+    // rate_limited 不应产生任何 ws 错误日志
+    assert.equal(
+      logs.some((row) => row.category === "ws" && (row.meta ?? "").includes("rate_limited")),
+      false,
+      "rate_limited 不应写入运行日志",
+    );
+  }),
+);
+

@@ -22,6 +22,7 @@ import type { HubLike } from "../src/realtime/contracts.js";
 import { getHub, setHub } from "../src/realtime/instance.js";
 import type { CreateRoomInput, RoomRow } from "../src/services/rooms.js";
 import type { UserRow } from "../src/services/users.js";
+import { APP_VERSION } from "@airmic/shared";
 import { createTestContext, TestClient, type TestContext } from "./helpers.js";
 
 // ============ 测试基础设施 ============
@@ -320,7 +321,7 @@ test("settings 读取、更新、审计与广播", async (t) => {
   const env = await setup(t);
   const initial = await env.admin.client.get<AdminSettingsResponse>("/api/admin/settings");
   assert.equal(initial.status, 200);
-  assert.equal(initial.body.settings.version, "1.0.0");
+  assert.equal(initial.body.settings.version, APP_VERSION);
   assert.equal(initial.body.settings.name, "AirMic 语音服务器");
   assert.equal(typeof initial.body.settings.registrationCode, "string");
 

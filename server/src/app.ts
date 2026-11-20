@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { APP_VERSION } from "@airmic/shared";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
@@ -6,15 +7,18 @@ import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "./config.js";
 import { loadConfig } from "./config.js";
 import { AppError } from "./lib/errors.js";
+import { getClientIp } from "./lib/http.js";
 import { registerAuthDecorators } from "./plugins/auth.js";
 import { registerRealtime } from "./realtime/index.js";
 import { getHub } from "./realtime/instance.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerLogRoutes } from "./routes/logs.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerRoomRoutes } from "./routes/rooms.js";
 import { registerServerRoutes } from "./routes/server.js";
 import { registerSetupRoutes } from "./routes/setup.js";
+import { registerSystemRoutes } from "./routes/system.js";
 import { registerUserRoutes } from "./routes/users.js";
 import { createServices } from "./services/index.js";
 
@@ -71,6 +75,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         error: { code: candidate.code ?? "bad_request", message: candidate.message ?? "请求不正确" },
       });
     }
+    services.logs.write({
+      level: "error",
+      category: "error",
+      message: "未处理的服务端错误：" + (candidate.message ?? String(error)),
+      meta: { path: request.raw.url, stack: error instanceof Error ? error.stack?.slice(0, 4000) : String(error) },
+      userId: request.auth?.user.id ?? null,
+      username: request.auth?.user.username ?? null,
+      ip: getClientIp(request),
+      requestId: request.id,
+    });
     request.log.error({ err: error }, "未处理的服务端错误");
     return reply.code(500).send({ error: { code: "internal", message: "服务器内部错误" } });
   });
@@ -93,12 +107,51 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   registerAuthDecorators(app, services);
 
+  // ---------- 运行日志：HTTP 请求记录（管理后台可分页查看/导出，默认保留 3 天） ----------
+  app.addHook("onResponse", async (request, reply) => {
+    const url = request.raw.url ?? "";
+    if (!url.startsWith("/api/") && !url.startsWith("/ws")) return;
+    if (url.startsWith("/api/health") || url.startsWith("/api/admin/logs")) return;
+    const path = url.split("?")[0] ?? url;
+    const status = reply.statusCode;
+    const category = path.startsWith("/ws")
+      ? "ws"
+      : path.startsWith("/api/admin")
+        ? "admin"
+        : path.startsWith("/api/auth")
+          ? "auth"
+          : "http";
+    const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
+    const elapsed = Math.round(reply.elapsedTime);
+    services.logs.write({
+      level,
+      category,
+      message: request.method + " " + path + " → " + status + " (" + elapsed + "ms)",
+      meta: { method: request.method, path, status, ms: elapsed },
+      userId: request.auth?.user.id ?? null,
+      username: request.auth?.user.username ?? null,
+      ip: getClientIp(request),
+      requestId: request.id,
+    });
+  });
+
+  app.addHook("onReady", async () => {
+    services.logs.write({
+      level: "info",
+      category: "system",
+      message: "AirMic 服务已启动",
+      meta: { version: APP_VERSION, port: config.port, node: process.version, pid: process.pid },
+    });
+  });
+
   await registerServerRoutes(app, services);
   await registerAuthRoutes(app, services);
   await registerUserRoutes(app, services);
   await registerRoomRoutes(app, services);
   await registerMediaRoutes(app, services);
   await registerSetupRoutes(app, services);
+  await registerLogRoutes(app, services);
+  await registerSystemRoutes(app, services);
   await registerAdminRoutes(app, services);
   await registerRealtime(app, services);
 
@@ -118,6 +171,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   app.addHook("onClose", async () => {
+    services.logs.write({ level: "info", category: "system", message: "AirMic 服务正在关闭" });
+    services.logs.shutdown();
     getHub()?.shutdown();
     services.db.close();
   });

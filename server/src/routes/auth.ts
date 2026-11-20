@@ -94,6 +94,16 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
 
     const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
     setCookie(reply, AUTH_COOKIE, ctx.token, isFirstUser ? services.auth.cookieOptions() : services.auth.cookieOptions());
+    services.logs.write({
+      level: "info",
+      category: "auth",
+      message: "用户注册成功：" + user.username,
+      meta: { userId: user.id, role },
+      userId: user.id,
+      username: user.username,
+      ip,
+      requestId: request.id,
+    });
     getHub()?.broadcastOnlineUsers();
     return { user: ctx.user };
   });
@@ -104,10 +114,21 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     const body = parseWith(loginBodySchema, request.body) as LoginRequest;
     const user = services.users.findByUsername(body.username);
     if (!user || !verifyPassword(body.password, user.password_hash)) {
+      services.logs.write({
+        level: "warn",
+        category: "security",
+        message: "登录失败：用户名或密码错误",
+        meta: { username: body.username },
+        ip,
+        requestId: request.id,
+      });
       throw unauthorized("用户名或密码错误", "invalid_credentials");
     }
     const ban = services.bans.findActive(user.id, ip);
-    if (ban) throw forbidden("该账号或 IP 已被封禁：" + ban.reason, "banned");
+    if (ban) {
+      services.logs.write({ level: "warn", category: "security", message: "被封禁用户尝试登录：" + user.username, meta: { reason: ban.reason }, userId: user.id, username: user.username, ip, requestId: request.id });
+      throw forbidden("该账号或 IP 已被封禁：" + ban.reason, "banned");
+    }
     if (user.is_banned === 1) {
       const until = user.banned_until ? Date.parse(user.banned_until) : null;
       if (until === null || Number.isNaN(until) || until > Date.now()) {
@@ -117,6 +138,16 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
     setCookie(reply, AUTH_COOKIE, ctx.token, services.auth.cookieOptions());
     services.audit.log({ actorId: user.id, actorName: user.display_name, action: "login", ip });
+    services.logs.write({
+      level: "info",
+      category: "auth",
+      message: "用户登录成功：" + user.username,
+      meta: { userId: user.id, role: user.role },
+      userId: user.id,
+      username: user.username,
+      ip,
+      requestId: request.id,
+    });
     return { user: ctx.user };
   });
 
@@ -132,6 +163,16 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     const user = services.users.createGuest(body.displayName.trim(), ip);
     const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
     setCookie(reply, AUTH_COOKIE, ctx.token, services.auth.guestCookieOptions());
+    services.logs.write({
+      level: "info",
+      category: "auth",
+      message: "游客登录：" + user.display_name,
+      meta: { userId: user.id },
+      userId: user.id,
+      username: user.username,
+      ip,
+      requestId: request.id,
+    });
     services.audit.log({
       actorId: user.id,
       actorName: user.display_name,
@@ -149,6 +190,16 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     if (request.auth) {
       services.auth.revokeSession(request.auth.sessionId);
       getHub()?.disconnectUser(request.auth.user.id, "已退出登录");
+      services.logs.write({
+        level: "info",
+        category: "auth",
+        message: "用户退出登录：" + request.auth.user.username,
+        meta: { userId: request.auth.user.id },
+        userId: request.auth.user.id,
+        username: request.auth.user.username,
+        ip: getClientIp(request),
+        requestId: request.id,
+      });
     }
     reply.clearCookie(AUTH_COOKIE, { path: "/" });
     return { ok: true };

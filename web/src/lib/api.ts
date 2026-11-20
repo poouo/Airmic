@@ -1,6 +1,8 @@
 import type {
   AdminAuditResponse,
   AdminBanListResponse,
+  AdminLogListResponse,
+  AdminLogQuery,
   AdminOverviewResponse,
   AdminRoomsResponse,
   AdminSessionsResponse,
@@ -26,6 +28,7 @@ import type {
   SetupInitializeResponse,
   SetupStatusResponse,
   UpdateBanRequest,
+  UpdateCheckResponse,
   UpdateProfileRequest,
   UpdateRoomRequest,
   UpdateSettingsRequest,
@@ -92,6 +95,11 @@ export const api = {
   serverInfo: (signal?: AbortSignal) => request<ServerInfoResponse>("GET", "/api/server", undefined, signal),
   iceConfig: (signal?: AbortSignal) => request<{ iceServers: unknown[]; forceRelay: boolean }>("GET", "/api/rtc/ice", undefined, signal),
 
+  system: {
+    update: (force = false) =>
+      request<UpdateCheckResponse>("GET", "/api/system/update" + (force ? "?force=1" : "")),
+  },
+
   setup: {
     status: (signal?: AbortSignal) => request<SetupStatusResponse>("GET", "/api/setup/status", undefined, signal),
     initialize: (body: SetupInitializeRequest) => request<SetupInitializeResponse>("POST", "/api/setup/initialize", body),
@@ -141,6 +149,9 @@ export const api = {
     audit: (params: { page?: number; pageSize?: number; action?: string }) =>
       request<AdminAuditResponse>("GET", "/api/admin/audit" + query(params)),
     sessions: () => request<AdminSessionsResponse>("GET", "/api/admin/sessions"),
+    logs: (params: AdminLogQuery) => request<AdminLogListResponse>("GET", "/api/admin/logs" + query({ ...params })),
+    logsExportUrl: (params: AdminLogQuery, format: "csv" | "json") =>
+      "/api/admin/logs/export" + query({ ...params, format }),
   },
 };
 

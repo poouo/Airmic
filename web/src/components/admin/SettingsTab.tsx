@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app";
 import { useUiStore } from "@/stores/ui";
 import { useAsyncData } from "./useAsyncData";
 import CategoriesEditor from "./CategoriesEditor";
+import UpdateCard from "./UpdateCard";
 import { AdminErrorPanel, AdminLoading, SectionCard } from "./shared";
 
 function cloneSettings(settings: ServerSettings): ServerSettings {
@@ -275,6 +276,8 @@ export default function SettingsTab() {
       <SectionCard title="房间分类" description="大厅与房间表单按分类分组展示">
         <CategoriesEditor value={categories} onChange={setCategories} />
       </SectionCard>
+
+      <UpdateCard />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-ink-850 px-4 py-3">
         <p className="text-[11px] text-mist-500">保存后服务器会向所有在线用户广播新设置。</p>

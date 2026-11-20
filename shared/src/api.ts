@@ -35,6 +35,68 @@ export interface PageQuery {
   pageSize?: number;
 }
 
+// ============ 运行日志 ============
+
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
+
+export type LogCategory = "http" | "ws" | "auth" | "admin" | "system" | "room" | "voice" | "error" | "security";
+
+export interface AdminLogRow {
+  id: number;
+  createdAt: string;
+  level: LogLevel;
+  category: LogCategory;
+  message: string;
+  /** 附加信息 JSON 字符串（可能为空） */
+  meta: string | null;
+  userId: number | null;
+  username: string | null;
+  ip: string | null;
+  requestId: string | null;
+}
+
+export interface AdminLogListResponse extends Paginated<AdminLogRow> {
+  /** 日志保留天数（默认 3） */
+  retentionDays: number;
+  oldest: string | null;
+  newest: string | null;
+  /** 按级别统计（当前筛选条件下） */
+  levelCounts: Partial<Record<LogLevel, number>>;
+}
+
+export interface AdminLogQuery extends PageQuery {
+  level?: LogLevel;
+  category?: LogCategory;
+  /** 关键字，匹配 message / username / ip / meta */
+  search?: string;
+  /** ISO 时间范围 */
+  from?: string;
+  to?: string;
+}
+
+// ============ 在线更新检查 ============
+
+export interface UpdateCheckResponse {
+  /** 当前运行版本（package.json / APP_VERSION） */
+  currentVersion: string;
+  /** GitHub 上最新版本（已去掉前缀 v）；仓库还没有 Release/Tag 时为 null */
+  latestVersion: string | null;
+  /** 用于下载的 ref：tag 名（如 v1.1.0）或分支名（main） */
+  latestRef: string | null;
+  latestSource: "release" | "tag" | "branch" | "unknown";
+  updateAvailable: boolean;
+  repo: string;
+  repoUrl: string;
+  releaseUrl: string | null;
+  releaseName: string | null;
+  publishedAt: string | null;
+  checkedAt: string;
+  /** 检查失败时的错误信息（网络/API 限流等） */
+  error: string | null;
+  /** 给管理员的升级提示命令 */
+  upgradeHint: string;
+}
+
 // ============ 初始化引导 ============
 
 export interface SetupStatusResponse {

@@ -17,6 +17,7 @@ import { Link, Navigate } from "react-router-dom";
 import { Avatar, Badge, Button } from "@/components/ui";
 import AuditTab from "@/components/admin/AuditTab";
 import BansTab from "@/components/admin/BansTab";
+import LogsTab from "@/components/admin/LogsTab";
 import OverviewTab from "@/components/admin/OverviewTab";
 import RoomsTab from "@/components/admin/RoomsTab";
 import SettingsTab from "@/components/admin/SettingsTab";
@@ -28,7 +29,7 @@ import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 
 interface AdminSection {
-  id: "overview" | "rooms" | "users" | "bans" | "audit" | "settings" | "sessions";
+  id: "overview" | "rooms" | "users" | "bans" | "audit" | "logs" | "settings" | "sessions";
   label: string;
   icon: LucideIcon;
   permissions: Permission[];
@@ -40,11 +41,12 @@ const SECTIONS: AdminSection[] = [
   { id: "users", label: "用户管理", icon: Users, permissions: ["manage_users"] },
   { id: "bans", label: "封禁管理", icon: Ban, permissions: ["ban_users"] },
   { id: "audit", label: "审计日志", icon: ScrollText, permissions: ["view_audit"] },
+  { id: "logs", label: "运行日志", icon: ScrollText, permissions: ["manage_server", "view_audit"] },
   { id: "settings", label: "服务器设置", icon: Settings, permissions: ["manage_server"] },
   { id: "sessions", label: "登录会话", icon: KeyRound, permissions: ["manage_users"] },
 ];
 
-/** 管理后台：侧边导航 + 七个管理板块（具体数据按权限加载） */
+/** 管理后台：侧边导航 + 各管理板块（具体数据按权限加载） */
 export default function AdminPage() {
   const user = useAuthStore((state) => state.user);
   const server = useAppStore((state) => state.server);
@@ -160,6 +162,7 @@ export default function AdminPage() {
           {active.id === "users" && <UsersTab />}
           {active.id === "bans" && <BansTab />}
           {active.id === "audit" && <AuditTab />}
+          {active.id === "logs" && <LogsTab />}
           {active.id === "settings" && <SettingsTab />}
           {active.id === "sessions" && <SessionsTab />}
         </main>
