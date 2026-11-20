@@ -21,6 +21,7 @@ const TAB_ITEMS: TabItem[] = [
 
 export default function AuthPage() {
   const status = useAuthStore((state) => state.status);
+  const currentUser = useAuthStore((state) => state.user);
   const error = useAuthStore((state) => state.error);
   const clearError = useAuthStore((state) => state.clearError);
   const server = useAppStore((state) => state.server);
@@ -36,7 +37,7 @@ export default function AuthPage() {
     if (setupRequired) setTab("register");
   }, [setupRequired]);
 
-  if (status === "authenticated") return <Navigate to="/" replace />;
+  // 游客允许打开登录页（用于切换/升级账号），已登录的正式账号才回首页`r`n  if (status === "authenticated" && !currentUser?.isGuest) return <Navigate to="/" replace />;
 
   const registrationMode = server?.registrationMode ?? "open";
   const guestEnabled = server?.guestEnabled ?? false;

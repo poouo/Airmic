@@ -48,6 +48,9 @@ const guestBodySchema = z.object({
   displayName: z.string().trim().min(1, "昵称不能为空").max(24, "昵称最多 24 个字符"),
 });
 
+/** 游客升级为正式账号：与注册同一套用户名/密码规则，但不需要邀请码 */
+const upgradeBodySchema = registerBodySchema.omit({ inviteCode: true });
+
 function setCookie(reply: FastifyReply, name: string, value: string, options: Parameters<FastifyReply["setCookie"]>[2]): void {
   reply.setCookie(name, value, options);
 }
@@ -184,6 +187,54 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     });
     getHub()?.broadcastOnlineUsers();
     return { user: ctx.user };
+  });
+
+  /** 游客原地升级为正式账号：保留 user id / 会话 / 房间身份，只补用户名与密码 */
+  app.post("/api/auth/upgrade", async (request: FastifyRequest, reply: FastifyReply): Promise<AuthResponse> => {
+    const auth = requireAuth(request);
+    const ip = getClientIp(request);
+    if (!globalRateLimiter.hit("upgrade:" + ip, 10, 10 * 60_000)) throw tooManyRequests("操作太频繁，请稍后再试");
+    const body = parseWith(upgradeBodySchema, request.body) as RegisterRequest;
+    const row = services.users.findById(auth.user.id);
+    if (!row) throw unauthorized("登录状态已失效，请刷新页面重试", "unauthorized");
+    if (row.is_guest !== 1) throw conflict("当前账号已经是正式账号", "already_upgraded");
+    if (services.settings.get().registrationMode === "closed") throw forbidden("服务器已关闭注册，无法升级账号");
+    if (services.users.usernameExists(body.username)) throw conflict("用户名已被占用", "username_taken");
+
+    const updated = services.users.upgradeGuest(auth.user.id, {
+      username: body.username,
+      passwordHash: hashPassword(body.password),
+      displayName: body.displayName?.trim() || undefined,
+    });
+    if (!updated) throw badRequest("升级失败，请稍后重试");
+
+    // 把游客会话的 Cookie 换成正式账号的有效期，避免升级后很快掉线
+    const token = request.cookies?.[AUTH_COOKIE];
+    if (token) setCookie(reply, AUTH_COOKIE, token, services.auth.cookieOptions());
+
+    services.audit.log({
+      actorId: updated.id,
+      actorName: updated.display_name,
+      action: "upgrade_account",
+      targetType: "user",
+      targetId: updated.id,
+      targetName: updated.username,
+      ip,
+    });
+    services.logs.write({
+      level: "info",
+      category: "auth",
+      message: "游客升级为正式账号：" + updated.username,
+      meta: { userId: updated.id },
+      userId: updated.id,
+      username: updated.username,
+      ip,
+      requestId: request.id,
+    });
+    getHub()?.refreshUser(updated.id);
+    getHub()?.broadcastOnlineUsers();
+    const roomId = getHub()?.getRoomIdForUser(updated.id) ?? null;
+    return { user: services.users.toSelf(updated, roomId) };
   });
 
   app.post("/api/auth/logout", async (request: FastifyRequest, reply: FastifyReply) => {

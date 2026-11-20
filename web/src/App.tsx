@@ -1,8 +1,9 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Permission } from "@airmic/shared";
 import { ConfirmDialog, FullScreenLoader, ToastHost } from "@/components/ui";
 import AppLayout from "@/components/layout/AppLayout";
+import UpgradeAccountModal from "@/components/auth/UpgradeAccountModal";
 import ProfileModal from "@/components/profile/ProfileModal";
 import SettingsModal from "@/components/settings/SettingsModal";
 import AdminPage from "@/pages/AdminPage";
@@ -12,7 +13,7 @@ import RoomPage from "@/pages/RoomPage";
 import SetupPage from "@/pages/SetupPage";
 import { initRealtime } from "@/lib/events";
 import { useAppStore } from "@/stores/app";
-import { useAuthStore } from "@/stores/auth";
+import { shouldAutoGuest, useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 
 function RequireAuth({ children, adminOnly = false }: { children: ReactNode; adminOnly?: boolean }) {
@@ -39,6 +40,7 @@ function GlobalOverlays() {
     <>
       {modal === "settings" && <SettingsModal />}
       {modal === "profile" && <ProfileModal />}
+      {modal === "upgrade" && <UpgradeAccountModal />}
       <ConfirmDialog />
       <ToastHost />
     </>
@@ -47,16 +49,34 @@ function GlobalOverlays() {
 
 function AppRoutes() {
   const status = useAuthStore((state) => state.status);
+  const submitting = useAuthStore((state) => state.submitting);
   const serverName = useAppStore((state) => state.server?.name);
+  const server = useAppStore((state) => state.server);
   const setupRequired = useAppStore((state) => state.setupRequired);
   const bootstrapped = useAppStore((state) => state.bootstrapped);
+  const autoGuestRef = useRef(false);
   const location = useLocation();
 
   useEffect(() => {
     document.title = serverName ? serverName + " · AirMic" : "AirMic · 网页语音开黑";
   }, [serverName]);
 
+  // 免登录进入：首次打开且服务器开放游客模式时，自动创建一个游客身份直接进大厅。
+  // 用户主动退出后（sessionStorage 标记）不再自动创建，改由登录页手动登录。
+  useEffect(() => {
+    if (autoGuestRef.current) return;
+    if (!bootstrapped || setupRequired || status !== "anonymous") return;
+    if (location.pathname === "/login" || location.pathname === "/setup") return;
+    if (server && server.guestEnabled === false) return;
+    if (!shouldAutoGuest()) return;
+    autoGuestRef.current = true;
+    void useAuthStore.getState().enterAsGuest().catch(() => {
+      /* 游客创建被限流/关闭时，退回登录页由用户手动处理 */
+    });
+  }, [bootstrapped, setupRequired, status, location.pathname, server]);
+
   if (status === "loading") return <FullScreenLoader text="正在连接 AirMic…" />;
+  if (status === "anonymous" && submitting) return <FullScreenLoader text="正在以游客身份进入…" />;
 
   // 服务器尚未初始化时强制进入初始化向导（未登录也可访问）
   if (bootstrapped && setupRequired && location.pathname !== "/setup") {

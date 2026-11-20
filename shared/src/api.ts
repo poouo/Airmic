@@ -161,6 +161,13 @@ export interface GuestLoginRequest {
   displayName: string;
 }
 
+/** 游客原地升级为正式账号（保留同一 user id / 房间身份） */
+export interface UpgradeGuestRequest {
+  username: string;
+  password: string;
+  displayName?: string;
+}
+
 export interface AuthResponse {
   user: UserSelf;
 }

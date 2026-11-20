@@ -89,6 +89,27 @@ export class UsersService {
     return this.create({ username, displayName, passwordHash: null, role: "guest", isGuest: true, ip });
   }
 
+  /**
+   * 游客原地升级为正式账号：补用户名与密码哈希，角色变为 user，is_guest 清零。
+   * 保留同一个 user id，因此会话、房间成员身份和实时连接都不需要重建。
+   */
+  upgradeGuest(
+    id: number,
+    input: { username: string; passwordHash: string; displayName?: string },
+  ): UserRow | undefined {
+    const current = this.findById(id);
+    if (!current || current.is_guest !== 1) return undefined;
+    this.db.run(
+      "UPDATE users SET username = ?, display_name = ?, password_hash = ?, role = 'user', is_guest = 0, updated_at = ? WHERE id = ?",
+      input.username,
+      input.displayName ?? current.display_name,
+      input.passwordHash,
+      nowIso(),
+      id,
+    );
+    return this.findById(id);
+  }
+
   updateProfile(
     id: number,
     patch: { displayName?: string; avatarColor?: string; avatarEmoji?: string | null; statusText?: string },

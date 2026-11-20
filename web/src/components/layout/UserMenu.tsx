@@ -120,6 +120,20 @@ export default function UserMenu() {
               <Settings className="h-4 w-4 text-muted-foreground" />
               语音设置
             </button>
+            {user.isGuest && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  openModal("upgrade");
+                }}
+                className={itemClass}
+              >
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                升级为正式账号
+              </button>
+            )}
             {canAdmin && (
               <button
                 type="button"
