@@ -100,7 +100,7 @@ const updateSettingsSchema = z.object({
   registrationCode: z.string().trim().max(32, "邀请码最多 32 个字符").optional(),
   guestEnabled: z.boolean({ invalid_type_error: "游客开关必须为布尔值" }).optional(),
   maxUsers: z.number({ invalid_type_error: "服务器人数上限必须为数字" }).int().min(1, "服务器人数上限不能小于 1").max(10000, "服务器人数上限不能大于 10000").optional(),
-  maxUsersPerRoom: z.number({ invalid_type_error: "房间人数上限必须为数字" }).int().min(1, "房间人数上限不能小于 1").max(100, "房间人数上限不能大于 100").optional(),
+  maxUsersPerRoom: z.number({ invalid_type_error: "房间人数上限必须为数字" }).int().min(1, "房间人数上限不能小于 1").max(500, "房间人数上限不能大于 500").optional(),
   maxRooms: z.number({ invalid_type_error: "房间数量上限必须为数字" }).int().min(0, "房间数量上限不能小于 0").max(1000, "房间数量上限不能大于 1000").optional(),
   allowRoomCreation: z.boolean({ invalid_type_error: "创建房间开关必须为布尔值" }).optional(),
   allowGuestRoomCreation: z.boolean({ invalid_type_error: "游客创建房间开关必须为布尔值" }).optional(),
@@ -112,6 +112,9 @@ const updateSettingsSchema = z.object({
   defaultAudioSettings: audioSettingsPatchSchema.optional(),
   iceServers: z.array(iceServerSchema).max(20, "最多 20 个 ICE 服务器").optional(),
   forceRelay: z.boolean({ invalid_type_error: "强制中继开关必须为布尔值" }).optional(),
+  livekitUrl: z.string().trim().max(300, "LiveKit 地址最多 300 个字符").optional(),
+  livekitApiKey: z.string().trim().max(200, "LiveKit API Key 最多 200 个字符").optional(),
+  livekitApiSecret: z.string().trim().max(300, "LiveKit API Secret 最多 300 个字符").optional(),
   roomCategories: z
     .array(z.string().trim().min(1, "分类名称不能为空").max(20, "分类名称最多 20 个字符"))
     .max(20, "最多 20 个房间分类")

@@ -45,7 +45,7 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
       }}
       className={cn(
         "group relative flex select-none flex-col items-center gap-2 rounded-2xl border bg-ink-850/80 text-center transition-all",
-        compact ? "min-w-[9.5rem] shrink-0 p-2.5" : "p-3 pt-4",
+        compact ? "p-2.5" : "p-3 pt-4",
         member.speaking
           ? "border-aqua-400/60 shadow-[0_0_30px_-10px_rgba(34,211,238,0.85)]"
           : "border-white/5 hover:border-white/15",

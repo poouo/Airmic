@@ -1,6 +1,9 @@
 # AirMic 生产部署指南
 
-面向运维/开发者的可操作部署文档，覆盖两种主流方式（裸机 systemd、Docker Compose）、反向代理与 TLS、TURN 中继、备份恢复、升级与排障。
+面向运维/开发者的可操作部署文档。AirMic 的语音由 **LiveKit SFU** 在服务端中转，因此生产环境必须同时部署：
+
+1. **AirMic**：账号、房间、权限、聊天、管理后台与 LiveKit 访问令牌签发（Node.js + SQLite）；
+2. **LiveKit Server**：语音媒体服务器（浏览器只与它建立 WebRTC 连接，音频经服务器转发，不做 P2P）。
 
 > 本地开发和快速试用请看 [README](../README.md) 的"快速开始"；架构与接口见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -9,25 +12,28 @@
 ## 0. 部署前检查清单
 
 - [ ] 服务器安装 **Node.js ≥ 22.13（推荐 24 LTS）**，或可用的 Docker / Docker Compose v2。
-- [ ] 公网访问准备域名并解析 A/AAAA 记录；纯局域网访问可跳过域名，用自签证书。
-- [ ] 放行端口：反向代理 **80/443**；AirMic 自身 **3000**（仅本机或内网）；TURN 见下文。
-- [ ] 决定 TLS 终止位置：**推荐在 Nginx/Caddy 终止 HTTPS，AirMic 只监听 127.0.0.1:3000**。
-- [ ] 决定 TURN 部署位置：公网/复杂 NAT 场景**必须**部署 TURN，只配 STUN 无法保证可用。
-- [ ] 备份策略：`data/airmic.db` 与 `.env` 必须定期备份，且备份不要和数据库放在同一块盘上。
-- [ ] 安全：设置强 `JWT_SECRET`、限制注册、管理员使用强密码、以非 root 用户运行。
+- [ ] 公网访问准备域名并解析：AirMic 用一个域名（如 `airmic.example.com`），LiveKit 再用一个域名（如 `livekit.example.com`）。
+- [ ] 放行端口：AirMic 的 **9811**（仅本机/内网）；反向代理 **80/443**；LiveKit 的 **7880/tcp、7881/tcp、7882/udp**；如启用内置 TURN 再放行 **3478/udp、5349/tcp**。
+- [ ] 决定部署方式：**Docker Compose（推荐，一条命令同时拉起 AirMic + LiveKit）** 或裸机 systemd + LiveKit 二进制。
+- [ ] 生成并保存 LiveKit 的 API Key/Secret（**不要用默认 devkey/secret**），AirMic 与 LiveKit 两侧必须一致。
+- [ ] 设置 `SETUP_TOKEN`（推荐），防止部署后被他人抢先完成初始化。
+- [ ] 备份策略：`data/airmic.db`、`.env`、`deploy/livekit.yaml` 必须定期备份。
+- [ ] 安全：LiveKit 媒体端口尽量只开放必要范围；以非 root 用户运行；管理员使用强密码。
 
-> 单机部署即可满足中小规模使用。AirMic 的实时状态保存在进程内存中，**不要多个实例共用一个 SQLite 数据库**。
+> 应用层（AirMic）的实时状态保存在进程内存中，**不要多个 AirMic 实例共用一个 SQLite 数据库**。LiveKit 可以独立扩展，但本文按单节点部署描述。
 
-## 1. 通用准备（两种方式都需要）
+## 1. 通用准备
 
 ### 1.1 获取代码与目录约定
 
-本文以 `/opt/airmic` 作为部署目录、`airmic` 作为运行用户：
+本文以 `/opt/airmic` 作为 AirMic 部署目录、`airmic` 作为运行用户；LiveKit 二进制部署目录为 `/opt/livekit`、运行用户 `livekit`。
 
 ```bash
 sudo useradd --system --create-home --shell /usr/sbin/nologin airmic
-sudo mkdir -p /opt/airmic
+sudo useradd --system --create-home --shell /usr/sbin/nologin livekit
+sudo mkdir -p /opt/airmic /opt/livekit
 sudo chown -R airmic:airmic /opt/airmic
+sudo chown -R livekit:livekit /opt/livekit
 # 将代码放到 /opt/airmic（git clone / scp / rsync 均可）
 ```
 
@@ -41,42 +47,289 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-最小生产配置（反向代理 + 数据库）：
+最小生产配置（反向代理 + LiveKit）：
 
 ```ini
 NODE_ENV=production
 HOST=127.0.0.1
-PORT=3000
+PORT=9811
 DATABASE_PATH=./data/airmic.db
 JWT_SECRET=请替换为至少 32 字节的随机字符串
+SETUP_TOKEN=请替换为一次性初始化口令
 TRUST_PROXY=true
 USER_SESSION_TTL_DAYS=30
 GUEST_SESSION_TTL_HOURS=24
 LOG_LEVEL=info
+
+# LiveKit SFU（浏览器可访问的信令地址；生产必须是 wss）
+LIVEKIT_URL=wss://livekit.example.com
+LIVEKIT_API_KEY=替换为与 deploy/livekit.yaml 一致的 API Key
+LIVEKIT_API_SECRET=替换为与 deploy/livekit.yaml 一致的 API Secret
 ```
 
-生成随机 `JWT_SECRET`：
+生成随机密钥：
 
 ```bash
+# JWT_SECRET
 node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
+# LiveKit API Secret（任选一种）
+openssl rand -hex 32
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+# SETUP_TOKEN
+node -e "console.log(require('node:crypto').randomBytes(16).toString('hex'))"
 ```
 
 > `.env` 只能放在**项目根目录**（不是 `server/.env`）。已在系统环境变量中设置的同名变量优先。
+> LiveKit 配置也可以不写在 `.env`：初始化向导/管理后台保存到数据库的值优先，`.env` 中的 `LIVEKIT_*` 只是"从未配置时"的兜底默认值。
 > 部署在 Nginx/Caddy 等可信反向代理之后才设置 `TRUST_PROXY=true`，否则客户端 IP 可被伪造。
 
-### 1.3 首次启动
+### 1.3 部署顺序（重要）
 
-第一次启动会自动创建 `data/` 目录、SQLite 数据库与表结构。启动后：
+```text
+1. 启动 LiveKit（Docker Compose 会自动启动；裸机见第 2 节）
+2. 启动 AirMic（Docker Compose 会自动启动；裸机见第 3 节）
+3. 浏览器访问 https://airmic.example.com/setup 完成初始化向导
+   （创建管理员、服务器信息、填写 LiveKit URL / API Key / Secret、默认房间）
+4. 初始化完成后自动登录进入大厅，部署完成
+```
 
-- 健康检查：`GET /api/health` 返回 `{"status":"ok","version":"1.0.0","uptimeSeconds":...}`。
-- 浏览 <http://localhost:3000>，**第一个注册的用户自动成为管理员**。
-- 也可以提前在 `.env` 设置 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（仅在服务器还没有管理员时生效），避免"抢注"管理员。
+首次启动第一次访问会跳转 `/setup`；如果 `.env` 中已经配置了 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（旧兼容方式），服务器启动时就会创建管理员，`/setup` 会显示"已完成初始化"。
 
-后续的服务器名、MOTD、注册模式、人数上限、音质、ICE/TURN 等都在 **管理后台 → 服务器设置** 中修改，保存在数据库里。
+## 2. LiveKit SFU 部署与网络
 
-## 2. 方式 A：裸机 + systemd（推荐）
+### 2.1 方式一：Docker Compose（推荐）
 
-### 2.1 安装 Node.js 24 LTS
+仓库根目录的 [docker-compose.yml](../docker-compose.yml) 已把 LiveKit 作为**必需服务**与 AirMic 一起编排：
+
+- 镜像：`livekit/livekit-server`，默认标签 `v1.13.11`（可用环境变量 `LIVEKIT_VERSION` 覆盖）；
+- 配置：挂载 [deploy/livekit.yaml](../deploy/livekit.yaml) 到容器内 `/etc/livekit.yaml`；
+- 端口：`7880/tcp`（HTTP/WebSocket 信令）、`7881/tcp`（RTC over TCP）、`7882/udp`（RTC UDP mux）；
+- 密钥：来自 `deploy/livekit.yaml` 的 `keys`；AirMic 通过 `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` 使用同一组密钥。
+
+```bash
+cd /opt/airmic
+cp .env.example .env
+# 修改 .env：LIVEKIT_URL、LIVEKIT_API_KEY、LIVEKIT_API_SECRET、JWT_SECRET、SETUP_TOKEN
+# 修改 deploy/livekit.yaml：keys、rtc.use_external_ip
+docker compose up -d --build
+docker compose ps
+docker compose logs -f livekit airmic
+```
+
+> **Docker 与网络：** 生产环境建议给 livekit 服务使用 host 网络（在 docker-compose.yml 中取消 `network_mode: host` 注释并删除 ports），避免 Docker NAT 导致 ICE/媒体端口问题。使用桥接网络时，必须在 `deploy/livekit.yaml` 中设置 `rtc.use_external_ip: true` 或显式 `rtc.node_ip`，并确保 7881/7882 端口映射生效。
+
+### 2.2 方式二：LiveKit 二进制（Linux / Windows）
+
+从 GitHub Releases 下载对应平台压缩包：<https://github.com/livekit/livekit-server/releases>
+
+| 平台 | 资产示例 |
+| --- | --- |
+| Linux x86_64 | `livekit-server_<version>_linux_amd64.tar.gz` |
+| Linux arm64 | `livekit-server_<version>_linux_arm64.tar.gz` |
+| Windows x86_64 | `livekit-server_<version>_windows_amd64.zip` |
+
+**Linux（systemd）：**
+
+```bash
+# 1) 解压二进制
+tar -xzf livekit-server_*_linux_amd64.tar.gz
+sudo cp livekit-server /opt/livekit/
+sudo chown livekit:livekit /opt/livekit/livekit-server
+
+# 2) 配置
+sudo cp deploy/livekit.yaml /opt/livekit/livekit.yaml
+sudo vi /opt/livekit/livekit.yaml        # 修改 keys / use_external_ip
+sudo chown livekit:livekit /opt/livekit/livekit.yaml
+
+# 3) systemd 单元（仓库已提供 deploy/livekit.service）
+sudo cp deploy/livekit.service /etc/systemd/system/livekit.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now livekit
+sudo systemctl status livekit
+journalctl -u livekit -f
+```
+
+**Windows：**
+
+```powershell
+# 解压后进入目录
+.\livekit-server.exe --config .\deploy\livekit.yaml
+# 本地开发可临时使用开发模式（固定 devkey/secret）
+.\livekit-server.exe --dev
+```
+
+### 2.3 生成并配置 API 密钥
+
+LiveKit 使用 API Key/Secret 对访问令牌签名。**AirMic 与 LiveKit 必须使用同一组值**：
+
+1. 生成随机 Secret：`openssl rand -hex 32`（Windows 可用 Git 自带的 OpenSSL，或 `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`）。
+2. 编辑 `deploy/livekit.yaml`：
+
+```yaml
+keys:
+  # API Key: API Secret
+  airmic_prod_2026: 替换为上面生成的 64 位十六进制 Secret
+```
+
+3. 把同一组值填到 AirMic：`.env` 的 `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`，或在初始化向导/管理后台"语音中转（LiveKit）"中填写。
+4. 重启 LiveKit 与 AirMic 后验证 `/api/server` 返回的 `voiceAvailable` 为 `true`。
+
+> 默认的 `devkey: secret` 仅供本地开发；**部署到公网前必须更换**，否则任何人都可以伪造令牌加入你的语音房间。
+
+### 2.4 use_external_ip 与 NAT
+
+`deploy/livekit.yaml` 中的 `rtc` 配置决定 LiveKit 向客户端公布的媒体地址：
+
+```yaml
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # 云主机 / 1:1 NAT / 公网直连：true（通过 STUN 探测公网 IP）
+  use_external_ip: true
+  # 多网卡 / Docker 桥接 / 探测不准时显式指定对外 IP
+  # node_ip: 203.0.113.10
+```
+
+- **纯局域网/单机开发**：`use_external_ip: false` 即可。
+- **云服务器（有公网 IP 或 1:1 NAT）**：`use_external_ip: true`。
+- **Docker 桥接网络且无法使用 host 网络**：设置 `node_ip` 为宿主机公网/局域网 IP，并正确映射 7881/tcp、7882/udp。
+
+### 2.5 防火墙与云安全组
+
+```bash
+# UFW 示例
+sudo ufw allow 7880/tcp      # LiveKit 信令（HTTP/WS；对外通常经 443 反代，可不直接暴露）
+sudo ufw allow 7881/tcp      # RTC over TCP
+sudo ufw allow 7882/udp      # RTC UDP mux（媒体主通道）
+# 可选：内置 TURN
+sudo ufw allow 3478/udp
+sudo ufw allow 5349/tcp
+sudo ufw reload
+```
+
+| 端口 | 协议 | 用途 | 建议暴露 |
+| --- | --- | --- | --- |
+| 7880 | TCP | LiveKit HTTP / WebSocket 信令 | 仅本机（实际由 443 wss 反代） |
+| 7881 | TCP | WebRTC over TCP（UDP 被封时回退） | 公网 |
+| 7882 | UDP | WebRTC UDP mux（媒体主通道） | 公网 |
+| 3478 | UDP | LiveKit 内置 TURN（可选） | 需要 TURN 时公网 |
+| 5349 | TCP | LiveKit 内置 TURN over TLS（可选） | 需要 TURN 时公网 |
+
+> 只放行 7880 是常见错误：信令能连上、但媒体走 7881/7882，结果"能进房间但没声音"。
+
+### 2.6 wss 反向代理（livekit.example.com）
+
+公网推荐用 Nginx/Caddy 为 LiveKit 提供 `wss://`（HTTPS 页面不能连接 `ws://`）。完整示例见 [deploy/nginx.conf](../deploy/nginx.conf) 与 [deploy/Caddyfile](../deploy/Caddyfile)：
+
+**Nginx（关键片段）：**
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name livekit.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/livekit.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/livekit.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+```
+
+**Caddy：**
+
+```caddyfile
+livekit.example.com {
+    reverse_proxy 127.0.0.1:7880
+}
+```
+
+然后把 `LIVEKIT_URL` 设置为 `wss://livekit.example.com`（初始化向导/管理后台或 `.env`）。
+
+- DNS：`livekit.example.com` 解析到服务器；证书可用 certbot 单独申请（`certbot --nginx -d livekit.example.com`）或复用已有证书。
+- **UDP/TCP 媒体端口不经过反代**：浏览器拿到 `wss` 信令后，会直接连接 7881/7882，因此这两个端口必须由防火墙直达。
+- Docker 部署时 `proxy_pass` 指向 `http://127.0.0.1:7880`（端口已映射到宿主机）或容器名 `http://livekit:7880`（Nginx 也在同一 Compose 网络时）。
+
+### 2.7 验证语音服务
+
+```bash
+# 1) 信令 HTTP 可达（返回 LiveKit 欢迎页/健康响应）
+curl -fsS http://127.0.0.1:7880/ | head
+# 2) wss 域名可达（证书有效）
+curl -fsS https://livekit.example.com/ | head
+# 3) AirMic 认为语音可用
+curl -fsS https://airmic.example.com/api/server | grep -o '"voiceAvailable":[a-z]*'
+# 4) 真实通话验证
+#    浏览器打开 AirMic → 初始化向导/管理后台确认 LiveKit 配置 → 两个账号进入同一房间 → 说话
+```
+
+浏览器侧排障：DevTools → Network → WS 看 `wss://livekit.example.com` 是否连接成功；Console/Network 中会有 LiveKit 信令与 ICE 日志。LiveKit 日志（`journalctl -u livekit -f` / `docker compose logs -f livekit`）应出现 participant joined / track published。
+
+### 2.8 容量与带宽估算
+
+SFU 不做混音：每个成员的声音要分别转发给房间内其他 `N-1` 人。按每路约 40 kbps（32 kbps Opus + RTP/WebRTC 开销）估算：
+
+| 房间人数 N | 每人下行 | LiveKit 出向带宽（近似） | 建议配置 |
+| --- | --- | --- | --- |
+| 10 | ~0.36 Mbps | ~3.6 Mbps | 任意 2 核小机器 |
+| 25 | ~0.96 Mbps | ~24 Mbps | 2 vCPU / 2–4 GB |
+| 50 | ~1.96 Mbps | ~98 Mbps | 4 vCPU / 4–8 GB，1 Gbps 网卡 |
+| 100 | ~3.96 Mbps | ~396 Mbps | 4–8 vCPU / 8–16 GB，1 Gbps 网卡 |
+
+- 公式：`服务器出向 ≈ N × (N-1) × 40 kbps`；音质预设 64/96 kbps 时按比例增加。
+- 屏幕共享会给每个观看者增加约 1–2.5 Mbps 出向，务必按实际共享人数预留带宽。
+- 以上只算单房间；多房间同时使用时相加。1 Gbps 网卡建议把总出向控制在 700–800 Mbps 以内。
+- LiveKit 只转发不转码，CPU 压力主要来自加解密与转发；带宽通常是瓶颈。上线前用真实人数与音质压测。
+
+### 2.9 内置 TURN（NAT/防火墙复杂时）
+
+如果部分用户所在网络禁止 UDP（且 TCP 回退也不稳定），可以启用 LiveKit 内置 TURN。它需要：
+
+- 一个解析到本机的域名（如 `turn.example.com`）；
+- TLS 证书（可与 wss 使用同一张）；
+- 防火墙放行 `3478/udp` 与 `5349/tcp`。
+
+在 `deploy/livekit.yaml` 中取消注释并配置：
+
+```yaml
+turn:
+  enabled: true
+  domain: turn.example.com
+  tls_port: 5349
+  udp_port: 3478
+  cert_file: /etc/letsencrypt/live/turn.example.com/fullchain.pem
+  key_file: /etc/letsencrypt/live/turn.example.com/privkey.pem
+```
+
+客户端无需额外配置：LiveKit 会在加入房间的响应中下发 ICE/TURN 配置，浏览器自动尝试 TURN 中继。改完重启 LiveKit。
+
+### 2.10 LiveKit 常见问题
+
+| 现象 | 可能原因 | 处理 |
+| --- | --- | --- |
+| AirMic 返回 `voice_not_configured`（HTTP 400） | 服务器未配置 LiveKit（URL/Key/Secret 不齐全） | 初始化向导/管理后台补配，或在 `.env` 设置 `LIVEKIT_*` 后重启 |
+| 令牌接口 403"请先加入房间" | 前端还没通过 `/ws` 加入房间就请求令牌 | 先加入房间（或刷新页面）；检查 WebSocket 是否正常 |
+| 令牌接口 401 | 未登录/会话失效 | 重新登录 |
+| 浏览器连不上 `wss` | 证书错误、DNS 未解析、反代未配置 Upgrade | 用 `curl` 验证；检查 Nginx `proxy_set_header Upgrade` 与 `proxy_read_timeout` |
+| 能连上但没有声音 | 7882/udp 或 7881/tcp 未放行；NAT 地址错误 | 放行端口；设置 `use_external_ip` 或 `node_ip`；必要时启用内置 TURN |
+| 只有部分用户没声音 | 该用户网络禁 UDP | 检查其浏览器 Console；启用内置 TURN |
+| LiveKit 容器启动失败 | `livekit.yaml` 语法/密钥错误 | `docker compose logs livekit`；检查 YAML 缩进与 `keys` |
+| 媒体卡顿/丢包 | 服务器带宽不足、UDP 丢包 | 降低音质预设；扩容带宽；把 LiveKit 拆到独立机器 |
+
+## 3. 方式 A：AirMic 裸机 + systemd
+
+### 3.1 安装 Node.js 24 LTS
 
 ```bash
 # Debian / Ubuntu（NodeSource）
@@ -85,9 +338,9 @@ sudo apt-get install -y nodejs
 node -v && npm -v
 ```
 
-其他发行版请参考 Node.js 官方安装方式。注意：**systemd 不会加载 shell 的 PATH**，下面单元里的 `ExecStart` 必须写 Node 的绝对路径（`which node` 的结果；NodeSource 安装通常是 `/usr/bin/node`，nvm 安装则类似 `/home/airmic/.nvm/versions/node/v24.x/bin/node`）。
+注意：**systemd 不会加载 shell 的 PATH**，systemd 单元中的 `ExecStart` 必须写 Node 的绝对路径（`which node`；NodeSource 安装通常是 `/usr/bin/node`，nvm 安装类似 `/home/airmic/.nvm/versions/node/v24.x/bin/node`）。
 
-### 2.2 安装依赖并构建
+### 3.2 安装依赖并构建
 
 ```bash
 cd /opt/airmic
@@ -99,14 +352,14 @@ sudo -u airmic npm run build
 - 构建产物：`shared/dist`、`server/dist`、`web/dist`。
 - 如需减小体积，可在构建完成后执行 `sudo -u airmic npm prune --omit=dev`（下次重新构建前要重新 `npm ci`）。
 
-### 2.3 数据目录与权限
+### 3.3 数据目录与权限
 
 ```bash
 sudo -u airmic mkdir -p /opt/airmic/data
 sudo chown -R airmic:airmic /opt/airmic
 ```
 
-### 2.4 systemd 单元
+### 3.4 systemd 单元
 
 仓库已提供 [deploy/airmic.service](../deploy/airmic.service)，按需修改用户、路径、Node 绝对路径：
 
@@ -146,67 +399,45 @@ sudo cp deploy/airmic.service /etc/systemd/system/airmic.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now airmic
 sudo systemctl status airmic
-curl -fsS http://127.0.0.1:3000/api/health
-```
-
-查看日志：
-
-```bash
+curl -fsS http://127.0.0.1:9811/api/health
 journalctl -u airmic -f --since today
 ```
 
-> 说明：
-> - `ProtectSystem=strict` 让除 `ReadWritePaths` 外的文件系统只读；如果要把备份写在 `/opt/airmic/backups`，请在单元中追加 `ReadWritePaths=-/opt/airmic/backups`（`-` 前缀表示目录不存在时忽略），或把 `BACKUP_DIR` 设置为 `/opt/airmic/data/backups`。
-> - 修改 `.env` 后需要 `sudo systemctl restart airmic`。
-> - `HOST=127.0.0.1` 时服务只监听本机；如果不用反向代理、直接对外提供服务，改为 `0.0.0.0` 并自行处理防火墙与 HTTPS。
+> AirMic 监听 9811；LiveKit 二进制/systemd 部署见第 2.2 节，两者互相独立，可以分开部署在不同机器上（此时 `LIVEKIT_URL` 用 LiveKit 机器的域名）。
 
-## 3. 方式 B：Docker / Docker Compose
+### 3.5 完成初始化
 
-### 3.1 构建与启动
+浏览器访问 `https://airmic.example.com/setup` 完成初始化向导（详见第 7 节）：创建管理员、服务器信息、LiveKit URL/API Key/Secret、默认房间。
 
-仓库根目录提供多阶段 [Dockerfile](../Dockerfile) 与 [docker-compose.yml](../docker-compose.yml)：
+## 4. 方式 B：AirMic Docker Compose
 
-- 构建阶段安装全部依赖并执行 `npm run build`；
-- 运行镜像只包含生产依赖、`dist` 产物与备份脚本，以非 root 用户 `node` 运行；
-- 数据目录为容器内 `/data`（Compose 使用命名卷 `airmic-data` 持久化）；
-- 镜像内置健康检查（`/api/health`）。
+### 4.1 完整栈（AirMic + LiveKit，推荐）
 
 ```bash
 cd /opt/airmic
-cp .env.example .env        # 按需修改 JWT_SECRET / TRUST_PROXY 等
-docker compose build
-docker compose up -d
+cp .env.example .env
+# 修改 .env：JWT_SECRET、SETUP_TOKEN、LIVEKIT_URL、LIVEKIT_API_KEY、LIVEKIT_API_SECRET
+# 修改 deploy/livekit.yaml：keys、rtc.use_external_ip
+docker compose up -d --build
 docker compose ps
-docker compose logs -f airmic
-curl -fsS http://127.0.0.1:3000/api/health
+docker compose logs -f airmic livekit
 ```
 
-Compose 默认把容器的 3000 映射到宿主机 3000。生产建议由宿主机 Nginx/Caddy 终止 TLS，并只在 `127.0.0.1` 暴露端口；可以把 `docker-compose.yml` 中的
+- `airmic` 容器监听 9811，数据在命名卷 `airmic-data:/data`；`livekit` 容器使用 7880/7881/7882。
+- `.env` 通过 `env_file` 注入 AirMic；`LIVEKIT_*` 同时作为初始化向导未填写时的兜底。
+- 生产建议把 `docker-compose.yml` 中 `airmic` 的端口改为 `127.0.0.1:9811:9811`，由宿主机 Nginx/Caddy 终止 TLS；LiveKit 的 wss 也由宿主机反代。
+- Linux 生产建议 livekit 使用 `network_mode: host`（取消注释、删除 ports），并直接放行 7880/7881/7882。
 
-```yaml
-ports:
-  - "3000:3000"
-```
-
-改为：
-
-```yaml
-ports:
-  - "127.0.0.1:3000:3000"
-```
-
-- `.env` 通过 `env_file` 注入容器，容器内固定使用 `DATABASE_PATH=/data/airmic.db`、`BACKUP_DIR=/data/backups`。
-- 不需要 `.env` 也能启动（全部使用默认值），但生产环境请至少设置 `JWT_SECRET` 与 `TRUST_PROXY`。
-
-### 3.2 常用运维命令
+### 4.2 常用运维命令
 
 ```bash
-docker compose exec airmic sh                  # 进入容器
-docker compose exec airmic node scripts/backup.mjs   # 立即备份（输出到 /data/backups）
-docker compose logs --tail=200 airmic          # 最近日志
-docker compose restart airmic                  # 重启
-docker compose down                            # 停止（不会删除命名卷 airmic-data）
-docker compose down -v                         # 停止并删除数据卷（危险！）
+docker compose exec airmic sh                          # 进入 AirMic 容器
+docker compose exec airmic node scripts/backup.mjs     # 立即备份（输出到 /data/backups）
+docker compose logs --tail=200 livekit airmic          # 最近日志
+docker compose restart airmic                          # 只重启应用
+docker compose restart livekit                         # 只重启语音服务（会断开当前通话）
+docker compose down                                    # 停止（不会删除命名卷 airmic-data）
+docker compose down -v                                 # 停止并删除数据卷（危险！）
 ```
 
 查看健康状态：
@@ -215,79 +446,45 @@ docker compose down -v                         # 停止并删除数据卷（危�
 docker inspect --format "{{json .State.Health.Status}}" airmic
 ```
 
-### 3.3 Docker 部署的 HTTPS
+### 4.3 AirMic 容器单独部署（对接外部 LiveKit）
 
-三条路线，按推荐程度排序：
-
-**路线 1（推荐）：宿主机反向代理终止 TLS。** 容器只监听 `127.0.0.1:3000`，Nginx/Caddy 配置见第 4 节。证书续期、HTTP/2、HSTS 都在宿主机处理，AirMic 无需感知 HTTPS。
-
-**路线 2：容器内直接启用 HTTPS。** 适合单机内网、不想装反代的场景：
+如果 LiveKit 已单独部署（另一台机器/另一套 compose），只启动 AirMic 服务即可：
 
 ```bash
-# 宿主机生成自签证书（或放入正式证书）
-node scripts/generate-cert.mjs
-
-# 在 .env 中增加（容器内路径）
-# SSL_KEY=/app/certs/key.pem
-# SSL_CERT=/app/certs/cert.pem
-# 取消 docker-compose.yml 中 ./certs:/app/certs:ro 的注释并重新 up
-docker compose up -d
+# 确认 .env 中 LIVEKIT_URL 指向外部 wss 地址
+docker compose up -d --build airmic
 ```
 
-此时访问 `https://宿主机IP:3000`。如果前面还有一层 Nginx，需要 `proxy_pass https://127.0.0.1:3000;` 并（自签时）`proxy_ssl_verify off;`。
+或直接用镜像运行（注意挂载数据卷并传入 `LIVEKIT_*`）。不推荐在公网直接暴露 9811，仍建议由反向代理提供 HTTPS。
 
-**路线 3：Caddy 容器自动 HTTPS。** 仓库提供 [deploy/Caddyfile](../deploy/Caddyfile)；在 Compose 中增加一个 Caddy 服务（注意替换域名与邮箱）：
+### 4.4 Docker 部署的 HTTPS
 
-```yaml
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - airmic
+- **推荐**：宿主机 Nginx/Caddy 终止 TLS：AirMic 页面 https、LiveKit 的 `wss` 反代到 127.0.0.1:7880；LiveKit 媒体端口 7881/7882 直接映射/放行。
+- **AirMic 容器内启用 HTTPS**：挂载 `certs/` 到 `/app/certs`，设置 `SSL_KEY` / `SSL_CERT`；这是可选的，大多数部署由反代处理。
+- 不要把 LiveKit 的 7880 管理/信令端口直接暴露到公网明文 HTTP——浏览器实际使用 wss（443 反代）。
 
-volumes:
-  caddy-data:
-  caddy-config:
-```
+## 5. 反向代理（AirMic 页面）
 
-```caddyfile
-airmic.example.com {
-    encode zstd gzip
-    reverse_proxy airmic:3000
-}
-```
+### 5.1 架构约定
 
-> 注意：AirMic 容器不要同时把 3000 暴露到公网；Caddy 通过 Compose 内部网络访问 `airmic:3000`。
-
-## 4. 反向代理（Nginx / Caddy）
-
-### 4.1 架构约定
-
-- AirMic 监听 `127.0.0.1:3000`（`HOST=127.0.0.1`），只接受本机代理的请求。
+- AirMic 监听 `127.0.0.1:9811`（`HOST=127.0.0.1`），只接受本机代理的请求。
 - `.env` 设置 `TRUST_PROXY=true`，让服务端从 `X-Forwarded-For` 获取真实 IP（用于封禁、审计、登录限流）。
-- WebSocket `/ws` 必须转发 `Upgrade` / `Connection` 头，并放大读超时；否则聊天、信令会周期性断开或直接 400。
+- WebSocket `/ws` 必须转发 `Upgrade` / `Connection` 头，并放大读超时；否则聊天、房间状态会周期性断开。
+- LiveKit 的 wss 使用单独域名与 server 块（第 2.6 节），AirMic 的反代不需要代理媒体端口。
 
-### 4.2 Nginx 完整配置
+### 5.2 Nginx 完整配置
 
-仓库已提供 [deploy/nginx.conf](../deploy/nginx.conf)，可以直接作为站点配置使用（其中的 `map` 位于 http 上下文，`conf.d/*.conf` 会被 `http{}` 包含）。核心步骤：
+仓库已提供 [deploy/nginx.conf](../deploy/nginx.conf)（包含 AirMic 与 LiveKit 两个 server 块）。核心步骤：
 
 ```bash
-# Debian/Ubuntu
 sudo apt install -y nginx
 sudo cp deploy/nginx.conf /etc/nginx/conf.d/airmic.conf
-sudo vi /etc/nginx/conf.d/airmic.conf     # 修改 server_name 与证书路径
+sudo vi /etc/nginx/conf.d/airmic.conf     # 修改 server_name、证书路径、LiveKit 域名
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-配置要点（完整内容见文件）：
+AirMic 站点关键片段：
 
 ```nginx
 map $http_upgrade $connection_upgrade {
@@ -303,14 +500,10 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/airmic.example.com/privkey.pem;
 
     client_max_body_size 2m;
-
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "same-origin" always;
 
     location /ws {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:9811;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -323,17 +516,8 @@ server {
         proxy_buffering off;
     }
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:9811;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -350,14 +534,11 @@ server {
 | A（推荐，默认） | `location /` 全部反代给 Node，Node 托管 `web/dist` 并做 SPA 回退 | 配置最简、前后端同源 | 静态资源走 Node |
 | B | Nginx `root` 指向 `web/dist`，`try_files $uri $uri/ /index.html`；只反代 `/api`、`/ws` | 静态请求不经过 Node、可加长缓存 | 每次构建后需同步 dist；不要把 `location /` 再 proxy_pass |
 
-`deploy/nginx.conf` 末尾有方案 B 的注释示例。选择方案 B 时记得先 `npm run build` 并把 `web/dist` 复制到 `/var/www/airmic`。
-
-### 4.3 Caddy（更简单的自动 HTTPS）
+### 5.3 Caddy（自动 HTTPS）
 
 ```caddyfile
 airmic.example.com {
     encode zstd gzip
-
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
@@ -365,72 +546,67 @@ airmic.example.com {
         Referrer-Policy "same-origin"
         Permissions-Policy "microphone=(self), camera=(self), display-capture=(self)"
     }
+    reverse_proxy 127.0.0.1:9811
+}
 
-    # Caddy 会自动处理 WebSocket upgrade
-    reverse_proxy 127.0.0.1:3000
+# LiveKit 的 wss（另一个域名）
+livekit.example.com {
+    reverse_proxy 127.0.0.1:7880
 }
 ```
 
-Caddy 会自动申请/续期 Let's Encrypt 证书，并把 HTTP 重定向到 HTTPS。域名解析到服务器后执行 `sudo systemctl reload caddy` 即可。
+Caddy 会自动申请/续期证书并处理 WebSocket upgrade；完整示例见 [deploy/Caddyfile](../deploy/Caddyfile)。
 
-### 4.4 反向代理常见问题
+### 5.4 反向代理常见问题
 
-- **502 Bad Gateway**：AirMic 没启动，或 `HOST` 不是 `127.0.0.1`（例如只监听了 `0.0.0.0` 之外的其他地址），或 Docker 部署时 Nginx 在宿主机而端口没映射。
-- **WebSocket 反复断开 / 400**：检查 `Upgrade`、`Connection` 头与 `proxy_read_timeout`；Cloudflare 等 CDN 需要开启 WebSocket 支持。
+- **502 Bad Gateway**：AirMic 没启动，或 `HOST` 不是 `127.0.0.1`，或 Docker 端口未映射。
+- **WebSocket 反复断开 / 400**：检查 `Upgrade`、`Connection` 头与 `proxy_read_timeout`；Cloudflare 等 CDN 需要开启 WebSocket。
 - **客户端 IP 都是 127.0.0.1**：未设置 `TRUST_PROXY=true` 或代理未传 `X-Forwarded-For`。
-- **登录后立刻掉线**：多数是 Cookie 问题（域名/HTTPS 配置不一致、代理未透传 Cookie）；浏览 `/api/auth/me` 响应与 DevTools → Application → Cookies。
-- **Cloudflare 等 CDN**：可以代理页面/API/WebSocket，但**媒体流（UDP）不会经过 CDN**，仍需要 STUN/TURN；另外真实 IP 需要配置 `real_ip` 模块，否则封禁/审计拿到的是 CDN 节点 IP。
+- **登录后立刻掉线**：Cookie 问题（域名/HTTPS 配置不一致、代理未透传 Cookie）。
+- **HTTPS 页面无法连接 LiveKit**：`LIVEKIT_URL` 必须改成 `wss://`；混合内容会被浏览器直接拦截。
 
-## 5. TLS 证书
+## 6. TLS 证书
 
-### 5.1 公网域名：Let's Encrypt（推荐）
+### 6.1 公网域名：Let's Encrypt（推荐）
 
-**Nginx + certbot：**
+**Nginx + certbot（两个域名都申请）：**
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d airmic.example.com
-# 证书位置：
-#   /etc/letsencrypt/live/airmic.example.com/fullchain.pem
-#   /etc/letsencrypt/live/airmic.example.com/privkey.pem
+sudo certbot --nginx -d airmic.example.com -d livekit.example.com
+# 如果还想用内置 TURN，再加 turn.example.com（先解析好 DNS）
 sudo certbot renew --dry-run
 ```
 
-certbot 会自动安装 `systemd` 定时器续期。首次申请前请确保 80 端口可达、域名已解析。
-
 **Caddy：** 自动申请，无需手动操作。
 
-**直接用 Node 加载正式证书（不使用反代）：** 在 `.env` 中设置 `SSL_KEY` / `SSL_CERT` 指向 PEM 文件并重启；注意 Node 需要能读取证书文件。
+**AirMic 直接用 Node 加载证书（不用反代）：** 在 `.env` 中设置 `SSL_KEY` / `SSL_CERT` 指向 PEM 文件并重启。LiveKit 本身也支持直接配置 TLS 证书（`rtc.cert_file/key_file` 或反代），但推荐统一由 Nginx/Caddy 终止 TLS。
 
-### 5.2 局域网 / 内网：自签证书
+### 6.2 局域网 / 内网：自签证书
 
-内网或没有域名时，用仓库脚本生成本地证书，避免浏览器因非安全上下文禁用麦克风：
+内网或没有域名时，用仓库脚本生成本地证书，避免浏览器因非安全上下文禁用麦克风（LiveKit 的 wss 反代也可以复用这张证书）：
 
 ```bash
 cd /opt/airmic
 node scripts/generate-cert.mjs
 # 生成 certs/key.pem 与 certs/cert.pem
 node scripts/generate-cert.mjs --force             # 覆盖旧证书
-node scripts/generate-cert.mjs 192.168.1.50 airmic.local   # 追加额外 SAN
+node scripts/generate-cert.mjs 192.168.1.50 airmic.local livekit.local turn.local
 ```
 
-脚本会自动把 `localhost`、`127.0.0.1`、`::1`、本机 hostname 与所有局域网 IPv4 加入 SAN。生成后在 `.env` 中设置：
+脚本会自动把 `localhost`、`127.0.0.1`、`::1`、本机 hostname 与所有局域网 IPv4 加入 SAN。把域名/IP 提前加入 SAN（或使用额外参数）后：
 
-```ini
-SSL_KEY=./certs/key.pem
-SSL_CERT=./certs/cert.pem
-```
-
-重启 AirMic，访问 `https://<局域网IP>:3000`。
+- AirMic 反代使用 `certs/cert.pem` / `certs/key.pem`，或在 `.env` 设置 `SSL_KEY` / `SSL_CERT` 让 AirMic 直接 HTTPS；
+- LiveKit 的 wss 反代使用同一张证书；
+- `LIVEKIT_URL` 使用对应的 `wss://<域名或IP>`。
 
 - 需要 OpenSSL：Linux/macOS 通常自带；Windows 推荐 Git for Windows 自带的 `C:/Program Files/Git/usr/bin/openssl.exe`（脚本会自动探测），也可用 `OPENSSL_BIN` 指定。
 - 生成的 `certs/` 已被 `.gitignore` 忽略，**不要提交私钥**。
-- IP 变化后需要重新生成（可加 `--force`）。
-- 如果使用 Nginx 终止 TLS，把 `ssl_certificate` / `ssl_certificate_key` 指向上面的两个文件即可，Node 端不需要再设置 `SSL_KEY` / `SSL_CERT`。
+- IP/域名变化后需要重新生成（可加 `--force`），并同步重新信任。
 
-### 5.3 让设备信任自签证书
+### 6.3 让设备信任自签证书
 
-浏览器访问自签 HTTPS 时，**必须先让证书受信任**，否则部分浏览器/系统仍会限制麦克风等能力：
+浏览器访问自签 HTTPS 时，**必须先让证书受信任**，否则部分浏览器/系统仍会限制麦克风与 WebRTC 能力：
 
 **Windows（Chrome / Edge 使用系统证书库）：**
 
@@ -453,7 +629,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 **Android：** 设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书（不同厂商路径略有差异）；部分 Android 版本对用户 CA 有限制，可改用正式证书或 mkcert。
 
-**Linux（Chrome/Chromium）：** 将证书导入 NSS 数据库：
+**Linux（Chrome/Chromium）：**
 
 ```bash
 certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "AirMic Local" -i certs/cert.pem
@@ -461,122 +637,58 @@ certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "AirMic Local" -i certs/cert.pem
 
 > 提示：自签证书只适合内网/测试。需要长期公网使用请购买域名并申请 Let's Encrypt 证书；也可使用 mkcert 生成受信任的本地 CA。
 
-## 6. TURN 中继
+## 7. 初始化向导（/setup）
 
-### 6.1 为什么需要 TURN
-
-WebRTC 先尝试 P2P 直连（STUN 帮客户端发现公网地址）。但在对称 NAT、企业防火墙、部分 4G/5G 网络下直连会失败，此时必须通过 TURN 服务器中继。**公网部署只配置 STUN 不能保证可用。**
-
-默认 STUN 列表（可在管理后台修改）：
-
-- `stun:stun.l.google.com:19302`、`stun:stun1.l.google.com:19302`
-- `stun:stun.cloudflare.com:3478`
-- `stun:stun.miwifi.com:3478`
-
-### 6.2 安装 coturn（裸机）
+AirMic 首次部署使用初始化向导创建管理员和基础配置。判断是否需要初始化：
 
 ```bash
-sudo apt update
-sudo apt install -y coturn
-sudo sed -i 's/^#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
-sudo cp /opt/airmic/deploy/coturn.conf /etc/turnserver.conf
-sudo vi /etc/turnserver.conf
-sudo systemctl enable --now coturn
-sudo systemctl status coturn
+curl -fsS https://airmic.example.com/api/setup/status
+# {"setupRequired":true,"requiresToken":true,"server":{...}}
 ```
 
-必须修改 [deploy/coturn.conf](../deploy/coturn.conf) 中的：
-
-- `external-ip`：服务器公网 IP（云主机有内网/公网双网卡时**必填**，格式如 `203.0.113.10`；多 IP 用逗号分隔）。
-- `realm` / `server-name`：你的域名或服务器名。
-- `user=airmic:CHANGE_ME_STRONG_PASSWORD`：改成强密码，稍后填到 AirMic 管理后台。
-
-关键配置说明：
-
-| 配置项 | 说明 |
+| 字段 | 含义 |
 | --- | --- |
-| `listening-port=3478` | STUN/TURN 监听端口 |
-| `min-port` / `max-port` | 中继使用的 UDP 端口范围（默认 49160-49200） |
-| `lt-cred-mech` + `user=...` | 静态用户名/密码认证，与后台 ICE 配置对应 |
-| `fingerprint` | 安全增强，建议保持开启 |
-| `no-cli` | 关闭 telnet CLI，避免暴露管理接口 |
-| `no-loopback-peers` | 禁止中继到 loopback；同机自测 TURN 时临时注释 |
-| `tls-listening-port=5349` | 可选：TURN over TLS，需要证书 |
+| `setupRequired` | 是否还没有管理员（需要初始化） |
+| `requiresToken` | 是否设置了 `SETUP_TOKEN`（需要口令） |
+| `server` | 当前公开服务器设置 |
 
-### 6.3 Docker 运行 coturn
+**浏览器操作：**
 
-`docker-compose.yml` 中已包含可选的 `coturn` 服务（profile `turn`，使用 host 网络）：
+1. 访问 `https://airmic.example.com/setup`（未初始化时访问其他页面也会跳转）。
+2. **服务器信息**：服务器名、MOTD、注册模式（开放/邀请码/关闭）、游客开关；若设置了 SETUP_TOKEN，本步填写初始化口令。
+3. **管理员**：用户名、昵称、密码。
+4. **语音中转与音质**：LiveKit URL（wss://livekit.example.com）、API Key、API Secret（可留空，之后在管理后台补配）、单房间人数上限（默认 100，最大 500）、默认音质、是否创建默认房间。
+5. **确认并完成**：提交后创建管理员、写入设置、自动登录并进入大厅。
 
-```bash
-# 先修改 deploy/coturn.conf 的 external-ip / realm / user
-cd /opt/airmic
-docker compose --profile turn up -d coturn
-docker compose logs -f coturn
-```
-
-- `network_mode: host` 需要 **Linux 宿主机**；Windows/macOS 的 Docker Desktop 不支持，请在宿主机安装 coturn，或改用桥接网络并正确配置 `external-ip` 与端口映射。
-- 修改 `deploy/coturn.conf` 后需 `docker compose restart coturn`。
-
-### 6.4 防火墙与云安全组
+**接口（自动化/排障用）：**
 
 ```bash
-# UFW 示例
-sudo ufw allow 3478/tcp
-sudo ufw allow 3478/udp
-sudo ufw allow 49160:49200/udp
-sudo ufw allow 5349/tcp        # 可选：TURN over TLS
-sudo ufw reload
+# 初始化（已设置 SETUP_TOKEN 时 token 必填）
+curl -fsS -X POST https://airmic.example.com/api/setup/initialize \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<SETUP_TOKEN>","admin":{"username":"admin","password":"强密码","displayName":"管理员"},"server":{"name":"我的语音服务器","maxUsersPerRoom":100,"livekitUrl":"wss://livekit.example.com","livekitApiKey":"<KEY>","livekitApiSecret":"<SECRET>"},"createDefaultRooms":true}'
 ```
 
-云厂商（阿里云/腾讯云/AWS 等）还需在**安全组**放行同样的端口。常见错误：只放行了 3478，忘记中继端口 49160-49200/udp，导致 TURN 分配成功但媒体不通。
+- 初始化接口仅在没有管理员时可用；完成后再次调用返回 409 `setup_completed`。
+- 有 IP 限流（10 次/10 分钟）与并发保护（同时只允许一个初始化请求）。
+- `SETUP_TOKEN` 不正确返回 403 `setup_token_invalid`。
+- 初始化成功后会在响应中设置登录 Cookie，响应包含管理员、服务器设置与默认房间列表。
+- 初始化完成后想修改服务器名、LiveKit 配置等，全部在 **管理后台 → 服务器设置** 中操作。
 
-### 6.5 在 AirMic 管理后台填写 TURN
+## 8. 数据备份与恢复
 
-1. 用管理员登录 → **管理后台 → 服务器设置 → ICE 服务器**。
-2. 添加条目（可添加多条，客户端会全部使用）：
-
-| urls | username | credential |
-| --- | --- | --- |
-| `turn:turn.example.com:3478?transport=udp` | `airmic` | 与 coturn 的 `user=` 密码一致 |
-| `turn:turn.example.com:3478?transport=tcp` | `airmic` | 同上 |
-| `turns:turn.example.com:5349?transport=tcp`（可选） | `airmic` | 启用 TURN/TLS 时配置 |
-
-3. 保存后设置会广播给在线客户端；**已有连接需要重新进入房间/刷新页面**才会使用新 ICE 配置。
-4. "强制中继"（`forceRelay`）仅用于排障：开启后媒体只能走 TURN，TURN 故障时完全无法通话，排障结束请关闭。
-
-### 6.6 验证 TURN 是否可用
-
-1. 打开 <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/>，填入 TURN 地址、用户名、密码，点击 Gather candidates；应出现 `relay` 类型候选。
-2. 观察 coturn 日志（`journalctl -u coturn -f` / `docker compose logs -f coturn`），连接时应出现分配记录。
-3. coturn 自带工具（部分发行版在 `coturn-utils` 包中）：
-
-```bash
-turnutils_uclient -v -u airmic -w '你的密码' -p 3478 turn.example.com
-```
-
-4. 页面内排障：浏览器 DevTools Console 查看 ICE 状态；`chrome://webrtc-internals`（Edge 为 `edge://webrtc-internals`，Firefox 为 `about:webrtc`）可以看到候选对与选中路径。
-
-### 6.7 只开放 443 的网络（备选）
-
-部分公司/校园网络只允许 443 出站。可选的应对方式：
-
-- 在**独立公网 IP** 上让 coturn 监听 443/tcp（TURN over TLS）：`tls-listening-port=443`，配置 `cert` / `pkey`，客户端使用 `turns:IP:443?transport=tcp`。不能与同一 IP 上的 Nginx 443 冲突。
-- 使用 `alt-listening-port` / 额外端口方案时同样要注意防火墙与证书。
-- 如果无法提供 443，至少保证 3478 tcp+udp 可达；UDP 被封时优先使用 `turn:...:3478?transport=tcp`。
-
-## 7. 数据备份与恢复
-
-### 7.1 需要备份什么
+### 8.1 需要备份什么
 
 | 内容 | 是否必须 | 说明 |
 | --- | --- | --- |
-| `data/airmic.db` | ✅ 必须 | 全部账号、房间、消息、设置、封禁、审计、会话（含自动生成的 JWT 密钥） |
-| `.env` | ✅ 必须 | 端口、`JWT_SECRET`、SSL 路径等部署配置 |
-| `certs/` | 建议 | 自签证书与私钥（用于恢复后用同一证书） |
+| `data/airmic.db` | ✅ 必须 | 全部账号、房间、消息、设置（含 LiveKit API Key/Secret）、封禁、审计、会话 |
+| `.env` | ✅ 必须 | 端口、`JWT_SECRET`、`SETUP_TOKEN`、`LIVEKIT_*` 等部署配置 |
+| `deploy/livekit.yaml` | ✅ 建议 | LiveKit 密钥与网络配置（丢失后需重新生成密钥并同步 AirMic） |
+| `certs/` | 建议 | 自签证书与私钥 |
 | `web/dist`、`server/dist` | ❌ | 重新 `npm run build` 即可 |
 | Docker 命名卷 `airmic-data` | ✅ 必须 | 容器部署时数据库在卷里 |
 
-### 7.2 备份命令（脚本）
+### 8.2 备份命令（脚本）
 
 ```bash
 cd /opt/airmic
@@ -586,9 +698,7 @@ BACKUP_DIR=/opt/airmic/data/backups RETENTION=14 node scripts/backup.mjs
 node scripts/backup.mjs --db ./data/airmic.db --dir ./backups --retention 10
 ```
 
-脚本特性：
-
-- 使用 SQLite `VACUUM INTO` 生成一致性快照，**服务运行中执行也安全**（WAL 模式）。
+- 使用 SQLite `VACUUM INTO` 生成一致性快照，服务运行中执行也安全（WAL 模式）。
 - 自动执行 `PRAGMA integrity_check`，失败时非零退出并保留文件排查。
 - 文件名 `airmic-YYYYMMDD-HHmmss.db`，按 `RETENTION` 自动清理旧备份（默认保留 10 份）。
 - 可以从任意工作目录执行；会读取项目根目录 `.env`。
@@ -606,7 +716,7 @@ node scripts/backup.mjs --db ./data/airmic.db --dir ./backups --retention 10
 rsync -av /opt/airmic/data/backups/ backup@backup-host:/srv/airmic-backups/
 ```
 
-### 7.3 Docker 部署的备份
+### 8.3 Docker 部署的备份
 
 ```bash
 # 容器内备份（写入命名卷 /data/backups）
@@ -620,7 +730,7 @@ docker run --rm -v airmic-data:/data -v "$PWD:/backup" alpine \
   tar czf /backup/airmic-data-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
 ```
 
-### 7.4 恢复步骤
+### 8.4 恢复步骤
 
 **裸机：**
 
@@ -631,7 +741,7 @@ cp backups/airmic-20261120-153120.db data/airmic.db
 rm -f data/airmic.db-wal data/airmic.db-shm      # 必须删除旧的 WAL/SHM
 sudo chown airmic:airmic data/airmic.db
 sudo systemctl start airmic
-curl -fsS http://127.0.0.1:3000/api/health
+curl -fsS http://127.0.0.1:9811/api/health
 ```
 
 **Docker：**
@@ -645,128 +755,133 @@ docker compose up -d
 
 **恢复后验证：**
 
-- `GET /api/health` 返回 `ok`；
-- 能正常登录、房间列表存在；
-- 如需校验数据库完整性：`node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('data/airmic.db');console.log(db.prepare('PRAGMA integrity_check').get())"`；
-- **JWT 密钥注意**：如果 `.env` 中显式设置了 `JWT_SECRET`，恢复时必须使用同一个值，否则所有旧登录会话失效（重新登录即可）；如果未设置，密钥保存在数据库里，会随备份一起恢复。
+- `GET /api/health` 返回 `ok`；`GET /api/setup/status` 显示已完成初始化；
+- 能正常登录、房间列表与 LiveKit 配置存在（管理后台可见）；
+- 进入房间能正常通话（说明数据库中的 LiveKit 配置/环境变量仍然有效）；
+- 如需校验数据库完整性：`node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('data/airmic.db');console.log(db.prepare('PRAGMA integrity_check').get())"`。
 
+> JWT 密钥注意：如果 `.env` 中显式设置了 `JWT_SECRET`，恢复时必须使用同一个值，否则所有旧登录会话失效（重新登录即可）。
+> LiveKit 密钥注意：备份里的 `livekitApiSecret` 必须与当前 `deploy/livekit.yaml` 的 `keys` 一致，否则令牌签名校验失败（令牌接口 500/连接被拒）。
 > 版本兼容：数据库迁移在启动时按 `PRAGMA user_version` 自动升级且只向前。**不要用旧版本程序打开新版本数据库**；回滚版本时需要同时恢复对应时期的数据库备份。
 
-## 8. 升级步骤
+## 9. 升级步骤
 
-### 8.1 裸机
+### 9.1 裸机
 
 ```bash
 cd /opt/airmic
 npm run backup                       # 1. 先备份
-sudo systemctl stop airmic           # 2. 停止服务（也可在线升级，但会有短暂中断）
-git pull                             # 3. 更新代码（或解压新版本覆盖）
+sudo systemctl stop airmic           # 2. 停止应用（LiveKit 可继续运行）
+git pull                             # 3. 更新代码
 npm ci                               # 4. 安装依赖
 npm run build                        # 5. 重新构建 shared/server/web
 sudo chown -R airmic:airmic /opt/airmic
 sudo systemctl start airmic          # 6. 启动（自动执行数据库迁移）
-curl -fsS http://127.0.0.1:3000/api/health
-journalctl -u airmic -n 100 --no-pager   # 7. 检查日志
+curl -fsS http://127.0.0.1:9811/api/health
 ```
 
-> 修改了 `shared/` 的版本必须重新 `npm run build`，否则前后端类型/协议不一致；升级后首次启动会自动迁移数据库。
+LiveKit 升级（二进制）：下载新版本压缩包替换 `/opt/livekit/livekit-server`，`sudo systemctl restart livekit`。升级 LiveKit 会短暂断开当前通话，建议在低峰期进行。
 
-### 8.2 Docker
+### 9.2 Docker
 
 ```bash
 cd /opt/airmic
 docker compose exec airmic node scripts/backup.mjs   # 1. 备份
 git pull                                              # 2. 更新代码
-docker compose build --pull                           # 3. 重新构建镜像
-docker compose up -d                                  # 4. 滚动替换容器
-docker compose ps
-docker compose logs --tail=100 airmic
+docker compose build --pull                           # 3. 重新构建 AirMic 镜像
+docker compose pull livekit                           # 4. 拉取新的 LiveKit 镜像（可选）
+docker compose up -d                                  # 5. 替换容器
+docker compose ps && docker compose logs --tail=100 airmic livekit
 ```
 
-如果使用预构建镜像，把 `build` 换成 `docker compose pull`。
+### 9.3 回滚
 
-### 8.3 回滚
-
-1. 停止服务；
-2. 切回旧版本代码（`git checkout <tag>`），重新 `npm ci && npm run build`（Docker 则切回旧镜像）；
+1. 停止 AirMic；
+2. 切回旧版本代码并重新 `npm ci && npm run build`（Docker 则切回旧镜像）；LiveKit 同理切回旧二进制/镜像；
 3. 用升级前的备份恢复数据库（`data/airmic.db`，删除 `-wal/-shm`）；
-4. 启动并验证。数据库迁移不可逆，**回滚必须同时回滚数据**。
+4. 启动并验证 `/api/health`、`/api/setup/status` 与实际通话。数据库迁移不可逆，**回滚必须同时回滚数据**。
 
-## 9. 日志与排障
+## 10. 日志与排障
 
-### 9.1 健康检查
+### 10.1 健康检查
 
 ```bash
-curl -fsS http://127.0.0.1:3000/api/health
+curl -fsS http://127.0.0.1:9811/api/health
 # {"status":"ok","version":"1.0.0","uptimeSeconds":123}
+curl -fsS http://127.0.0.1:9811/api/setup/status
+curl -fsS http://127.0.0.1:7880/
 ```
 
 Docker：`docker inspect --format "{{json .State.Health.Status}}" airmic`。
 
-### 9.2 日志位置
+### 10.2 日志位置
 
-| 部署方式 | 查看方式 |
+| 组件 | 查看方式 |
 | --- | --- |
-| systemd | `journalctl -u airmic -f`；`journalctl -u airmic --since "1 hour ago"` |
-| Docker | `docker compose logs -f airmic` |
+| AirMic（systemd） | `journalctl -u airmic -f`；`journalctl -u airmic --since "1 hour ago"` |
+| AirMic（Docker） | `docker compose logs -f airmic` |
+| LiveKit（systemd） | `journalctl -u livekit -f` |
+| LiveKit（Docker） | `docker compose logs -f livekit` |
 | Nginx | `/var/log/nginx/access.log`、`/var/log/nginx/error.log` |
-| coturn | `journalctl -u coturn -f` / `docker compose logs -f coturn`（配置了 `log-file=stdout`） |
 
-需要更详细的服务端日志时，临时把 `.env` 的 `LOG_LEVEL` 改为 `debug`（或 `trace`）并重启；排障后改回 `info`。
+需要更详细的服务端日志时，临时把 `.env` 的 `LOG_LEVEL` 改为 `debug`（或 `trace`）并重启 AirMic；排障后改回 `info`。
 
-### 9.3 常见问题速查
+### 10.3 常见问题速查
 
 | 现象 | 可能原因 | 处理 |
 | --- | --- | --- |
-| 502 Bad Gateway | AirMic 未启动 / 端口不对 / `HOST` 绑定错误 | `curl 127.0.0.1:3000/api/health`，检查 systemd/Docker 状态与 Nginx `proxy_pass` |
-| 首页空白、接口 404 | 未构建前端 / `WEB_DIST` 路径错误 | `npm run build`；检查 `web/dist/index.html` 存在；Nginx 方案 B 检查 `root` |
-| 登录后又回到登录页 | Cookie 未保存 / HTTPS 配置不一致 / JWT_SECRET 变化 | 检查 DevTools Cookies；确认 TLS 代理与访问域名一致；确认未更换 JWT_SECRET |
-| WebSocket 不断重连 | 代理未升级 WS / 超时太短 / 网络中断 | 检查 Upgrade/Connection 头与 `proxy_read_timeout`；看浏览器 Network → WS |
-| 能进房间但互相听不到 | ICE 打洞失败、TURN 未配置或端口未放行 | 按第 6 节部署 TURN；Trickle ICE 检查 relay 候选；看 `chrome://webrtc-internals` |
-| 只有部分人听不到 | 单个客户端 NAT/防火墙、设备问题 | 让该用户改用 `turn` 中继测试；检查其麦克风权限与输入设备 |
-| 没有任何声音但连接正常 | 浏览器自动播放限制 | 点击页面"启用声音"按钮；检查系统输出设备与浏览器标签页静音 |
-| 麦克风权限被拒绝 | 非安全上下文（http + 非 localhost） | 必须使用 HTTPS（正式或自签证书）或 localhost 访问 |
-| 服务器 CPU/带宽很高 | 房间人数过多（Mesh） | 控制每房间 ≤10 人；降低音质预设；为大房间规划 SFU |
-| `database is locked` | 多个进程/实例共用同一数据库文件 | 只运行一个 AirMic 实例；确认没有两个服务指向同一 `DATABASE_PATH` |
-| 时间/会话异常 | 服务器时钟漂移 | 启用 NTP（`timedatectl set-ntp true`）；JWT 与会话过期依赖系统时间 |
-| Docker 健康检查 unhealthy | 容器启动失败 / 端口被改 | `docker compose logs airmic`；确认 `PORT` 与健康检查端口一致 |
+| 502 Bad Gateway | AirMic 未启动 / 端口不对 / `HOST` 绑定错误 | `curl 127.0.0.1:9811/api/health`；检查 systemd/Docker 与 Nginx `proxy_pass` |
+| 首页空白、接口 404 | 未构建前端 / `WEB_DIST` 路径错误 | `npm run build`；检查 `web/dist/index.html` |
+| 访问根路径被引导到 `/setup` | 还没有管理员（首次部署） | 完成初始化向导；或设置 `ADMIN_*` 后重启（仅兼容用途） |
+| 登录后又回到登录页 | Cookie 未保存 / HTTPS 配置不一致 / JWT_SECRET 变化 | 检查 DevTools Cookies；确认 TLS 与访问域名一致 |
+| WebSocket 不断重连 | 代理未升级 WS / 超时太短 / 网络中断 | 检查 Upgrade/Connection 头与 `proxy_read_timeout` |
+| 房间内提示"语音服务未配置" | LiveKit URL/Key/Secret 不齐全 | 初始化向导/管理后台配置，或设置 `LIVEKIT_*` 后重启 |
+| 令牌接口 400 `voice_not_configured` | 同上 | 同上 |
+| 令牌接口 403 "请先加入房间" | 未通过 `/ws` 加入房间 | 刷新页面/重进房间；检查 WebSocket 连接 |
+| 能进房间但没声音 | 7881/7882 未放行；LiveKit 不可达；wss 证书问题 | 检查 LiveKit 日志与浏览器 Network；放行媒体端口；检查证书 |
+| 部分用户没声音 | 该用户网络禁 UDP | 启用 LiveKit 内置 TURN（第 2.9 节） |
+| LiveKit 容器反复重启 | `livekit.yaml` 配置错误/密钥不存在 | `docker compose logs livekit`；检查 YAML 与 `keys` |
+| `database is locked` | 多个 AirMic 实例共用同一数据库 | 只运行一个 AirMic 实例 |
+| 时间/会话异常 | 服务器时钟漂移 | 启用 NTP（`timedatectl set-ntp true`） |
 
-### 9.4 端口一览
+### 10.4 端口一览
 
 | 端口 | 协议 | 用途 | 建议暴露范围 |
 | --- | --- | --- | --- |
-| 3000 | TCP | AirMic HTTP/HTTPS（默认） | 仅本机 / 反向代理内部 |
+| 9811 | TCP | AirMic HTTP（默认） | 仅本机 / 反向代理内部 |
 | 80 | TCP | HTTP（跳转/证书签发） | 公网 |
-| 443 | TCP | HTTPS / WSS | 公网 |
-| 3478 | TCP + UDP | STUN / TURN | 公网（TURN 服务器） |
-| 49160-49200 | UDP | TURN 中继数据 | 公网（TURN 服务器） |
-| 5349 | TCP | TURN over TLS（可选） | 公网（可选） |
-| 443 | TCP/UDP | 备选 TURN/TLS（独立 IP） | 仅在需要 443 穿透时 |
+| 443 | TCP | HTTPS / AirMic WSS / LiveKit 信令 wss | 公网 |
+| 7880 | TCP | LiveKit HTTP/WebSocket 信令 | 仅本机（由 443 wss 反代） |
+| 7881 | TCP | LiveKit WebRTC over TCP | 公网 |
+| 7882 | UDP | LiveKit WebRTC UDP mux | 公网 |
+| 3478 | UDP | LiveKit 内置 TURN（可选） | 需要时公网 |
+| 5349 | TCP | LiveKit 内置 TURN over TLS（可选） | 需要时公网 |
 | 5173 | TCP | Vite 开发服务器 | 仅开发机 |
 
-## 10. 安全清单（上线前逐项确认）
+## 11. 安全清单（上线前逐项确认）
 
-- [ ] `JWT_SECRET` 足够随机且未泄露；更换后所有用户需重新登录。
-- [ ] 全站 HTTPS，HTTP 自动跳转 HTTPS，启用 HSTS。
-- [ ] AirMic 仅监听 `127.0.0.1:3000`，公网只开放 80/443 与 TURN 必要端口。
+- [ ] 已更换 LiveKit 默认 `devkey/secret`，AirMic 与 LiveKit 密钥一致且未泄露。
+- [ ] 已设置 `SETUP_TOKEN` 并完成初始化；初始化完成后确认 `/api/setup/status` 显示 `setupRequired=false`。
+- [ ] 全站 HTTPS（AirMic 页面）与 wss（LiveKit 信令）；HTTP 自动跳转 HTTPS，启用 HSTS。
+- [ ] 防火墙只开放必要端口：443、7881/tcp、7882/udp；9811、7880 仅本机访问。
 - [ ] 反向代理后设置 `TRUST_PROXY=true`，且代理会覆盖而不是透传客户端伪造的 `X-Forwarded-For`。
 - [ ] 管理后台使用邀请码/关闭注册，管理员强密码；定期检查登录会话与审计日志。
-- [ ] coturn 使用强密码，开启 `no-cli`，定期轮换；只放行必要端口。
-- [ ] 定期备份并异地保存；至少每月演练一次恢复流程。
-- [ ] 以非 root 运行（systemd `User=airmic` / Docker `USER node`）；及时更新 Node.js 与依赖安全补丁。
+- [ ] 定期备份 `data/airmic.db`、`.env`、`deploy/livekit.yaml` 并异地保存；演练恢复。
+- [ ] 以非 root 运行（systemd `User=airmic` / `User=livekit`，Docker `USER node`）；及时更新 Node.js/LiveKit 安全补丁。
 - [ ] 不要提交 `.env`、`data/`、`certs/`；限制文件权限（`.env` 600）。
-- [ ] 监控 `/api/health` 与磁盘空间（SQLite、备份、日志）。
+- [ ] 监控 `/api/health`、LiveKit 日志、磁盘空间与网络带宽；设置异常告警。
 
 ## 附：部署文件索引
 
 | 文件 | 用途 |
 | --- | --- |
-| [Dockerfile](../Dockerfile) | 多阶段生产镜像（非 root、健康检查、`/data` 数据目录） |
-| [docker-compose.yml](../docker-compose.yml) | airmic 服务 + 可选 coturn（`--profile turn`） |
-| [deploy/nginx.conf](../deploy/nginx.conf) | Nginx HTTPS + WebSocket 反向代理完整示例 |
-| [deploy/coturn.conf](../deploy/coturn.conf) | coturn TURN 配置示例 |
-| [deploy/airmic.service](../deploy/airmic.service) | systemd 单元示例 |
-| [deploy/Caddyfile](../deploy/Caddyfile) | Caddy 自动 HTTPS + WebSocket 反向代理示例 |
+| [Dockerfile](../Dockerfile) | AirMic 多阶段生产镜像（LiveKit 为独立服务） |
+| [docker-compose.yml](../docker-compose.yml) | airmic + livekit 服务（必需） |
+| [deploy/livekit.yaml](../deploy/livekit.yaml) | LiveKit SFU 配置（端口/密钥/external IP/TURN/房间） |
+| [deploy/livekit.service](../deploy/livekit.service) | LiveKit systemd 单元（二进制部署） |
+| [deploy/nginx.conf](../deploy/nginx.conf) | Nginx HTTPS + WS 反向代理（AirMic + LiveKit） |
+| [deploy/Caddyfile](../deploy/Caddyfile) | Caddy 自动 HTTPS 反向代理示例（含 LiveKit） |
+| [deploy/airmic.service](../deploy/airmic.service) | AirMic systemd 单元示例 |
 | [scripts/backup.mjs](../scripts/backup.mjs) | 数据库备份（VACUUM INTO + 校验 + 轮换） |
 | [scripts/generate-cert.mjs](../scripts/generate-cert.mjs) | 局域网自签 HTTPS 证书 |
 | [.env.example](../.env.example) | 环境变量模板与说明 |

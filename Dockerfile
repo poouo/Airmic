@@ -6,8 +6,13 @@
 #   runtime   : 复制构建产物与生产依赖，以非 root 用户运行
 #
 # 构建：docker build -t airmic:latest .
-# 运行：docker run -d --name airmic -p 3000:3000 -v airmic-data:/data \
-#         -e JWT_SECRET=... -e TRUST_PROXY=true airmic:latest
+# 运行：docker run -d --name airmic -p 9811:9811 -v airmic-data:/data \
+#         -e JWT_SECRET=... -e TRUST_PROXY=true \
+#         -e LIVEKIT_URL=ws://localhost:7880 -e LIVEKIT_API_KEY=... -e LIVEKIT_API_SECRET=... \
+#         airmic:latest
+#
+# 注意：LiveKit SFU 是独立服务，不在本镜像内。完整部署请使用 docker-compose.yml
+#       （同时启动 livekit 与 airmic），或单独部署 LiveKit 二进制约（见 docs/DEPLOY.md）。
 # =============================================================================
 FROM node:24-alpine AS deps
 WORKDIR /app
@@ -36,7 +41,7 @@ FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3000 \
+    PORT=9811 \
     DATABASE_PATH=/data/airmic.db \
     WEB_DIST=/app/web/dist
 
@@ -72,11 +77,11 @@ RUN mkdir -p /data \
 
 USER node
 
-EXPOSE 3000
+EXPOSE 9811
 VOLUME ["/data"]
 
 # 健康检查（/api/health 由 server 提供；PORT 可通过环境变量覆盖）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 9811) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
 
 CMD ["node", "server/dist/index.js"]

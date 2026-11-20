@@ -1,9 +1,28 @@
-import { APP_VERSION, DEFAULT_AUDIO_SETTINGS, normalizeAudioSettings } from "@airmic/shared";
-import type { AudioSettings, IceServerConfig, RegistrationMode, ServerSettings, ServerSettingsPublic } from "@airmic/shared";
+import {
+  APP_VERSION,
+  DEFAULT_AUDIO_SETTINGS,
+  MEDIA_TRANSPORT,
+  SFU_RECOMMENDED_ROOM_USERS,
+  isLivekitConfigured,
+  normalizeAudioSettings,
+} from "@airmic/shared";
+import type {
+  AudioSettings,
+  IceServerConfig,
+  LivekitCredentials,
+  RegistrationMode,
+  ServerSettings,
+  ServerSettingsPublic,
+} from "@airmic/shared";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
 import { randomCode, randomToken } from "../lib/ids.js";
 import { nowIso } from "../lib/time.js";
+
+/** LiveKit 配置字段长度上限，与设置接口校验保持一致 */
+const LIVEKIT_URL_MAX_LENGTH = 300;
+const LIVEKIT_API_KEY_MAX_LENGTH = 200;
+const LIVEKIT_API_SECRET_MAX_LENGTH = 300;
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   name: "AirMic 语音服务器",
@@ -11,8 +30,8 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   registrationMode: "open",
   registrationCode: "",
   guestEnabled: true,
-  maxUsers: 200,
-  maxUsersPerRoom: 10,
+  maxUsers: 500,
+  maxUsersPerRoom: SFU_RECOMMENDED_ROOM_USERS,
   maxRooms: 100,
   allowRoomCreation: false,
   allowGuestRoomCreation: false,
@@ -29,11 +48,21 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   ],
   forceRelay: false,
   roomCategories: ["开黑房间", "娱乐房", "休息室"],
+  livekitUrl: null,
+  livekitApiKey: null,
+  livekitApiSecret: null,
+  voiceAvailable: false,
+  mediaTransport: MEDIA_TRANSPORT,
   version: APP_VERSION,
 };
 
-const JSON_KEYS = new Set(["defaultAudioSettings", "iceServers", "roomCategories"]);
-const SETTING_KEYS = Object.keys(DEFAULT_SERVER_SETTINGS) as (keyof ServerSettings)[];
+const JSON_KEYS = new Set<keyof ServerSettings>(["defaultAudioSettings", "iceServers", "roomCategories"]);
+const LIVEKIT_KEYS = new Set<keyof ServerSettings>(["livekitUrl", "livekitApiKey", "livekitApiSecret"]);
+/** 由其他配置推导出来的字段，不写入数据库 */
+const DERIVED_KEYS = new Set<keyof ServerSettings>(["voiceAvailable", "mediaTransport"]);
+const SETTING_KEYS = (Object.keys(DEFAULT_SERVER_SETTINGS) as (keyof ServerSettings)[]).filter(
+  (key) => !DERIVED_KEYS.has(key),
+);
 
 export class SettingsService {
   private cache: ServerSettings;
@@ -53,6 +82,10 @@ export class SettingsService {
       defaultAudioSettings: { ...DEFAULT_SERVER_SETTINGS.defaultAudioSettings },
       iceServers: DEFAULT_SERVER_SETTINGS.iceServers.map((server) => ({ ...server })),
       roomCategories: [...DEFAULT_SERVER_SETTINGS.roomCategories],
+      // 环境变量作为首次部署的默认值；数据库里已保存的值优先（见下方循环）
+      livekitUrl: normalizeOptionalText(this.config.livekitUrl, LIVEKIT_URL_MAX_LENGTH),
+      livekitApiKey: normalizeOptionalText(this.config.livekitApiKey, LIVEKIT_API_KEY_MAX_LENGTH),
+      livekitApiSecret: normalizeOptionalText(this.config.livekitApiSecret, LIVEKIT_API_SECRET_MAX_LENGTH),
       version: APP_VERSION,
     };
     const rows = this.db.all<{ key: string; value: string }>("SELECT key, value FROM settings");
@@ -68,6 +101,7 @@ export class SettingsService {
         } else if (typeof DEFAULT_SERVER_SETTINGS[key] === "number") {
           (result as unknown as Record<string, unknown>)[key] = Number(row.value);
         } else {
+          // 字符串/null 字段：显式清空会保存为空串，空串与 "null" 都还原为 null
           (result as unknown as Record<string, unknown>)[key] = row.value;
         }
       } catch {
@@ -76,6 +110,11 @@ export class SettingsService {
     }
     result.version = APP_VERSION;
     result.defaultAudioSettings = normalizeAudioSettings(result.defaultAudioSettings, DEFAULT_AUDIO_SETTINGS);
+    result.livekitUrl = normalizeOptionalText(result.livekitUrl, LIVEKIT_URL_MAX_LENGTH);
+    result.livekitApiKey = normalizeOptionalText(result.livekitApiKey, LIVEKIT_API_KEY_MAX_LENGTH);
+    result.livekitApiSecret = normalizeOptionalText(result.livekitApiSecret, LIVEKIT_API_SECRET_MAX_LENGTH);
+    result.voiceAvailable = isLivekitConfigured(credentialsOf(result));
+    result.mediaTransport = MEDIA_TRANSPORT;
     return result;
   }
 
@@ -92,6 +131,16 @@ export class SettingsService {
     return this.jwtSecretValue;
   }
 
+  /** 当前生效的 LiveKit SFU 连接配置（用于签发访问令牌） */
+  getLivekitCredentials(): LivekitCredentials {
+    return credentialsOf(this.cache);
+  }
+
+  /** 语音中转服务是否已配置齐全（未配置时房间内无法通话） */
+  isVoiceAvailable(): boolean {
+    return isLivekitConfigured(this.getLivekitCredentials());
+  }
+
   get(): ServerSettings {
     return {
       ...this.cache,
@@ -103,6 +152,7 @@ export class SettingsService {
 
   getPublic(): ServerSettingsPublic {
     const settings = this.get();
+    const credentials = credentialsOf(settings);
     return {
       name: settings.name,
       motd: settings.motd,
@@ -122,6 +172,10 @@ export class SettingsService {
       forceRelay: settings.forceRelay,
       roomCategories: [...settings.roomCategories],
       version: APP_VERSION,
+      // 只暴露客户端连接地址，不暴露 API Key/Secret
+      livekitUrl: settings.livekitUrl,
+      voiceAvailable: isLivekitConfigured(credentials),
+      mediaTransport: MEDIA_TRANSPORT,
     };
   }
 
@@ -142,8 +196,10 @@ export class SettingsService {
     }
     if (patch.registrationCode !== undefined) next.registrationCode = String(patch.registrationCode).trim().slice(0, 32);
     if (patch.guestEnabled !== undefined) next.guestEnabled = Boolean(patch.guestEnabled);
-    if (patch.maxUsers !== undefined) next.maxUsers = clampInt(patch.maxUsers, 1, 10000, current.maxUsers);
-    if (patch.maxUsersPerRoom !== undefined) next.maxUsersPerRoom = clampInt(patch.maxUsersPerRoom, 1, 100, current.maxUsersPerRoom);
+    if (patch.maxUsers !== undefined) next.maxUsers = clampInt(patch.maxUsers, 1, 10_000, current.maxUsers);
+    if (patch.maxUsersPerRoom !== undefined) {
+      next.maxUsersPerRoom = clampInt(patch.maxUsersPerRoom, 1, 500, current.maxUsersPerRoom);
+    }
     if (patch.maxRooms !== undefined) next.maxRooms = clampInt(patch.maxRooms, 0, 1000, current.maxRooms);
     if (patch.allowRoomCreation !== undefined) next.allowRoomCreation = Boolean(patch.allowRoomCreation);
     if (patch.allowGuestRoomCreation !== undefined) next.allowGuestRoomCreation = Boolean(patch.allowGuestRoomCreation);
@@ -160,10 +216,23 @@ export class SettingsService {
     if (patch.iceServers !== undefined) next.iceServers = sanitizeIceServers(patch.iceServers);
     if (patch.forceRelay !== undefined) next.forceRelay = Boolean(patch.forceRelay);
     if (patch.roomCategories !== undefined) next.roomCategories = sanitizeCategories(patch.roomCategories);
+    // LiveKit 配置：空串/空白表示清除（显式清空优先于环境变量兜底）
+    if (patch.livekitUrl !== undefined) {
+      next.livekitUrl = normalizeOptionalText(patch.livekitUrl, LIVEKIT_URL_MAX_LENGTH);
+    }
+    if (patch.livekitApiKey !== undefined) {
+      next.livekitApiKey = normalizeOptionalText(patch.livekitApiKey, LIVEKIT_API_KEY_MAX_LENGTH);
+    }
+    if (patch.livekitApiSecret !== undefined) {
+      next.livekitApiSecret = normalizeOptionalText(patch.livekitApiSecret, LIVEKIT_API_SECRET_MAX_LENGTH);
+    }
 
     if (next.registrationMode === "invite" && !next.registrationCode) {
       next.registrationCode = randomCode(8);
     }
+
+    next.voiceAvailable = isLivekitConfigured(credentialsOf(next));
+    next.mediaTransport = MEDIA_TRANSPORT;
 
     const changed: [keyof ServerSettings, unknown][] = [];
     for (const key of SETTING_KEYS) {
@@ -173,7 +242,8 @@ export class SettingsService {
       const timestamp = nowIso();
       this.db.transaction(() => {
         for (const [key, value] of changed) {
-          const storeValue = JSON_KEYS.has(key) ? JSON.stringify(value) : String(value);
+          // null 字符串字段保存为空串，便于区分"显式清空"与"从未配置"
+          const storeValue = JSON_KEYS.has(key) ? JSON.stringify(value) : value === null ? "" : String(value);
           this.db.run(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
             key,
@@ -192,6 +262,23 @@ export class SettingsService {
     const row = this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND is_guest = 0");
     return Number(row?.count ?? 0) === 0;
   }
+}
+
+/** 从完整设置中提取 LiveKit 连接配置 */
+function credentialsOf(settings: Pick<ServerSettings, "livekitUrl" | "livekitApiKey" | "livekitApiSecret">): LivekitCredentials {
+  return {
+    url: settings.livekitUrl,
+    apiKey: settings.livekitApiKey,
+    apiSecret: settings.livekitApiSecret,
+  };
+}
+
+/** 可选文本设置：trim 后为空 / "null" / "undefined" 视为未配置 */
+function normalizeOptionalText(value: unknown, maxLength: number): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text || text === "null" || text === "undefined") return null;
+  return text.slice(0, maxLength);
 }
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {

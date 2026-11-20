@@ -1,7 +1,8 @@
-import { ArrowLeft, Gauge, Lock, MessageSquare, MicOff, Radio, Users } from "lucide-react";
+import { ArrowLeft, Gauge, Lock, MessageSquare, MicOff, Server, Users } from "lucide-react";
 import { audioSummary } from "@airmic/shared";
 import type { RoomDetail } from "@airmic/shared";
 import { Badge, Button, IconButton } from "@/components/ui";
+import { useAppStore } from "@/stores/app";
 
 export interface RoomHeaderProps {
   room: RoomDetail;
@@ -24,6 +25,8 @@ export function RoomHeader({
   onToggleChat,
   onRetryMicrophone,
 }: RoomHeaderProps) {
+  const voiceAvailable = useAppStore((state) => state.server?.voiceAvailable ?? true);
+
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-white/5 bg-ink-900/70 px-2 py-2 backdrop-blur sm:gap-3 sm:px-4 sm:py-2.5">
       <IconButton label="返回大厅" size="sm" onClick={onBack}>
@@ -63,10 +66,15 @@ export function RoomHeader({
             <Gauge className="h-3 w-3" />
             {audioSummary(room.audioSettings)}
           </span>
-          <span className="hidden shrink-0 items-center gap-1 sm:flex">
-            <Radio className="h-3 w-3" />
-            WebRTC Mesh
+          <span className="hidden shrink-0 items-center gap-1 sm:flex" title="语音媒体由服务端 LiveKit SFU 中转，客户端之间不建立 P2P 连接">
+            <Server className="h-3 w-3" />
+            服务端 SFU 中转
           </span>
+          {!voiceAvailable && (
+            <Badge tone="warn" className="shrink-0">
+              语音未配置
+            </Badge>
+          )}
           {room.description && <span className="hidden min-w-0 truncate md:inline">· {room.description}</span>}
         </div>
       </div>

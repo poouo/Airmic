@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 
-const SERVER_PORT = process.env.AIRMIC_SERVER_PORT ?? "3000";
+const SERVER_PORT = process.env.AIRMIC_SERVER_PORT ?? "9811";
 const target = `http://127.0.0.1:${SERVER_PORT}`;
 
 export default defineConfig({

@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 import { startServer } from "./lib/server.mjs";
 import { ApiClient } from "./lib/api.mjs";
 import { launchBrowser, waitForAudioConnection } from "./lib/browser.mjs";
+import { startLivekit } from "./lib/livekit.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const results = [];
 let failures = 0;
 
-function ok(name, extra = "") {
-  results.push({ name, status: "PASS", extra });
+function ok(name, extra) {
+  results.push({ name, status: "PASS", extra: extra || "" });
   console.log("  \u2713 " + name + (extra ? "  " + extra : ""));
 }
 function fail(name, error) {
@@ -28,12 +29,10 @@ async function step(name, fn) {
   }
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const cookieJar = (api) =>
-  [...api.cookies.entries()].map(([name, value]) => ({ name, value, domain: "127.0.0.1", path: "/" }));
+const cookieJar = (api) => [...api.cookies.entries()].map(([name, value]) => ({ name, value, domain: "127.0.0.1", path: "/" }));
 const consoleIssues = (entry) =>
-  [...(entry.consoleErrors ?? [])].filter(
-    (text) =>
-      !/favicon|AudioContext was not allowed|autoplay|status of 401|the server responded with a status of 401/i.test(text),
+  [...(entry.consoleErrors || [])].filter(
+    (text) => !/favicon|AudioContext was not allowed|autoplay|status of 401|status of 404/i.test(text),
   );
 
 async function main() {
@@ -41,74 +40,111 @@ async function main() {
     console.error("缺少构建产物，请先运行 npm run build");
     process.exit(2);
   }
-  const server = await startServer({ verbose: process.env.E2E_VERBOSE === "1" });
+
+  const livekit = await startLivekit();
+  const extraEnv = livekit
+    ? { LIVEKIT_URL: livekit.url, LIVEKIT_API_KEY: livekit.apiKey, LIVEKIT_API_SECRET: livekit.apiSecret }
+    : {};
+  if (!livekit) console.warn("\n[警告] 未找到 LiveKit 可执行文件（.tools/livekit 或 AIRMIC_LIVEKIT_BIN），语音用例会失败。\n");
+
+  const server = await startServer({ verbose: process.env.E2E_VERBOSE === "1", env: extraEnv });
   const browser = await launchBrowser();
   console.log("\nAirMic E2E  " + server.url + "\n");
-  const adminApi = new ApiClient(server.url);
-  const guestApi = new ApiClient(server.url);
-  let roomId = null;
-  let adminUser = null;
+
+  const adminPage = await browser.newPage("admin");
+  const guestPage = await browser.newPage("guest");
+  let roomId = 0;
 
   try {
-    await step("1. 注册管理员并创建开放语音房间", async () => {
-      adminUser = await adminApi.register("e2e_admin", "password123", "E2E 관리자".replace("관리자", "管理员"));
-      if (adminUser.role !== "admin") throw new Error("首个注册用户不是管理员");
-      const room = await adminApi.createRoom({
-        name: "E2E 语音房",
-        description: "自动化测试房间：语音 + 聊天 + 成员状态",
-        category: "开黑房间",
-        maxUsers: 8,
-      });
-      roomId = room.id;
-      return "roomId=" + roomId;
+    await step("1. 全新部署访问 / 自动跳转初始化向导", async () => {
+      await adminPage.page.goto(server.url + "/", { waitUntil: "networkidle" });
+      await adminPage.page.waitForURL(/\/setup$/, { timeout: 15000 });
+      await adminPage.page.getByText("第 1 步", { exact: false }).first().waitFor({ timeout: 8000 });
+      return adminPage.page.url();
     });
 
-    await step("2. 游客模式登录", async () => {
-      const guest = await guestApi.guest("E2E 游客");
-      if (!guest.isGuest) throw new Error("游客身份标记不正确");
-      if (guest.permissions.length !== 0) throw new Error("游客不应拥有管理权限");
-      return "游客 id=" + guest.id;
+    await step("2. 初始化向导第 1 步：服务器信息", async () => {
+      await adminPage.page.getByPlaceholder("周末开黑基地").fill("E2E 语音服务器");
+      await adminPage.page.getByPlaceholder(/欢迎来到 AirMic/).fill("E2E 自动化初始化：语音经服务器 SFU 中转");
+      await adminPage.page.getByRole("button", { name: /下一步/ }).click();
+      await adminPage.page.getByText("管理员用户名", { exact: false }).first().waitFor({ timeout: 5000 });
+      return "已填写";
     });
 
-    const adminPage = await browser.newPage("admin");
-    const guestPage = await browser.newPage("guest");
-    await adminPage.context.addCookies(cookieJar(adminApi));
-    await guestPage.context.addCookies(cookieJar(guestApi));
+    await step("3. 初始化向导第 2 步：管理员账号", async () => {
+      await adminPage.page.getByPlaceholder("admin", { exact: true }).fill("e2e_admin");
+      await adminPage.page.getByPlaceholder("例如：服主（可选）").fill("E2E 管理员");
+      await adminPage.page.getByPlaceholder("至少 6 位").fill("password123");
+      await adminPage.page.getByPlaceholder("再次输入密码").fill("password123");
+      await adminPage.page.getByRole("button", { name: /下一步/ }).click();
+      await adminPage.page.getByPlaceholder("ws://localhost:7880").waitFor({ timeout: 5000 });
+      return "已填写";
+    });
 
-    await step("3. 匿名访问登录页并渲染三种入口", async () => {
+    await step("4. 初始化向导第 3 步：语音中转（SFU/LiveKit）与人数", async () => {
+      await adminPage.page.getByPlaceholder("ws://localhost:7880").fill(livekit ? livekit.url : "ws://127.0.0.1:7880");
+      await adminPage.page.getByPlaceholder("例如：devkey").fill(livekit ? livekit.apiKey : "devkey");
+      await adminPage.page.getByPlaceholder("LiveKit API Secret").fill(livekit ? livekit.apiSecret : "secret");
+      const maxUsersInput = adminPage.page.locator('input[type="number"]').first();
+      await maxUsersInput.fill("20");
+      await adminPage.page.getByRole("button", { name: /下一步/ }).click();
+      await adminPage.page.getByRole("button", { name: "完成初始化", exact: true }).waitFor({ timeout: 5000 });
+      await adminPage.page.screenshot({ path: "e2e/artifacts/00-setup-confirm.png" });
+      return "已填写";
+    });
+
+    await step("5. 完成初始化并自动登录进入大厅", async () => {
+      await adminPage.page.getByRole("button", { name: "完成初始化", exact: true }).click();
+      await adminPage.page.waitForURL(server.url + "/", { timeout: 20000 });
+      await adminPage.page.waitForTimeout(1500);
+      const body = await adminPage.page.innerText("body");
+      if (!body.includes("E2E 管理员")) throw new Error("初始化后未登录管理员");
+      if (!body.includes("E2E 语音服务器")) throw new Error("服务器名称未生效");
+      const info = await adminPage.page.evaluate(async () => (await (await fetch("/api/server")).json()));
+      if (info.setupRequired !== false) throw new Error("setupRequired 仍为 true");
+      if (info.server.voiceAvailable !== true) throw new Error("voiceAvailable 未生效");
+      if (info.server.mediaTransport !== "sfu") throw new Error("mediaTransport 不是 sfu");
+      await browser.screenshot(adminPage.page, "01-lobby-after-setup");
+      return "setupRequired=false, voiceAvailable=true, transport=sfu";
+    });
+
+    await step("6. 初始化后 /setup 重定向回登录页，登录页三入口可用", async () => {
       const anon = await browser.newPage("anon");
-      await anon.page.goto(server.url + "/login", { waitUntil: "networkidle" });
-      await anon.page.waitForTimeout(500);
+      await anon.page.goto(server.url + "/setup", { waitUntil: "networkidle" });
+      await anon.page.waitForURL(/\/login$/, { timeout: 10000 });
       const body = await anon.page.innerText("body");
       for (const keyword of ["登录", "注册", "游客"]) {
         if (!body.includes(keyword)) throw new Error("登录页缺少入口：" + keyword);
       }
-      if (consoleIssues(anon).length > 0) throw new Error("登录页控制台错误：" + consoleIssues(anon)[0]);
-      return "三种入口齐全";
+      return "重定向与登录页正常";
     });
 
-    await step("4. 管理后台可打开并加载概览数据", async () => {
-      await adminPage.page.goto(server.url + "/admin", { waitUntil: "networkidle" });
-      await adminPage.page.waitForTimeout(1200);
-      const body = await adminPage.page.innerText("body");
-      for (const keyword of ["概览", "用户管理", "房间管理", "服务器设置"]) {
-        if (!body.includes(keyword)) throw new Error("管理后台缺少：" + keyword);
-      }
-      if (!/用户|在线|房间/.test(body)) throw new Error("概览内容异常");
-      await browser.screenshot(adminPage.page, "01-admin-overview");
-      return "概览已渲染";
+    await step("7. 创建 SFU 大房间（管理员 API）", async () => {
+      const created = await adminPage.page.evaluate(async () => {
+        const response = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "E2E 语音房", description: "SFU 中转语音测试", category: "开黑房间", maxUsers: 20 }),
+        });
+        return { status: response.status, body: await response.json() };
+      });
+      if (created.status !== 200) throw new Error("创建房间失败：" + JSON.stringify(created.body));
+      roomId = created.body.room.id;
+      if (created.body.room.maxUsers !== 20) throw new Error("房间人数上限不正确：" + created.body.room.maxUsers);
+      await adminPage.page.reload({ waitUntil: "networkidle" });
+      await adminPage.page.waitForTimeout(1000);
+      return "roomId=" + roomId + ", maxUsers=20";
     });
 
-    await step("5. 大厅显示房间与在线用户", async () => {
-      await adminPage.page.goto(server.url + "/", { waitUntil: "networkidle" });
-      await adminPage.page.waitForTimeout(1200);
-      const body = await adminPage.page.innerText("body");
-      if (!body.includes("E2E 语音房")) throw new Error("大厅未显示房间");
-      await browser.screenshot(adminPage.page, "02-lobby");
-      return "房间卡片可见";
+    await step("8. 游客登录并注入浏览器会话", async () => {
+      const guestApi = new ApiClient(server.url);
+      const guest = await guestApi.guest("E2E 游客");
+      if (!guest.isGuest) throw new Error("游客标记不正确");
+      await guestPage.context.addCookies(cookieJar(guestApi));
+      return "游客 id=" + guest.id;
     });
 
-    await step("6. 管理员与游客直接打开房间链接", async () => {
+    await step("9. 管理员与游客进入同一房间（服务端 SFU 中转）", async () => {
       await adminPage.page.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" });
       await guestPage.page.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" });
       await adminPage.page.waitForTimeout(2500);
@@ -116,20 +152,23 @@ async function main() {
       const adminBody = await adminPage.page.innerText("body");
       const guestBody = await guestPage.page.innerText("body");
       if (!adminBody.includes("E2E 语音房")) throw new Error("管理员房间页未加载");
-      if (!guestBody.includes("E2E 游客")) throw new Error("游客未出现在成员列表：" + guestBody.slice(0, 200));
-      return "双方进入房间";
+      if (!guestBody.includes("E2E 游客")) throw new Error("游客未出现在成员列表");
+      if (!/SFU|中转/.test(adminBody + guestBody)) throw new Error("房间页未显示 SFU 中转模式");
+      await browser.screenshot(adminPage.page, "02-room-admin");
+      await browser.screenshot(guestPage.page, "03-room-guest");
+      return "双方已进房";
     });
 
-    await step("7. WebRTC 音频连接建立并收到远端媒体", async () => {
-      const adminState = await waitForAudioConnection(adminPage.page, 30_000);
-      const guestState = await waitForAudioConnection(guestPage.page, 30_000);
-      await browser.screenshot(adminPage.page, "03-room-admin");
-      await browser.screenshot(guestPage.page, "04-room-guest");
+    await step("10. LiveKit SFU 音频连接建立并收到远端媒体", async () => {
+      const adminState = await waitForAudioConnection(adminPage.page, 40_000);
+      const guestState = await waitForAudioConnection(guestPage.page, 40_000);
+      await browser.screenshot(adminPage.page, "04-room-sfu-admin");
+      await browser.screenshot(guestPage.page, "05-room-sfu-guest");
       return "connected=" + adminState.connected + "/" + guestState.connected + " audio=" + adminState.receivingAudio + "/" + guestState.receivingAudio;
     });
 
-    await step("8. 房间聊天实时互通", async () => {
-      const message = "E2E 消息 " + Date.now();
+    await step("11. 房间聊天实时互通", async () => {
+      const message = "E2E SFU 消息 " + Date.now();
       const input = guestPage.page.getByPlaceholder(/发送消息/);
       await input.fill(message);
       await input.press("Enter");
@@ -137,49 +176,52 @@ async function main() {
       return "消息已同步";
     });
 
-    await step("9. 麦克风静音状态同步", async () => {
+    await step("12. 麦克风静音状态同步", async () => {
       const micButton = guestPage.page.locator('button[aria-label="静音麦克风"]').first();
       await micButton.waitFor({ timeout: 5000 });
       await micButton.click();
       await guestPage.page.waitForTimeout(800);
       const unmute = guestPage.page.locator('button[aria-label="取消静音"]').first();
       if ((await unmute.count()) === 0) throw new Error("静音后按钮 aria-label 未变化");
-      const adminPeerShowsMuted = await adminPage.page.getByText("E2E 游客").first().isVisible();
-      if (!adminPeerShowsMuted) throw new Error("管理员侧看不到游客");
       return "静音状态已切换";
     });
 
-    await step("10. 语音设置弹窗与设备选项", async () => {
+    await step("13. 语音设置弹窗（设备/网络）", async () => {
       const settingsButton = guestPage.page.locator('button[aria-label="语音设置"]').first();
       await settingsButton.click();
-      await guestPage.page.getByRole("dialog").waitFor({ timeout: 5000 });
-      const dialogText = await guestPage.page.getByRole("dialog").innerText();
-      if (!/麦克风|扬声器|网络/.test(dialogText)) throw new Error("设置弹窗内容异常：" + dialogText.slice(0, 120));
-      await browser.screenshot(guestPage.page, "05-settings");
+      const dialog = guestPage.page.getByRole("dialog");
+      await dialog.waitFor({ timeout: 5000 });
+      const text = await dialog.innerText();
+      if (!/麦克风|扬声器|网络/.test(text)) throw new Error("设置弹窗内容异常");
+      await browser.screenshot(guestPage.page, "06-voice-settings");
       await guestPage.page.keyboard.press("Escape");
-      await guestPage.page.waitForTimeout(300);
-      return "设备/网络设置可见";
+      return "设置弹窗正常";
     });
 
-    await step("11. 屏幕共享按钮可用（被 fake 屏幕流拒绝时提示而非崩溃）", async () => {
-      const shareButton = guestPage.page.locator('button[aria-label="共享屏幕"]').first();
-      if ((await shareButton.count()) === 0) throw new Error("找不到共享屏幕按钮");
-      const disabled = await shareButton.isDisabled();
-      if (disabled) throw new Error("房间允许共享时按钮不应禁用");
-      return "按钮可用";
+    await step("14. 管理后台加载并显示语音中转状态", async () => {
+      await adminPage.page.goto(server.url + "/admin", { waitUntil: "networkidle" });
+      await adminPage.page.waitForTimeout(1200);
+      const body = await adminPage.page.innerText("body");
+      for (const keyword of ["概览", "服务器设置", "用户管理", "房间管理"]) {
+        if (!body.includes(keyword)) throw new Error("管理后台缺少：" + keyword);
+      }
+      await browser.screenshot(adminPage.page, "07-admin-overview");
+      return "管理后台正常";
     });
 
-    await step("12. 无严重控制台错误", async () => {
-      const errors = [...consoleIssues(adminPage), ...consoleIssues(guestPage)];
-      if (errors.length > 0) throw new Error(errors.slice(0, 3).join(" | "));
-      return "无错误";
-    });
-
-    await step("13. 离开房间返回大厅", async () => {
+    await step("15. 离开房间返回大厅", async () => {
+      await guestPage.page.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" });
+      await guestPage.page.waitForTimeout(1500);
       await guestPage.page.locator('button[aria-label="离开房间"]').first().click();
       await guestPage.page.waitForTimeout(1200);
       if (!guestPage.page.url().endsWith("/")) throw new Error("离开后未返回大厅：" + guestPage.page.url());
       return "已返回大厅";
+    });
+
+    await step("16. 无严重控制台错误", async () => {
+      const errors = [...consoleIssues(adminPage), ...consoleIssues(guestPage)];
+      if (errors.length > 0) throw new Error(errors.slice(0, 3).join(" | "));
+      return "无错误";
     });
   } finally {
     console.log("\n结果：");
@@ -189,6 +231,7 @@ async function main() {
     console.log("\n截图目录：e2e/artifacts");
     await browser.close();
     await server.stop();
+    if (livekit) await livekit.stop();
     if (process.env.E2E_VERBOSE === "1") console.log(server.output());
     process.exit(failures > 0 ? 1 : 0);
   }

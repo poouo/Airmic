@@ -61,8 +61,8 @@ export function OtherTab() {
           <p className="flex items-center gap-1.5 text-mist-300">
             <Info className="h-3 w-3" /> AirMic v{APP_VERSION}
           </p>
-          <p>网页版语音开黑平台：WebRTC Mesh 点对点通话，服务端只负责信令与状态同步。</p>
-          <p>隐私提示：语音数据只在浏览器之间传输，不经过服务器（除非启用 TURN 中继）。</p>
+          <p>网页版语音开黑平台：语音经自建 LiveKit SFU 服务器中转，客户端之间不建立 P2P 连接。</p>
+          <p>隐私提示：语音数据经服务器转发（SFU），不做浏览器点对点传输。</p>
         </div>
       </section>
     </div>

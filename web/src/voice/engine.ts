@@ -1,14 +1,42 @@
-import type { AudioSettings, PeerInfo, RoomSnapshot, SignalPayload } from "@airmic/shared";
+import type { AudioSettings, LivekitTokenResponse, PeerInfo, RoomSnapshot, SignalPayload } from "@airmic/shared";
 import { DEFAULT_AUDIO_SETTINGS, mergeAudioSettings } from "@airmic/shared";
-import { socket } from "../lib/ws";
+import {
+  ConnectionQuality,
+  DisconnectReason,
+  Room,
+  RoomEvent,
+  Track,
+  isRemoteParticipant,
+  supportsAudioOutputSelection,
+} from "livekit-client";
+import type {
+  AudioCaptureOptions,
+  LocalTrackPublication,
+  Participant,
+  RemoteParticipant,
+  RemoteTrack,
+  RemoteTrackPublication,
+  TrackPublication,
+} from "livekit-client";
 import { useAppStore } from "../stores/app";
 import { useAuthStore } from "../stores/auth";
 import { useSettingsStore, volumeFor } from "../stores/settings";
-import { VoiceAudioGraph } from "./audio";
-import { PeerLink } from "./peers";
-import { buildMicrophoneConstraints, buildRtcConfiguration, describeMicrophoneError } from "./sdp";
+import { LocalLevelAnalyser } from "./analyser";
+import {
+  buildAudioCaptureOptions,
+  buildRoomOptions,
+  buildTrackPublishOptions,
+  describeMicrophoneError,
+  describeTokenError,
+  fetchLivekitToken,
+  mapConnectionQuality,
+  parseIdentityUserId,
+  parseMetadataUserId,
+  readErrorMessage,
+  readErrorName,
+} from "./livekit";
 import { INITIAL_VOICE_STATE } from "./types";
-import type { PeerNetworkStats, VoiceEventMap, VoiceStateSnapshot } from "./types";
+import type { PeerNetworkStats, VoiceEventMap, VoiceStateSnapshot, VoiceQuality } from "./types";
 
 export type { PeerNetworkStats, VoiceEventMap, VoiceQuality, VoiceStateSnapshot } from "./types";
 export type { VoiceEventHandler } from "./types";
@@ -28,31 +56,32 @@ type Handler<K extends keyof VoiceEventMap> = (payload: VoiceEventMap[K]) => voi
 
 /** 本地电平采样间隔（约 10 次/秒） */
 const LEVEL_INTERVAL_MS = 100;
-/** 网络统计间隔 */
+/** 连接质量汇总间隔 */
 const STATS_INTERVAL_MS = 2000;
+/** 电平 UI 放大系数（时域 RMS -> 0-1） */
+const LEVEL_GAIN = 3.5;
 
-interface LocalLevelState {
-  level: number;
-  speaking: boolean;
+interface PeerNameHint {
+  displayName: string;
+  username: string;
+}
+
+interface RemoteScreenEntry {
+  userId: number;
+  stream: MediaStream;
 }
 
 /**
- * WebRTC Mesh 语音引擎。
+ * LiveKit SFU 语音引擎（媒体只经服务器中转，不使用任何客户端 P2P）。
  *
  * 生命周期（由 src/lib/events.ts 驱动，页面不要重复调用）：
- *  - 加入房间成功（room_joined）后调用 enter(snapshot)：获取麦克风并为每个成员建立连接；
- *  - peer_joined / peer_left 对应 addPeer / removePeer；
- *  - signal 事件调用 handleSignal（内部处理 perfect negotiation 与 trickle ICE）；
- *  - room_updated 时 applyAudioSettings；force_muted 时 applyForceMute；
- *  - 离开房间/断线时 leave()。
+ *  - room_joined → enter(snapshot)：换 token、连接 LiveKit、发布麦克风；
+ *  - addPeer / removePeer / handleSignal 在 SFU 模式下无需建立连接（成员由 LiveKit 管理），
+ *    这里只维护身份映射兜底，不做任何 P2P；
+ *  - room_updated → applyAudioSettings；force_muted → applyForceMute；
+ *  - leave → 断开 LiveKit 并清理全部资源。
  *
- * 音频参数：
- *  - getUserMedia 约束来自 audioConstraints（房间生效音质 + 本机覆盖）；
- *  - 本地 offer/answer 的 SDP 使用 applyOpusToSdp 修饰 opus fmtp；
- *  - maxBitrate 通过 RTCRtpSender.setParameters 实时生效；
- *  - 立体声/DTX/FEC/采样率变化通过重新协商尽量生效。
- *
- * 屏幕共享：每对连接预置 video transceiver，共享时 replaceTrack(screenTrack)，无需重新协商。
+ * 兼容旧 API：VoiceEventMap / VoiceStateSnapshot / PeerNetworkStats 与页面、设置组件保持一致。
  */
 class VoiceEngine {
   private handlers = new Map<keyof VoiceEventMap, Set<(payload: never) => void>>();
@@ -60,28 +89,37 @@ class VoiceEngine {
 
   private entered = false;
   private destroyed = false;
+  private leaving = false;
   private generation = 0;
-  private myUserId: number | null = null;
+
+  private room: Room | null = null;
   private roomId: number | null = null;
+  private myUserId: number | null = null;
+  private localIdentity: string | null = null;
   private roomAudioSettings: AudioSettings | null = null;
   private audioSettings: AudioSettings | null = null;
-  private peers = new Map<number, PeerLink>();
-  private peerNames = new Map<number, string>();
-  private latestStats = new Map<number, PeerNetworkStats>();
-  private lastPeerLevels = new Map<number, LocalLevelState>();
-  private lastLocalLevel = 0;
-  private lastLocalSpeaking = false;
 
-  private audio: VoiceAudioGraph | null = null;
-  private micStream: MediaStream | null = null;
-  private micTrack: MediaStreamTrack | null = null;
-  private screenStream: MediaStream | null = null;
-  private screenTrack: MediaStreamTrack | null = null;
-  private screenPending = false;
+  private nameDirectory = new Map<number, PeerNameHint>();
+  private participantIds = new Map<string, number>();
+  private qualityByParticipant = new Map<string, VoiceQuality>();
+  private latestStats = new Map<number, PeerNetworkStats>();
+  private rememberedVolumes = new Map<number, number>();
+  private remoteAudioStreams = new Map<number, MediaStream>();
+  private remoteScreenStreams = new Map<string, RemoteScreenEntry>();
+  private audioElements = new Map<string, HTMLMediaElement>();
+  private audioContainer: HTMLDivElement | null = null;
+
+  private localScreenStream: MediaStream | null = null;
+  private readonly analyser = new LocalLevelAnalyser();
+  private micChain: Promise<void> = Promise.resolve();
+  private micActive = false;
+  private micOptionsDirty = false;
 
   private levelTimer: number | null = null;
   private statsTimer: number | null = null;
-  private statsInFlight = false;
+  private lastLocalLevel = 0;
+  private lastLocalSpeaking = false;
+
   private unlockHandler: ((event: Event) => void) | null = null;
 
   on<K extends keyof VoiceEventMap>(type: K, handler: Handler<K>): () => void {
@@ -96,7 +134,7 @@ class VoiceEngine {
     };
   }
 
-  protected emit<K extends keyof VoiceEventMap>(type: K, payload: VoiceEventMap[K]): void {
+  private emit<K extends keyof VoiceEventMap>(type: K, payload: VoiceEventMap[K]): void {
     const set = this.handlers.get(type);
     if (!set) return;
     for (const handler of [...set]) {
@@ -108,7 +146,7 @@ class VoiceEngine {
     }
   }
 
-  protected setState(patch: Partial<VoiceStateSnapshot>): void {
+  private setState(patch: Partial<VoiceStateSnapshot>): void {
     const keys = Object.keys(patch) as (keyof VoiceStateSnapshot)[];
     let changed = false;
     for (const key of keys) {
@@ -130,99 +168,141 @@ class VoiceEngine {
 
   async enter(snapshot: RoomSnapshot): Promise<void> {
     const generation = this.bumpGeneration();
-    this.closeSession();
+    try {
+      await this.enterInternal(snapshot, generation);
+    } catch (error) {
+      console.error("[voice] 进入房间语音失败", error);
+      if (generation === this.generation && this.entered) {
+        this.emit("error", { code: "voice_unavailable", message: "语音初始化失败，请刷新页面后重试。" });
+      }
+    }
+  }
+
+  private async enterInternal(snapshot: RoomSnapshot, generation: number): Promise<void> {
+    await this.shutdownRoom();
+    if (generation !== this.generation) return;
 
     this.entered = true;
+    this.leaving = false;
     this.roomId = snapshot.room.id;
     this.myUserId = useAuthStore.getState().user?.id ?? null;
-    this.peerNames.clear();
-    this.latestStats.clear();
-    this.lastPeerLevels.clear();
-    this.lastLocalLevel = 0;
-    this.lastLocalSpeaking = false;
+    this.nameDirectory.clear();
+    for (const peer of snapshot.peers) {
+      if (peer.userId === this.myUserId) continue;
+      this.nameDirectory.set(peer.userId, { displayName: peer.displayName, username: peer.username });
+    }
 
     const preferences = useSettingsStore.getState();
     this.roomAudioSettings = snapshot.room.audioSettings;
     this.audioSettings = mergeAudioSettings(snapshot.room.audioSettings, preferences.localAudioOverride);
-
-    const graph = new VoiceAudioGraph();
-    this.audio = graph;
-    graph.onBlockedChange = (blocked) => {
-      if (!this.entered) return;
-      this.setState({ audioBlocked: blocked });
-      if (!blocked) this.removeUnlockListeners();
-    };
-    graph.setMasterVolume(readMasterVolumePercent());
-    graph.setDeafened(this.state.deafened);
-    graph.setOutputDevice(preferences.outputDeviceId);
-
-    const self = snapshot.peers.find((peer) => peer.userId === this.myUserId);
     this.setState({
       audioSettings: this.audioSettings,
       hasMicrophone: false,
       pttActive: false,
       screenSharing: false,
       audioBlocked: false,
-      forceMuted: self?.forceMuted ?? false,
+      forceMuted: false,
     });
 
-    this.installUnlockListeners();
-    for (const peer of snapshot.peers) {
-      if (peer.userId === this.myUserId) continue;
-      this.peerNames.set(peer.userId, peer.displayName);
-      this.createPeerLink(peer.userId, peer.displayName, true);
+    const server = useAppStore.getState().server;
+    if (!server || server.voiceAvailable === false || !server.livekitUrl) {
+      this.emit("error", {
+        code: "voice_unavailable",
+        message: "语音中转服务未配置，请联系管理员在后台或环境变量中配置 LiveKit。",
+      });
+      return;
     }
-    this.startLoops();
 
-    void graph.unlock().then((running) => {
+    let tokenInfo: LivekitTokenResponse;
+    try {
+      tokenInfo = await fetchLivekitToken(snapshot.room.id);
+    } catch (error) {
       if (generation !== this.generation || !this.entered) return;
-      this.setState({ audioBlocked: !running });
-      if (running) this.removeUnlockListeners();
-    });
-
-    await this.acquireMicrophone(generation);
-  }
-
-  async addPeer(peer: PeerInfo): Promise<void> {
-    if (!this.entered || this.destroyed) return;
-    if (peer.userId === this.myUserId) return;
-    this.peerNames.set(peer.userId, peer.displayName);
-    if (this.peers.has(peer.userId)) return;
-    // 已有成员作为应答方等待新成员发来 offer
-    this.createPeerLink(peer.userId, peer.displayName, false);
-  }
-
-  removePeer(userId: number): void {
-    const link = this.peers.get(userId);
-    this.peers.delete(userId);
-    this.peerNames.delete(userId);
-    this.latestStats.delete(userId);
-    this.lastPeerLevels.delete(userId);
-    if (link) link.close();
-  }
-
-  async handleSignal(from: number, payload: SignalPayload): Promise<void> {
-    if (!this.entered || this.destroyed) return;
-    let link = this.peers.get(from);
-    if (!link) {
-      // 收到了尚未登记成员的信号：按应答方建立连接（服务端会把 peer_joined 补齐）
-      link = this.createPeerLink(from, this.peerNames.get(from) ?? "房间成员", false);
+      this.emit("error", describeTokenError(error));
+      return;
     }
-    await link.handleSignal(payload);
+    if (generation !== this.generation || !this.entered) return;
+
+    this.audioContainer = createAudioContainer();
+    const room = new Room(
+      buildRoomOptions(this.audioSettings, preferences.inputDeviceId, preferences.outputDeviceId),
+    );
+    this.room = room;
+    this.localIdentity = tokenInfo.identity;
+    if (this.myUserId !== null && tokenInfo.identity) this.participantIds.set(tokenInfo.identity, this.myUserId);
+    this.registerRoomListeners(room);
+
+    try {
+      await room.connect(tokenInfo.url || server.livekitUrl, tokenInfo.token, { autoSubscribe: true });
+    } catch (error) {
+      console.warn("[voice] 连接 LiveKit 失败", error);
+      if (generation !== this.generation || this.room !== room) {
+        await this.disposeRoom(room);
+        return;
+      }
+      const detail = readErrorMessage(error);
+      this.emit("error", {
+        code: "voice_connect_failed",
+        message: "无法连接语音中转服务器" + (detail ? "：" + detail : "") + "。请检查网络或联系管理员。",
+      });
+      this.room = null;
+      this.entered = false;
+      this.stopLoops();
+      this.analyser.cleanup();
+      this.detachAllRemoteAudio();
+      this.removeAudioContainer();
+      await this.disposeRoom(room);
+      return;
+    }
+    if (generation !== this.generation || this.room !== room) return;
+
+    // 自动播放策略：房间连接完成后尝试启用音频输出
+    try {
+      await room.startAudio();
+    } catch {
+      /* 被浏览器拦截时通过 canPlaybackAudio 判定，页面会提示“点击启用声音” */
+    }
+    if (generation !== this.generation || this.room !== room) return;
+    this.handleAudioPlaybackStatus(room.canPlaybackAudio);
+
+    this.syncExistingTracks();
+    this.handleConnectionQualityChanged(room.localParticipant.connectionQuality, room.localParticipant);
+    this.startLoops();
+    await this.performMicUpdate();
+  }
+
+  /** SFU 模式下成员由 LiveKit 管理，这里只补充身份映射兜底 */
+  async addPeer(peer: PeerInfo): Promise<void> {
+    if (peer.userId === this.myUserId) return;
+    this.nameDirectory.set(peer.userId, { displayName: peer.displayName, username: peer.username });
+  }
+
+  /** SFU 模式下无需拆除任何 P2P 连接 */
+  removePeer(userId: number): void {
+    this.nameDirectory.delete(userId);
+    this.latestStats.delete(userId);
+    this.participantIds.forEach((value, identity) => {
+      if (value === userId) this.participantIds.delete(identity);
+    });
+  }
+
+  /** SFU 模式不使用 WebSocket 信令 */
+  async handleSignal(_from: number, _payload: SignalPayload): Promise<void> {
+    /* no-op：媒体由 LiveKit SFU 转发，客户端之间没有 PeerConnection */
   }
 
   leave(): void {
-    if (this.destroyed && !this.entered) return;
+    if (this.destroyed && !this.entered && !this.room) return;
+    this.entered = false;
+    this.leaving = true;
     this.bumpGeneration();
-    this.closeSession();
+    void this.shutdownRoom();
     this.roomId = null;
     this.myUserId = null;
+    this.localIdentity = null;
+    this.nameDirectory.clear();
     this.roomAudioSettings = null;
     this.audioSettings = null;
-    this.peerNames.clear();
-    this.latestStats.clear();
-    this.lastPeerLevels.clear();
-    this.emit("screen-stream", { userId: null, stream: null });
     this.setState({
       micEnabled: true,
       deafened: false,
@@ -246,40 +326,24 @@ class VoiceEngine {
 
   setMicEnabled(enabled: boolean): void {
     if (this.state.micEnabled !== enabled) this.setState({ micEnabled: enabled });
-    this.applyTrackEnabled();
-    // 允许通过"开启麦克风"重新申请权限/重试被拒绝的设备
-    if (enabled && !this.micTrack && this.entered) void this.acquireMicrophone(this.generation);
+    this.queueMicUpdate();
   }
 
   setDeafened(deafened: boolean): void {
     if (this.state.deafened === deafened) return;
     this.setState({ deafened });
-    this.audio?.setDeafened(deafened);
+    this.applyAllVolumes();
   }
 
   setPTTActive(active: boolean): void {
     if (this.state.pttActive === active) return;
     this.setState({ pttActive: active });
-    this.applyTrackEnabled();
+    this.queueMicUpdate();
   }
 
   applyForceMute(muted: boolean): void {
-    if (this.state.forceMuted === muted) {
-      this.applyTrackEnabled();
-      return;
-    }
-    this.setState({ forceMuted: muted });
-    this.applyTrackEnabled();
-  }
-
-  /** 重新读取本机偏好（音质覆盖、PTT、全体音量、输出设备）并应用 */
-  async refreshFromPreferences(): Promise<void> {
-    if (this.roomAudioSettings) await this.applyAudioSettings(this.roomAudioSettings);
-    const preferences = useSettingsStore.getState();
-    this.audio?.setMasterVolume(readMasterVolumePercent());
-    this.audio?.setOutputDevice(preferences.outputDeviceId);
-    this.applyTrackEnabled();
-    if (!preferences.pttEnabled) this.setPTTActive(false);
+    if (this.state.forceMuted !== muted) this.setState({ forceMuted: muted });
+    this.queueMicUpdate();
   }
 
   async applyAudioSettings(settings: AudioSettings): Promise<void> {
@@ -288,24 +352,23 @@ class VoiceEngine {
     const previous = this.audioSettings;
     this.audioSettings = next;
     this.setState({ audioSettings: next });
-    if (!previous || !this.entered) return;
-
-    const microphoneChanged =
+    if (!previous || !this.room) return;
+    const captureChanged =
       previous.echoCancellation !== next.echoCancellation ||
       previous.noiseSuppression !== next.noiseSuppression ||
       previous.autoGainControl !== next.autoGainControl ||
       previous.sampleRate !== next.sampleRate ||
       previous.channels !== next.channels;
-    const fmtpChanged =
-      previous.channels !== next.channels ||
+    const publishChanged =
+      previous.bitrate !== next.bitrate ||
       previous.dtx !== next.dtx ||
       previous.fec !== next.fec ||
-      previous.sampleRate !== next.sampleRate;
-
-    if (microphoneChanged) void this.acquireMicrophone(this.generation);
-    for (const link of this.peers.values()) await link.applyAudioParameters();
-    if (fmtpChanged) {
-      for (const link of this.peers.values()) link.requestRenegotiation(0);
+      previous.channels !== next.channels;
+    const room = this.room;
+    const hasMicPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone) !== undefined;
+    if (hasMicPublication && (captureChanged || publishChanged)) {
+      // 关闭后重新发布，让新的采集/编码参数生效
+      this.queueMicUpdate(true);
     }
   }
 
@@ -313,287 +376,596 @@ class VoiceEngine {
     const desired = deviceId ? deviceId : null;
     const preferences = useSettingsStore.getState();
     if (preferences.inputDeviceId !== desired) preferences.update({ inputDeviceId: desired });
-    if (!this.entered || !this.audioSettings) return;
-    await this.acquireMicrophone(this.generation);
+    const room = this.room;
+    if (!room) return;
+    const target = desired ?? "default";
+    try {
+      // 选择“系统默认”时不做 exact 约束，避免部分浏览器没有名为 default 的物理设备
+      const switched = await room.switchActiveDevice("audioinput", target, desired !== null);
+      if (!switched && this.micActive) {
+        this.emit("error", { code: "mic_device_switch_failed", message: "无法切换到所选麦克风，请确认设备可用后重试。" });
+        return;
+      }
+      this.attachMicAnalyser();
+    } catch (error) {
+      console.warn("[voice] 切换输入设备失败", error);
+      if (this.micActive) {
+        this.emit("error", { code: "mic_device_switch_failed", message: "无法切换麦克风设备，请检查设备是否可用。" });
+      }
+    }
   }
 
   setOutputDevice(deviceId: string): void {
-    this.audio?.setOutputDevice(deviceId ? deviceId : null);
+    const room = this.room;
+    if (!room || !supportsAudioOutputSelection()) return;
+    void room
+      .switchActiveDevice("audiooutput", deviceId ? deviceId : "default", Boolean(deviceId))
+      .catch((error: unknown) => {
+        console.warn("[voice] 切换输出设备失败", error);
+        this.emit("error", { code: "output_device_switch_failed", message: "无法切换扬声器设备，请重试。" });
+      });
   }
 
-  setMasterVolume(percent: number): void {
-    this.audio?.setMasterVolume(percent);
+  setMasterVolume(_percent: number): void {
+    // 主音量通过重新计算每个参与者的实际音量实现（settingsStore 已由调用方写入）
+    this.applyAllVolumes();
   }
 
   setPeerVolume(userId: number, volumePercent: number): void {
-    this.audio?.setRemoteVolume(userId, volumePercent);
+    const room = this.room;
+    if (!room) return;
+    const effective = clamp01((volumePercent / 100) * (readMasterVolumePercent() / 100));
+    this.rememberedVolumes.set(userId, effective);
+    for (const participant of room.remoteParticipants.values()) {
+      if (this.resolveUserId(participant) === userId) this.applyParticipantVolume(participant, userId);
+    }
+  }
+
+  /** 重新读取本机偏好（音质覆盖、PTT、全体音量、输出设备）并应用 */
+  async refreshFromPreferences(): Promise<void> {
+    if (this.roomAudioSettings) await this.applyAudioSettings(this.roomAudioSettings);
+    this.applyAllVolumes();
+    this.setOutputDevice(useSettingsStore.getState().outputDeviceId ?? "");
+    if (!useSettingsStore.getState().pttEnabled) this.setPTTActive(false);
+    this.queueMicUpdate();
   }
 
   isOutputDeviceSupported(): boolean {
-    if (this.audio) return this.audio.supportsOutputSelection();
-    const contextCtor = window.AudioContext;
-    if (typeof contextCtor !== "function") return false;
-    const prototype = contextCtor.prototype as AudioContext & { setSinkId?: unknown };
-    return typeof prototype.setSinkId === "function";
+    return supportsAudioOutputSelection();
   }
 
   async playTestSound(): Promise<boolean> {
-    const graph = this.audio;
-    if (graph) return graph.playTestTone();
-    const temporary = new VoiceAudioGraph();
-    temporary.setOutputDevice(useSettingsStore.getState().outputDeviceId);
-    try {
-      const played = await temporary.playTestTone();
-      window.setTimeout(() => void temporary.close(), 1200);
-      return played;
-    } catch {
-      void temporary.close();
-      return false;
-    }
+    if (this.room && this.state.audioBlocked) await this.resumeAudio();
+    return playTestTone();
   }
 
   /** 在用户手势中恢复音频输出；返回是否已可播放 */
   async resumeAudio(): Promise<boolean> {
-    const graph = this.audio;
-    if (!graph) return false;
-    const running = await graph.unlock();
-    if (this.entered) this.setState({ audioBlocked: !running });
-    if (running) this.removeUnlockListeners();
-    return running;
+    const room = this.room;
+    if (!room) return false;
+    try {
+      await room.startAudio();
+    } catch {
+      /* 仍被拦截时返回 false，页面可继续提示 */
+    }
+    const playable = room.canPlaybackAudio;
+    this.setState({ audioBlocked: !playable });
+    if (playable) this.removeAutoplayUnlock();
+    await this.analyser.resume();
+    return playable;
   }
 
   getRemoteStream(userId: number): MediaStream | null {
-    return this.peers.get(userId)?.getRemoteAudioStream() ?? null;
+    return this.remoteAudioStreams.get(userId) ?? null;
   }
 
   getLocalScreenStream(): MediaStream | null {
-    return this.screenStream;
+    return this.localScreenStream;
   }
 
   getPeerStats(): PeerNetworkStats[] {
     return [...this.latestStats.values()];
   }
 
-  // ============ 屏幕共享 ============
+  // ============ 屏幕共享（经 SFU 转发） ============
 
   async setScreenSharing(active: boolean): Promise<boolean> {
-    if (active) return this.startScreenSharing();
-    await this.stopScreenSharing();
-    return true;
-  }
-
-  private async startScreenSharing(): Promise<boolean> {
-    if (this.state.screenSharing) return true;
-    if (this.screenPending) return false;
-    const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices || typeof mediaDevices.getDisplayMedia !== "function") {
-      this.emit("error", { code: "screen_share_unsupported", message: "当前浏览器不支持屏幕共享。" });
-      return false;
+    const room = this.room;
+    if (!room) {
+      if (active) {
+        this.emit("error", { code: "voice_not_connected", message: "语音尚未连接，无法共享屏幕。" });
+        return false;
+      }
+      this.setState({ screenSharing: false });
+      return true;
     }
-    this.screenPending = true;
-    const generation = this.generation;
+    if (active === this.state.screenSharing) return true;
     try {
-      const stream = await mediaDevices.getDisplayMedia({ video: true, audio: false });
-      if (generation !== this.generation || !this.entered) {
-        stopStream(stream);
-        return false;
-      }
-      const track = stream.getVideoTracks()[0] ?? null;
-      if (!track) {
-        stopStream(stream);
-        this.emit("error", { code: "screen_share_failed", message: "没有获取到屏幕画面，请重试。" });
-        return false;
-      }
-      this.screenStream = stream;
-      this.screenTrack = track;
-      track.addEventListener("ended", () => {
-        void this.stopScreenSharing();
-      });
-      this.setState({ screenSharing: true });
-      for (const link of [...this.peers.values()]) {
-        await link.setVideoTrack(track);
-      }
+      await room.localParticipant.setScreenShareEnabled(active, { audio: false });
+      this.refreshLocalScreenStream();
+      this.setState({ screenSharing: active });
       return true;
     } catch (error) {
-      this.cleanupScreenStream();
-      this.setState({ screenSharing: false });
+      console.warn("[voice] 屏幕共享失败", error);
       const name = readErrorName(error);
       if (name === "NotAllowedError" || name === "AbortError") {
         this.emit("error", { code: "screen_share_cancelled", message: "已取消屏幕共享。" });
-        return false;
+      } else {
+        const detail = readErrorMessage(error);
+        this.emit("error", {
+          code: "screen_share_failed",
+          message: "无法共享屏幕" + (detail ? "：" + detail : "。"),
+        });
       }
-      this.emit("error", {
-        code: "screen_share_failed",
-        message: "无法共享屏幕" + (readErrorMessage(error) ? "：" + readErrorMessage(error) : "。"),
-      });
+      this.refreshLocalScreenStream();
+      this.setState({ screenSharing: Boolean(this.localScreenStream) });
       return false;
-    } finally {
-      this.screenPending = false;
     }
   }
 
-  private async stopScreenSharing(): Promise<void> {
-    if (!this.screenStream && !this.screenTrack && !this.state.screenSharing) return;
-    this.cleanupScreenStream();
-    this.setState({ screenSharing: false });
-    for (const link of [...this.peers.values()]) {
-      await link.setVideoTrack(null);
+  private refreshLocalScreenStream(): void {
+    const room = this.room;
+    const publication = room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    const track = publication?.track;
+    if (track) {
+      if (!this.localScreenStream || this.localScreenStream.getVideoTracks()[0] !== track.mediaStreamTrack) {
+        this.localScreenStream = new MediaStream([track.mediaStreamTrack]);
+      }
+    } else {
+      this.localScreenStream = null;
     }
   }
 
-  private cleanupScreenStream(): void {
-    const stream = this.screenStream;
-    this.screenStream = null;
-    this.screenTrack = null;
-    if (!stream) return;
-    for (const track of stream.getTracks()) {
+  // ============ 内部：LiveKit 事件 ============
+
+  private registerRoomListeners(room: Room): void {
+    room.on(RoomEvent.ParticipantConnected, this.handleParticipantConnected);
+    room.on(RoomEvent.ParticipantDisconnected, this.handleParticipantDisconnected);
+    room.on(RoomEvent.TrackSubscribed, this.handleTrackSubscribed);
+    room.on(RoomEvent.TrackUnsubscribed, this.handleTrackUnsubscribed);
+    room.on(RoomEvent.TrackMuted, this.handleTrackMuted);
+    room.on(RoomEvent.TrackUnmuted, this.handleTrackUnmuted);
+    room.on(RoomEvent.LocalTrackPublished, this.handleLocalTrackPublished);
+    room.on(RoomEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished);
+    room.on(RoomEvent.AudioPlaybackStatusChanged, this.handleAudioPlaybackStatusChanged);
+    room.on(RoomEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged);
+    room.on(RoomEvent.Disconnected, this.handleRoomDisconnected);
+    room.on(RoomEvent.MediaDevicesError, this.handleMediaDevicesError);
+  }
+
+  private handleParticipantConnected = (participant: RemoteParticipant): void => {
+    this.qualityByParticipant.set(
+      participant.identity,
+      mapConnectionQuality(participant.connectionQuality),
+    );
+    this.resolveUserId(participant);
+    this.syncParticipantTracks(participant);
+  };
+
+  private handleParticipantDisconnected = (participant: RemoteParticipant): void => {
+    const userId = this.resolveUserId(participant);
+    for (const publication of participant.trackPublications.values()) {
+      if (publication.kind === Track.Kind.Audio) {
+        this.detachRemoteAudio(publication, participant);
+      } else if (publication.source === Track.Source.ScreenShare) {
+        const entry = this.remoteScreenStreams.get(publication.trackSid);
+        if (entry) {
+          this.remoteScreenStreams.delete(publication.trackSid);
+          this.emit("screen-stream", { userId: entry.userId, stream: null });
+        }
+      }
+    }
+    if (userId !== null) {
+      this.remoteAudioStreams.delete(userId);
+      this.latestStats.delete(userId);
+      this.emit("peer-stream", { userId, stream: null });
+    }
+    this.qualityByParticipant.delete(participant.identity);
+    this.participantIds.delete(participant.identity);
+  };
+
+  private handleTrackSubscribed = (
+    track: RemoteTrack,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void => {
+    if (track.kind === Track.Kind.Audio) {
+      this.attachRemoteAudio(track, publication, participant);
+      return;
+    }
+    if (publication.source === Track.Source.ScreenShare) {
+      this.attachRemoteScreen(track, publication, participant);
+    }
+  };
+
+  private handleTrackUnsubscribed = (
+    track: RemoteTrack,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void => {
+    if (track.kind === Track.Kind.Audio) {
+      this.detachRemoteAudio(publication, participant);
+      return;
+    }
+    const entry = this.remoteScreenStreams.get(publication.trackSid);
+    if (entry) {
+      this.remoteScreenStreams.delete(publication.trackSid);
+      this.emit("screen-stream", { userId: entry.userId, stream: null });
+    }
+  };
+
+  private handleTrackMuted = (publication: TrackPublication, participant: Participant): void => {
+    if (publication.kind !== Track.Kind.Video || publication.source !== Track.Source.ScreenShare) return;
+    if (!isRemoteParticipant(participant)) return;
+    const entry = this.remoteScreenStreams.get(publication.trackSid);
+    if (entry) {
+      this.remoteScreenStreams.delete(publication.trackSid);
+      this.emit("screen-stream", { userId: entry.userId, stream: null });
+    }
+  };
+
+  private handleTrackUnmuted = (publication: TrackPublication, participant: Participant): void => {
+    if (publication.kind !== Track.Kind.Video || publication.source !== Track.Source.ScreenShare) return;
+    if (!isRemoteParticipant(participant)) return;
+    const track = publication.track;
+    if (track) this.attachRemoteScreen(track, publication, participant);
+  };
+
+  private handleLocalTrackPublished = (publication: LocalTrackPublication): void => {
+    if (publication.source === Track.Source.ScreenShare) {
+      this.refreshLocalScreenStream();
+      this.setState({ screenSharing: Boolean(this.localScreenStream) });
+      return;
+    }
+    if (publication.source === Track.Source.Microphone) {
+      this.micActive = Boolean(publication.track);
+      this.setState({ hasMicrophone: true });
+      this.attachMicAnalyser();
+    }
+  };
+
+  private handleLocalTrackUnpublished = (publication: LocalTrackPublication): void => {
+    if (publication.source === Track.Source.ScreenShare) {
+      this.refreshLocalScreenStream();
+      this.setState({ screenSharing: Boolean(this.localScreenStream) });
+      return;
+    }
+    if (publication.source === Track.Source.Microphone) {
+      const room = this.room;
+      const stillPublished = room?.localParticipant.getTrackPublication(Track.Source.Microphone) !== undefined;
+      this.micActive = stillPublished;
+      if (!stillPublished) {
+        this.analyser.start(null);
+        this.emitZeroLevel();
+      }
+    }
+  };
+
+  private handleAudioPlaybackStatusChanged = (playing: boolean): void => {
+    this.setState({ audioBlocked: !playing });
+    if (playing) this.removeAutoplayUnlock();
+    else this.installAutoplayUnlock();
+  };
+
+  private handleConnectionQualityChanged = (quality: ConnectionQuality, participant: Participant): void => {
+    this.qualityByParticipant.set(participant.identity, mapConnectionQuality(quality));
+  };
+
+  private handleRoomDisconnected = (reason?: DisconnectReason): void => {
+    if (this.leaving || !this.entered) return;
+    const room = this.room;
+    this.room = null;
+    this.entered = false;
+    this.stopLoops();
+    this.analyser.cleanup();
+    this.detachAllRemoteAudio();
+    this.removeAutoplayUnlock();
+    this.removeAudioContainer();
+    this.localScreenStream = null;
+    this.qualityByParticipant.clear();
+    this.latestStats.clear();
+    this.remoteAudioStreams.clear();
+    this.remoteScreenStreams.clear();
+    this.emit("screen-stream", { userId: null, stream: null });
+    this.emitZeroLevel();
+    this.setState({ hasMicrophone: false, screenSharing: false, audioBlocked: false, pttActive: false });
+    if (room) {
       try {
-        track.stop();
+        room.removeAllListeners();
       } catch {
         /* ignore */
       }
     }
+    this.emit("error", { code: "voice_disconnected", message: describeDisconnectReason(reason) });
+  };
+
+  private handleMediaDevicesError = (error: Error): void => {
+    this.emit("error", describeMicrophoneError(error));
+  };
+
+  // ============ 内部：参与者/轨道 ============
+
+  private syncExistingTracks(): void {
+    const room = this.room;
+    if (!room) return;
+    for (const participant of room.remoteParticipants.values()) {
+      this.resolveUserId(participant);
+      this.qualityByParticipant.set(participant.identity, mapConnectionQuality(participant.connectionQuality));
+      this.syncParticipantTracks(participant);
+    }
   }
 
-  // ============ 内部：音频图/连接 ============
-
-  private createPeerLink(userId: number, displayName: string, initiator: boolean): PeerLink {
-    const existing = this.peers.get(userId);
-    if (existing) return existing;
-    const link = new PeerLink({
-      userId,
-      displayName,
-      initiator,
-      getRtcConfiguration: () => buildRtcConfiguration(useAppStore.getState().server),
-      getAudioSettings: () => this.audioSettings ?? DEFAULT_AUDIO_SETTINGS,
-      getMicrophoneTrack: () => this.micTrack,
-      getScreenTrack: () => this.screenTrack,
-      sendSignal: (to, payload) => {
-        socket.send({ t: "signal", to, payload });
-      },
-      onRemoteAudio: (id, stream) => this.handleRemoteAudio(id, stream),
-      onRemoteScreen: (id, stream) => this.handleRemoteScreen(id, stream),
-      onConnectionFailed: (id) => this.handleConnectionFailure(id),
-    });
-    this.peers.set(userId, link);
-    link.start();
-    return link;
+  private syncParticipantTracks(participant: RemoteParticipant): void {
+    for (const publication of participant.trackPublications.values()) {
+      const track = publication.track;
+      if (!publication.isSubscribed || !track) continue;
+      if (track.kind === Track.Kind.Audio) {
+        this.attachRemoteAudio(track, publication, participant);
+      } else if (publication.source === Track.Source.ScreenShare) {
+        this.attachRemoteScreen(track, publication, participant);
+      }
+    }
   }
 
-  private handleRemoteAudio(userId: number, stream: MediaStream | null): void {
-    const graph = this.audio;
-    if (!stream) {
-      graph?.detachRemote(userId);
-      this.emit("peer-stream", { userId, stream: null });
+  private attachRemoteAudio(
+    track: Track,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void {
+    const trackSid = publication.trackSid;
+    if (!this.audioElements.has(trackSid)) {
+      const element = track.attach();
+      element.hidden = true;
+      this.audioContainer?.append(element);
+      this.audioElements.set(trackSid, element);
+    }
+    const userId = this.resolveUserId(participant);
+    if (userId === null) {
+      participant.setVolume(this.state.deafened ? 0 : 1);
       return;
     }
-    graph?.attachRemote(userId, stream);
-    graph?.setRemoteVolume(userId, volumeFor(userId));
+    this.rememberedVolumes.set(userId, this.effectiveVolume(userId));
+    this.applyParticipantVolume(participant, userId);
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    this.remoteAudioStreams.set(userId, stream);
     this.emit("peer-stream", { userId, stream });
   }
 
-  private handleRemoteScreen(userId: number, stream: MediaStream | null): void {
+  private detachRemoteAudio(publication: RemoteTrackPublication, participant: RemoteParticipant): void {
+    const element = this.audioElements.get(publication.trackSid);
+    if (element) {
+      try {
+        publication.track?.detach(element);
+      } catch {
+        /* ignore */
+      }
+      element.remove();
+      this.audioElements.delete(publication.trackSid);
+    }
+    const userId = this.resolveUserId(participant);
+    if (userId === null) return;
+    const hasOtherAudio = [...participant.audioTrackPublications.values()].some(
+      (publicationItem) =>
+        publicationItem.trackSid !== publication.trackSid && publicationItem.isSubscribed && publicationItem.track !== undefined,
+    );
+    if (!hasOtherAudio) {
+      this.remoteAudioStreams.delete(userId);
+      this.emit("peer-stream", { userId, stream: null });
+    }
+  }
+
+  private attachRemoteScreen(
+    track: Track,
+    publication: TrackPublication,
+    participant: RemoteParticipant,
+  ): void {
+    const userId = this.resolveUserId(participant);
+    if (userId === null) return;
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    this.remoteScreenStreams.set(publication.trackSid, { userId, stream });
     this.emit("screen-stream", { userId, stream });
   }
 
-  private handleConnectionFailure(userId: number): void {
-    const name = this.peerNames.get(userId) ?? "对方";
-    this.emit("error", {
-      code: "peer_connection_failed",
-      message: "与 " + name + " 的语音连接失败，请检查网络、NAT 或 TURN 中继配置。",
-    });
-  }
-
-  private async acquireMicrophone(generation: number): Promise<void> {
-    const preferences = useSettingsStore.getState();
-    const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") {
-      this.setState({ hasMicrophone: false });
-      this.emit("error", {
-        code: "mic_unsupported",
-        message: "当前环境无法采集麦克风（需要通过 HTTPS 或 localhost 访问）。你仍可以收听房间语音。",
-      });
-      return;
-    }
-    try {
-      await this.startMicrophone(preferences.inputDeviceId, generation);
-      return;
-    } catch (error) {
-      if (generation !== this.generation || !this.entered) return;
-      const name = readErrorName(error);
-      const retryable =
-        preferences.inputDeviceId !== null && (name === "OverconstrainedError" || name === "NotFoundError");
-      if (!retryable) {
-        this.reportMicrophoneFailure(error);
-        return;
-      }
+  private detachAllRemoteAudio(): void {
+    for (const element of this.audioElements.values()) {
       try {
-        await this.startMicrophone(null, generation);
-        useSettingsStore.getState().update({ inputDeviceId: null });
-        this.emit("error", { code: "mic_device_fallback", message: "所选麦克风不可用，已切换为系统默认设备。" });
-      } catch (fallbackError) {
-        if (generation !== this.generation) return;
-        this.reportMicrophoneFailure(fallbackError);
+        element.remove();
+      } catch {
+        /* ignore */
       }
     }
+    this.audioElements.clear();
   }
 
-  private async startMicrophone(deviceId: string | null, generation: number): Promise<void> {
-    const settings = this.audioSettings;
-    const mediaDevices = navigator.mediaDevices;
-    if (!settings || !mediaDevices) throw new Error("当前环境不支持麦克风采集");
-    const stream = await mediaDevices.getUserMedia(buildMicrophoneConstraints(settings, deviceId));
-    if (generation !== this.generation || !this.entered) {
-      stopStream(stream);
-      return;
-    }
-    const track = stream.getAudioTracks()[0] ?? null;
-    if (!track) {
-      stopStream(stream);
-      throw new Error("未获取到音频轨道");
-    }
-    this.replaceLocalMicrophone(stream, track);
-    this.setState({ hasMicrophone: true });
-    this.applyTrackEnabled();
-    for (const link of [...this.peers.values()]) {
-      await link.setAudioTrack(track);
-      if (generation !== this.generation || !this.entered) return;
+  private removeAudioContainer(): void {
+    if (this.audioContainer) {
+      this.audioContainer.remove();
+      this.audioContainer = null;
     }
   }
 
-  private replaceLocalMicrophone(stream: MediaStream, track: MediaStreamTrack): void {
-    const previous = this.micStream;
-    this.micStream = stream;
-    this.micTrack = track;
-    this.audio?.setLocalStream(stream);
-    if (previous) stopStream(previous);
-  }
-
-  private reportMicrophoneFailure(error: unknown): void {
-    if (this.micTrack && this.micTrack.readyState === "live") {
-      this.emit("error", { code: "mic_update_failed", message: "无法应用新的麦克风设置，继续使用当前设备。" });
-      return;
+  /** 参与者 identity -> 数字 userId（identity 为 String(user.id)，另有 metadata/显示名兜底） */
+  private resolveUserId(participant: Participant): number | null {
+    const identity = participant.identity;
+    const cached = this.participantIds.get(identity);
+    if (cached !== undefined) return cached;
+    const fromIdentity = parseIdentityUserId(identity);
+    if (fromIdentity !== null) {
+      this.participantIds.set(identity, fromIdentity);
+      return fromIdentity;
     }
-    this.setState({ hasMicrophone: false });
-    this.emit("error", describeMicrophoneError(error));
+    const fromMetadata = parseMetadataUserId(participant.metadata);
+    if (fromMetadata !== null) {
+      this.participantIds.set(identity, fromMetadata);
+      return fromMetadata;
+    }
+    if (participant.isLocal && this.myUserId !== null) {
+      this.participantIds.set(identity, this.myUserId);
+      return this.myUserId;
+    }
+    const name = participant.name?.trim();
+    if (name) {
+      for (const [userId, hint] of this.nameDirectory) {
+        if (hint.displayName === name || hint.username === name) {
+          this.participantIds.set(identity, userId);
+          return userId;
+        }
+      }
+    }
+    return null;
   }
 
-  private applyTrackEnabled(): void {
-    const track = this.micTrack;
-    if (!track) return;
+  // ============ 内部：音量/耳聋 ============
+
+  private effectiveVolume(userId: number): number {
+    return clamp01((volumeFor(userId) / 100) * (readMasterVolumePercent() / 100));
+  }
+
+  private applyParticipantVolume(participant: RemoteParticipant, userId: number): void {
+    const remembered = this.rememberedVolumes.get(userId);
+    const effective = remembered ?? this.effectiveVolume(userId);
+    const volume = this.state.deafened ? 0 : effective;
+    participant.setVolume(volume, Track.Source.Microphone);
+    participant.setVolume(volume, Track.Source.ScreenShareAudio);
+  }
+
+  private applyAllVolumes(): void {
+    const room = this.room;
+    if (!room) return;
+    for (const participant of room.remoteParticipants.values()) {
+      const userId = this.resolveUserId(participant);
+      if (userId === null) {
+        participant.setVolume(this.state.deafened ? 0 : 1);
+        continue;
+      }
+      this.rememberedVolumes.set(userId, this.effectiveVolume(userId));
+      this.applyParticipantVolume(participant, userId);
+    }
+  }
+
+  // ============ 内部：麦克风 ============
+
+  private computeMicDesired(): boolean {
+    if (!this.entered || !this.room) return false;
     const preferences = useSettingsStore.getState();
-    const pttAllows = preferences.pttEnabled ? this.state.pttActive : true;
-    const enabled =
-      this.state.hasMicrophone && this.state.micEnabled && !this.state.forceMuted && pttAllows;
-    if (track.enabled !== enabled) track.enabled = enabled;
+    return this.state.micEnabled && !this.state.forceMuted && (!preferences.pttEnabled || this.state.pttActive);
   }
 
-  // ============ 内部：循环任务 ============
+  private queueMicUpdate(restart = false): void {
+    if (restart) this.micOptionsDirty = true;
+    this.micChain = this.micChain
+      .then(() => this.performMicUpdate())
+      .catch((error: unknown) => {
+        console.warn("[voice] 麦克风状态更新失败", error);
+      });
+  }
+
+  private async performMicUpdate(): Promise<void> {
+    const room = this.room;
+    if (!room || !this.entered) return;
+    const desired = this.computeMicDesired();
+
+    // 采集/编码参数变化时必须先取消发布再重新发布：mute/unmute 不会应用新的 options
+    const publication = room.localParticipant.getTrackPublication(Track.Source.Microphone) as
+      | LocalTrackPublication
+      | undefined;
+    if (this.micOptionsDirty && publication?.track) {
+      this.micOptionsDirty = false;
+      try {
+        await room.localParticipant.unpublishTrack(publication.track, true);
+      } catch (error) {
+        console.warn("[voice] 重新发布麦克风前取消发布失败", error);
+      }
+      if (this.room !== room) return;
+      this.micActive = false;
+      this.analyser.start(null);
+      this.emitZeroLevel();
+    } else if (!desired && this.micActive) {
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false);
+      } catch (error) {
+        console.warn("[voice] 关闭麦克风失败", error);
+      }
+      if (this.room !== room) return;
+      this.micActive = false;
+      this.analyser.start(null);
+      this.emitZeroLevel();
+    }
+
+    if (!desired || this.micActive) return;
+    const settings = this.audioSettings ?? DEFAULT_AUDIO_SETTINGS;
+    const preferences = useSettingsStore.getState();
+    try {
+      const publication = await room.localParticipant.setMicrophoneEnabled(
+        true,
+        buildAudioCaptureOptions(settings, preferences.inputDeviceId),
+        buildTrackPublishOptions(settings),
+      );
+      if (this.room !== room) return;
+      if (!publication) throw new Error("麦克风轨道发布失败");
+      this.micActive = true;
+      this.micOptionsDirty = false;
+      this.setState({ hasMicrophone: true });
+      this.attachMicAnalyser();
+    } catch (error) {
+      if (this.room !== room) return;
+      const recovered = await this.retryMicrophoneWithDefaults(room, settings, error);
+      if (recovered) return;
+      this.micActive = false;
+      this.setState({ hasMicrophone: false });
+      this.emit("error", describeMicrophoneError(error));
+    }
+  }
+
+  /** 设备被拔出/参数不支持时，退回默认设备与基础处理参数重试一次 */
+  private async retryMicrophoneWithDefaults(
+    room: Room,
+    settings: AudioSettings,
+    error: unknown,
+  ): Promise<boolean> {
+    const name = readErrorName(error);
+    if (name !== "OverconstrainedError" && name !== "NotFoundError") return false;
+    const preferences = useSettingsStore.getState();
+    if (preferences.inputDeviceId !== null) preferences.update({ inputDeviceId: null });
+    const capture: AudioCaptureOptions = {
+      echoCancellation: settings.echoCancellation,
+      noiseSuppression: settings.noiseSuppression,
+      autoGainControl: settings.autoGainControl,
+    };
+    try {
+      const publication = await room.localParticipant.setMicrophoneEnabled(
+        true,
+        capture,
+        buildTrackPublishOptions(settings),
+      );
+      if (this.room !== room || !publication) return false;
+      this.micActive = true;
+      this.micOptionsDirty = false;
+      this.setState({ hasMicrophone: true });
+      this.attachMicAnalyser();
+      this.emit("error", { code: "mic_device_fallback", message: "所选麦克风不可用，已切换为系统默认设备。" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private attachMicAnalyser(): void {
+    const room = this.room;
+    if (!room || !this.micActive) {
+      this.analyser.start(null);
+      return;
+    }
+    const publication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+    this.analyser.start(publication?.track?.mediaStreamTrack ?? null);
+  }
+
+  // ============ 内部：循环任务（电平/质量） ============
 
   private startLoops(): void {
     this.stopLoops();
     this.levelTimer = window.setInterval(() => this.tickLevels(), LEVEL_INTERVAL_MS);
-    this.statsTimer = window.setInterval(() => void this.tickStats(), STATS_INTERVAL_MS);
+    this.statsTimer = window.setInterval(() => this.tickStats(), STATS_INTERVAL_MS);
   }
 
   private stopLoops(): void {
@@ -608,91 +980,65 @@ class VoiceEngine {
   }
 
   private tickLevels(): void {
-    if (!this.entered) return;
-    const graph = this.audio;
-    if (!graph) return;
+    if (!this.entered || !this.room) return;
     const preferences = useSettingsStore.getState();
-
-    const rawLocal = graph.sampleLocalRaw();
-    const level = VoiceAudioGraph.toUiLevel(rawLocal);
-    const micActive =
-      this.state.hasMicrophone &&
-      this.state.micEnabled &&
-      !this.state.forceMuted &&
-      (!preferences.pttEnabled || this.state.pttActive);
-    const speaking = micActive && rawLocal >= preferences.vadThreshold;
+    const raw = this.analyser.sampleRaw();
+    const level = Math.min(1, raw * LEVEL_GAIN);
+    const speaking = this.computeMicDesired() && raw >= preferences.vadThreshold;
     if (speaking !== this.lastLocalSpeaking || Math.abs(level - this.lastLocalLevel) >= 0.015) {
       this.lastLocalSpeaking = speaking;
       this.lastLocalLevel = level;
       this.emit("local-level", { level, speaking });
     }
+  }
 
-    for (const userId of [...this.peers.keys()]) {
-      const raw = graph.sampleRemoteRaw(userId);
-      const peerLevel = VoiceAudioGraph.toUiLevel(raw);
-      const peerSpeaking = raw >= preferences.vadThreshold;
-      const previous = this.lastPeerLevels.get(userId);
-      if (!previous || previous.speaking !== peerSpeaking || Math.abs(previous.level - peerLevel) >= 0.03) {
-        this.lastPeerLevels.set(userId, { level: peerLevel, speaking: peerSpeaking });
-        this.emit("peer-level", { userId, level: peerLevel, speaking: peerSpeaking });
-      }
+  private emitZeroLevel(): void {
+    if (this.lastLocalLevel === 0 && !this.lastLocalSpeaking) return;
+    this.lastLocalLevel = 0;
+    this.lastLocalSpeaking = false;
+    this.emit("local-level", { level: 0, speaking: false });
+  }
+
+  private tickStats(): void {
+    const room = this.room;
+    if (!room || !this.entered) return;
+    const present = new Set<number>();
+    if (this.myUserId !== null) {
+      present.add(this.myUserId);
+      this.emitPeerStats(this.myUserId, this.qualityOf(room.localParticipant.identity));
+    }
+    for (const participant of room.remoteParticipants.values()) {
+      const userId = this.resolveUserId(participant);
+      if (userId === null) continue;
+      present.add(userId);
+      this.emitPeerStats(userId, this.qualityOf(participant.identity));
+    }
+    for (const userId of [...this.latestStats.keys()]) {
+      if (!present.has(userId)) this.latestStats.delete(userId);
     }
   }
 
-  private async tickStats(): Promise<void> {
-    if (!this.entered || this.statsInFlight) return;
-    this.statsInFlight = true;
-    try {
-      for (const link of [...this.peers.values()]) {
-        if (!this.entered) return;
-        if (link.isClosed) continue;
-        const stats = await link.getStats();
-        if (!this.entered) return;
-        this.latestStats.set(stats.userId, stats);
-        this.emit("peer-stats", stats);
-      }
-    } catch (error) {
-      console.warn("[voice] 获取网络统计失败", error);
-    } finally {
-      this.statsInFlight = false;
-    }
+  private qualityOf(identity: string): VoiceQuality {
+    return this.qualityByParticipant.get(identity) ?? "unknown";
   }
 
-  // ============ 内部：清理与浏览器自动播放 ============
-
-  private closeSession(): void {
-    this.entered = false;
-    this.stopLoops();
-    const links = [...this.peers.values()];
-    this.peers.clear();
-    for (const link of links) link.close();
-    this.latestStats.clear();
-    this.lastPeerLevels.clear();
-    this.stopLocalMicrophone();
-    this.cleanupScreenStream();
-    this.screenPending = false;
-    const graph = this.audio;
-    this.audio = null;
-    if (graph) {
-      graph.onBlockedChange = null;
-      void graph.close();
-    }
-    this.removeUnlockListeners();
-    if (this.lastLocalLevel > 0 || this.lastLocalSpeaking) {
-      this.lastLocalLevel = 0;
-      this.lastLocalSpeaking = false;
-      this.emit("local-level", { level: 0, speaking: false });
-    }
+  private emitPeerStats(userId: number, quality: VoiceQuality): void {
+    const stats: PeerNetworkStats = {
+      userId,
+      rttMs: null,
+      packetLossPct: null,
+      jitterMs: null,
+      inboundKbps: 0,
+      outboundKbps: 0,
+      quality,
+    };
+    this.latestStats.set(userId, stats);
+    this.emit("peer-stats", stats);
   }
 
-  private stopLocalMicrophone(): void {
-    const stream = this.micStream;
-    this.micStream = null;
-    this.micTrack = null;
-    if (stream) stopStream(stream);
-  }
+  // ============ 内部：自动播放解锁 ============
 
-  private installUnlockListeners(): void {
+  private installAutoplayUnlock(): void {
     if (this.unlockHandler) return;
     const handler = (): void => {
       void this.resumeAudio();
@@ -702,12 +1048,56 @@ class VoiceEngine {
     document.addEventListener("keydown", handler, true);
   }
 
-  private removeUnlockListeners(): void {
+  private removeAutoplayUnlock(): void {
     const handler = this.unlockHandler;
     if (!handler) return;
     document.removeEventListener("pointerdown", handler, true);
     document.removeEventListener("keydown", handler, true);
     this.unlockHandler = null;
+  }
+
+  private handleAudioPlaybackStatus(playable: boolean): void {
+    this.setState({ audioBlocked: !playable });
+    if (playable) this.removeAutoplayUnlock();
+    else this.installAutoplayUnlock();
+  }
+
+  // ============ 内部：清理 ============
+
+  private async shutdownRoom(): Promise<void> {
+    const room = this.room;
+    this.room = null;
+    this.localIdentity = null;
+    this.stopLoops();
+    this.analyser.cleanup();
+    this.detachAllRemoteAudio();
+    this.removeAutoplayUnlock();
+    this.localScreenStream = null;
+    this.qualityByParticipant.clear();
+    this.participantIds.clear();
+    this.latestStats.clear();
+    this.rememberedVolumes.clear();
+    this.remoteAudioStreams.clear();
+    this.remoteScreenStreams.clear();
+    this.micActive = false;
+    this.micOptionsDirty = false;
+    this.emit("screen-stream", { userId: null, stream: null });
+    this.emitZeroLevel();
+    this.removeAudioContainer();
+    if (room) await this.disposeRoom(room);
+  }
+
+  private async disposeRoom(room: Room): Promise<void> {
+    try {
+      room.removeAllListeners();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await room.disconnect();
+    } catch {
+      /* ignore */
+    }
   }
 
   private bumpGeneration(): number {
@@ -716,26 +1106,85 @@ class VoiceEngine {
   }
 }
 
-function stopStream(stream: MediaStream): void {
-  for (const track of stream.getTracks()) {
-    try {
-      track.stop();
-    } catch {
-      /* ignore */
-    }
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(1, Math.max(0, value));
+}
+
+function createAudioContainer(): HTMLDivElement {
+  const container = document.createElement("div");
+  container.setAttribute("data-airmic-remote-audio", "true");
+  container.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;opacity:0;";
+  document.body.append(container);
+  return container;
+}
+
+function describeDisconnectReason(reason?: DisconnectReason): string {
+  switch (reason) {
+    case DisconnectReason.DUPLICATE_IDENTITY:
+      return "你的账号在另一个页面加入了语音，当前语音已断开。";
+    case DisconnectReason.PARTICIPANT_REMOVED:
+      return "你已被移出语音房间。";
+    case DisconnectReason.ROOM_DELETED:
+      return "语音房间已结束。";
+    case DisconnectReason.SERVER_SHUTDOWN:
+      return "语音服务器已关闭，请稍后重试。";
+    case DisconnectReason.CLIENT_INITIATED:
+      return "语音连接已断开。";
+    default:
+      return "语音连接已断开，请刷新页面后重试。";
   }
 }
 
-function readErrorName(error: unknown): string {
-  if (!error || typeof error !== "object") return "";
-  const name = (error as { name?: unknown }).name;
-  return typeof name === "string" ? name : "";
-}
-
-function readErrorMessage(error: unknown): string {
-  if (!error || typeof error !== "object") return "";
-  const message = (error as { message?: unknown }).message;
-  return typeof message === "string" ? message : "";
+/** 播放一声短促测试音（设置页使用） */
+async function playTestTone(): Promise<boolean> {
+  const AudioContextCtor = window.AudioContext;
+  if (typeof AudioContextCtor !== "function") return false;
+  let context: AudioContext;
+  try {
+    context = new AudioContextCtor();
+  } catch {
+    return false;
+  }
+  try {
+    if (context.state !== "running") {
+      const resume = context.resume().catch(() => undefined);
+      await Promise.race([
+        resume,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 500)),
+      ]);
+    }
+    if (context.state !== "running") {
+      void context.close().catch(() => undefined);
+      return false;
+    }
+    const outputDeviceId = useSettingsStore.getState().outputDeviceId;
+    if (outputDeviceId) {
+      const sinkContext = context as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
+      if (typeof sinkContext.setSinkId === "function") {
+        await sinkContext.setSinkId(outputDeviceId).catch(() => undefined);
+      }
+    }
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 660;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.55);
+    oscillator.addEventListener("ended", () => {
+      void context.close().catch(() => undefined);
+    });
+    return true;
+  } catch {
+    void context.close().catch(() => undefined);
+    return false;
+  }
 }
 
 export const voice = new VoiceEngine();

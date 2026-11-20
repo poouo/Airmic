@@ -35,6 +35,52 @@ export interface PageQuery {
   pageSize?: number;
 }
 
+// ============ 初始化引导 ============
+
+export interface SetupStatusResponse {
+  /** 是否还没有任何管理员账号（需要初始化） */
+  setupRequired: boolean;
+  /** 服务器是否通过 SETUP_TOKEN 环境变量要求初始化口令 */
+  requiresToken: boolean;
+  server: ServerSettingsPublic;
+}
+
+export interface SetupAdminInput {
+  username: string;
+  password: string;
+  displayName?: string;
+}
+
+export interface SetupServerInput {
+  name?: string;
+  motd?: string;
+  registrationMode?: "open" | "invite" | "closed";
+  guestEnabled?: boolean;
+  maxUsers?: number;
+  maxUsersPerRoom?: number;
+  defaultAudioSettings?: Partial<AudioSettings>;
+  allowGuestChat?: boolean;
+  /** LiveKit SFU 地址（ws:// 或 wss://），配置后房间内语音经服务器中转 */
+  livekitUrl?: string;
+  livekitApiKey?: string;
+  livekitApiSecret?: string;
+}
+
+export interface SetupInitializeRequest {
+  /** 服务器设置了 SETUP_TOKEN 时必填 */
+  token?: string;
+  admin: SetupAdminInput;
+  server?: SetupServerInput;
+  /** 是否创建两个默认房间（开黑大厅/休息室），默认 true */
+  createDefaultRooms?: boolean;
+}
+
+export interface SetupInitializeResponse {
+  user: UserSelf;
+  server: ServerSettingsPublic;
+  rooms: RoomSummary[];
+}
+
 // ============ 认证 ============
 
 export interface RegisterRequest {
@@ -144,6 +190,16 @@ export interface UpdateSettingsRequest {
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   forceRelay?: boolean;
   roomCategories?: string[];
+  livekitUrl?: string;
+  livekitApiKey?: string;
+  livekitApiSecret?: string;
+}
+
+export interface LivekitTokenResponse {
+  url: string;
+  token: string;
+  room: string;
+  identity: string;
 }
 
 export interface AdminUserRow extends UserPublic {

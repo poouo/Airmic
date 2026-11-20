@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { MonitorUp, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/format";
@@ -53,24 +53,33 @@ export function RoomStage({
         </div>
         <div className="flex shrink-0 gap-2 overflow-x-auto pb-1 app-scroll">
           {members.map((member) => (
-            <MemberCard
-              key={member.userId}
-              member={member}
-              stats={peerStats[member.userId]}
-              volume={volumes[String(member.userId)] ?? 100}
-              onVolumeChange={onVolumeChange}
-              onLocalMute={onLocalMute}
-              compact
-            />
+            <div key={member.userId} className="w-36 shrink-0 sm:w-40">
+              <MemberCard
+                member={member}
+                stats={peerStats[member.userId]}
+                volume={volumes[String(member.userId)] ?? 100}
+                onVolumeChange={onVolumeChange}
+                onLocalMute={onLocalMute}
+                compact
+              />
+            </div>
           ))}
         </div>
       </div>
     );
   }
 
+  const count = members.length;
+  // 大房间自动缩小卡片并增加列数；网格本身位于 RoomPage 的滚动容器内
+  const tileWidth = count > 30 ? 112 : count > 18 ? 132 : count > 10 ? 152 : count > 4 ? 176 : 200;
+  const gridStyle: CSSProperties = {
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, " + tileWidth + "px), 1fr))",
+  };
+  const compactTiles = count > 12;
+
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className={cn("grid gap-3 sm:gap-4", gridClassFor(members.length))}>
+    <div className={cn("mx-auto w-full space-y-4", count <= 2 ? "max-w-md" : "max-w-none")}>
+      <div className="grid content-start gap-2 sm:gap-3" style={gridStyle}>
         {members.map((member) => (
           <MemberCard
             key={member.userId}
@@ -79,21 +88,13 @@ export function RoomStage({
             volume={volumes[String(member.userId)] ?? 100}
             onVolumeChange={onVolumeChange}
             onLocalMute={onLocalMute}
+            compact={compactTiles}
           />
         ))}
       </div>
-      {members.length <= 1 && <InviteHint />}
+      {count <= 1 && <InviteHint />}
     </div>
   );
-}
-
-function gridClassFor(count: number): string {
-  if (count <= 1) return "grid-cols-1 max-w-xs";
-  if (count <= 2) return "grid-cols-1 max-w-md sm:grid-cols-2 sm:max-w-xl";
-  if (count <= 4) return "grid-cols-2";
-  if (count <= 6) return "grid-cols-2 sm:grid-cols-3";
-  if (count <= 9) return "grid-cols-2 sm:grid-cols-3 xl:grid-cols-4";
-  return "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5";
 }
 
 function InviteHint() {

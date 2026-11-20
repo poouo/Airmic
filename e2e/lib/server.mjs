@@ -29,6 +29,7 @@ export async function startServer(options = {}) {
     ADMIN_USERNAME: "",
     ADMIN_PASSWORD: "",
     TRUST_PROXY: "false",
+    ...(options.env ?? {}),
   };
 
   const child = spawn(process.execPath, [entry], {

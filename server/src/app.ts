@@ -11,8 +11,10 @@ import { registerRealtime } from "./realtime/index.js";
 import { getHub } from "./realtime/instance.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerMediaRoutes } from "./routes/media.js";
 import { registerRoomRoutes } from "./routes/rooms.js";
 import { registerServerRoutes } from "./routes/server.js";
+import { registerSetupRoutes } from "./routes/setup.js";
 import { registerUserRoutes } from "./routes/users.js";
 import { createServices } from "./services/index.js";
 
@@ -95,6 +97,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerAuthRoutes(app, services);
   await registerUserRoutes(app, services);
   await registerRoomRoutes(app, services);
+  await registerMediaRoutes(app, services);
+  await registerSetupRoutes(app, services);
   await registerAdminRoutes(app, services);
   await registerRealtime(app, services);
 

@@ -1,0 +1,64 @@
+# =============================================================================
+# LiveKit Server 配置（AirMic SFU 语音中转）
+#
+# AirMic 的语音架构：浏览器只与 LiveKit 建立 WebRTC 连接，音频由 LiveKit 在服务端
+# 转发；不再有浏览器之间的 P2P/Mesh 直连。本文件由 docker compose 挂载到
+# /etc/livekit.yaml，二进制部署时也可直接使用。
+#
+# 使用前必须修改：
+#   - keys：换成生产 API Key / Secret（两个值分别填到 AirMic 的
+#     LIVEKIT_API_KEY / LIVEKIT_API_SECRET，或初始化向导/管理后台的 LiveKit 配置）
+#   - rtc.use_external_ip：云主机/1:1 NAT 设为 true；纯局域网保持 false
+#
+# 防火墙需放行：
+#   - 7880/tcp             HTTP/WebSocket 信令（通常由 Nginx/Caddy 反代为 wss）
+#   - 7881/tcp             RTC over TCP
+#   - 7882/udp             RTC UDP mux（媒体主通道）
+#   - 3478/udp + 5349/tcp  仅在启用内置 TURN 时（见文末 turn 配置）
+# =============================================================================
+
+# 信令监听端口（HTTP + WebSocket）
+port: 7880
+
+rtc:
+  # WebRTC over TCP 回退端口（UDP 不可用时使用）
+  tcp_port: 7881
+  # WebRTC UDP mux 端口（媒体主通道）
+  udp_port: 7882
+  # 通过 STUN 自动探测对外公网 IP。云主机 / 1:1 NAT / 公网直连时设为 true；
+  # 纯内网部署保持 false。
+  use_external_ip: false
+  # 多网卡或 Docker 桥接网络时，显式指定对外可达的 IP（优先级高于自动探测）。
+  # node_ip: 203.0.113.10
+
+# ===== API 密钥 =====
+# 生产环境请用下面的命令生成 Secret：
+#   openssl rand -hex 32        （Windows: Git for Windows 自带 openssl）
+# 或：node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+# 然后同步修改 AirMic 的 LIVEKIT_API_KEY / LIVEKIT_API_SECRET。
+keys:
+  devkey: secret
+
+# ===== 房间与日志 =====
+room:
+  # 最后一个参与者离开后，空房间保留多久（秒）再销毁
+  empty_timeout: 300
+  # 单房间最大参与者数（LiveKit 侧硬上限；AirMic 管理后台的房间人数上限也应匹配）
+  max_participants: 100
+
+logging:
+  level: info
+  json: false
+
+# ===== 可选：NAT/防火墙复杂时启用 LiveKit 内置 TURN =====
+# 浏览器所在网络完全禁止 UDP、且 7881/tcp 也不可用时，可让 LiveKit 同时提供 TURN。
+# 需要：一个解析到本机的域名（turn.example.com）和 TLS 证书；防火墙放行 3478/udp、5349/tcp。
+# 客户端无需额外配置，LiveKit 会通过 JoinResponse 下发 ICE/TURN 配置。
+# turn:
+#   enabled: true
+#   domain: turn.example.com
+#   tls_port: 5349
+#   udp_port: 3478
+#   # 证书路径（与 Nginx 使用的证书相同即可）
+#   cert_file: /etc/letsencrypt/live/turn.example.com/fullchain.pem
+#   key_file: /etc/letsencrypt/live/turn.example.com/privkey.pem

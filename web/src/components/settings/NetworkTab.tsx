@@ -1,4 +1,4 @@
-import { Activity, Globe, Server, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { Activity, Globe, Server, Wifi, WifiOff } from "lucide-react";
 import { audioSummary, formatBitrate } from "@airmic/shared";
 import type { AudioOverride } from "@airmic/shared";
 import { Badge, Divider, SectionTitle } from "@/components/ui";
@@ -57,11 +57,10 @@ export function NetworkTab() {
   const peerStats = usePeerStats();
 
   const mode = detectMode(override);
-  const urls = (server?.iceServers ?? []).flatMap((item) =>
-    typeof item.urls === "string" ? [item.urls] : item.urls,
-  );
   const totalUpload = effective.bitrate * Math.max(0, peers.length);
   const connected = connection === "online";
+  const voiceAvailable = server?.voiceAvailable === true;
+  const livekitUrl = server?.livekitUrl ?? null;
 
   const applyMode = (option: QualityModeOption) => {
     replaceLocalAudioOverride(option.build());
@@ -79,15 +78,16 @@ export function NetworkTab() {
             tone={connected ? "good" : "warn"}
           />
           <InfoRow
-            icon={<Globe className="h-3.5 w-3.5 text-mist-400" />}
-            label="ICE 服务器"
-            value={urls.length + " 台"}
+            icon={<Globe className={cn("h-3.5 w-3.5", livekitUrl ? "text-mist-400" : "text-warn-400")} />}
+            label="LiveKit 地址"
+            value={livekitUrl ? "已配置" : "未配置"}
+            tone={livekitUrl ? "neutral" : "warn"}
           />
           <InfoRow
-            icon={<ShieldCheck className={cn("h-3.5 w-3.5", server?.forceRelay ? "text-warn-400" : "text-mist-400")} />}
-            label="传输模式"
-            value={server?.forceRelay ? "强制 TURN 中继" : "P2P 优先（失败时才中继）"}
-            tone={server?.forceRelay ? "warn" : "neutral"}
+            icon={<Server className={cn("h-3.5 w-3.5", voiceAvailable ? "text-aqua-400" : "text-warn-400")} />}
+            label="语音传输"
+            value={voiceAvailable ? "服务端 SFU 中转" : "语音中转服务未配置"}
+            tone={voiceAvailable ? "good" : "warn"}
           />
           <InfoRow
             icon={<Server className="h-3.5 w-3.5 text-mist-400" />}
@@ -95,15 +95,17 @@ export function NetworkTab() {
             value={peers.length + " 位队友"}
           />
         </div>
-        {urls.length > 0 && (
-          <div className="max-h-24 space-y-0.5 overflow-y-auto rounded-xl bg-ink-900/60 px-3 py-2 app-scroll ring-1 ring-white/5">
-            {urls.map((url, index) => (
-              <p key={url + index} className="truncate font-mono text-[11px] text-mist-500">
-                {url}
-              </p>
-            ))}
-          </div>
-        )}
+        <div className="rounded-xl bg-ink-900/60 px-3 py-2 ring-1 ring-white/5">
+          {livekitUrl ? (
+            <p className="truncate font-mono text-[11px] text-mist-500" title={livekitUrl}>
+              所有语音经服务端 SFU 中转：{livekitUrl}
+            </p>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-warn-400">
+              语音中转服务未配置，请管理员在后台或环境变量中配置 LiveKit，配置完成前房间内无法通话。
+            </p>
+          )}
+        </div>
         {!connected && (
           <p className="flex items-center gap-1.5 text-[11px] text-warn-400">
             <WifiOff className="h-3 w-3" /> 实时连接断开时无法收发语音，连接恢复后会自动重建。

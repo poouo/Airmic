@@ -24,7 +24,11 @@ export function qualityTooltip(stats: PeerNetworkStats | undefined): string {
   if (stats.rttMs !== null) parts.push("延迟 " + stats.rttMs + " ms");
   if (stats.packetLossPct !== null) parts.push("丢包 " + stats.packetLossPct.toFixed(1) + "%");
   if (stats.jitterMs !== null) parts.push("抖动 " + stats.jitterMs + " ms");
-  parts.push("上行 " + Math.round(stats.outboundKbps) + " kbps", "下行 " + Math.round(stats.inboundKbps) + " kbps");
+  // SFU 模式下目前只汇总连接质量，码率/丢包等详细统计可能不可用
+  if (stats.outboundKbps > 0 || stats.inboundKbps > 0) {
+    parts.push("上行 " + Math.round(stats.outboundKbps) + " kbps", "下行 " + Math.round(stats.inboundKbps) + " kbps");
+  }
+  parts.push("服务端中转");
   return parts.join(" · ");
 }
 

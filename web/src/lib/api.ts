@@ -22,6 +22,9 @@ import type {
   RoomMessagesResponse,
   RoomSummary,
   ServerInfoResponse,
+  SetupInitializeRequest,
+  SetupInitializeResponse,
+  SetupStatusResponse,
   UpdateBanRequest,
   UpdateProfileRequest,
   UpdateRoomRequest,
@@ -88,6 +91,11 @@ function query(params: Record<string, string | number | boolean | undefined | nu
 export const api = {
   serverInfo: (signal?: AbortSignal) => request<ServerInfoResponse>("GET", "/api/server", undefined, signal),
   iceConfig: (signal?: AbortSignal) => request<{ iceServers: unknown[]; forceRelay: boolean }>("GET", "/api/rtc/ice", undefined, signal),
+
+  setup: {
+    status: (signal?: AbortSignal) => request<SetupStatusResponse>("GET", "/api/setup/status", undefined, signal),
+    initialize: (body: SetupInitializeRequest) => request<SetupInitializeResponse>("POST", "/api/setup/initialize", body),
+  },
 
   auth: {
     register: (body: RegisterRequest) => request<AuthResponse>("POST", "/api/auth/register", body),

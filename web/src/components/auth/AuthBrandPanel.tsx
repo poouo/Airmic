@@ -11,7 +11,7 @@ const REGISTRATION_LABELS: Record<string, string> = {
 
 const FEATURES = [
   { icon: Globe, title: "打开网页就能开黑", description: "无需下载客户端，浏览器直接进入语音房间" },
-  { icon: Radio, title: "WebRTC 点对点语音", description: "低延迟 Mesh 连接，支持屏幕共享与文字聊天" },
+  { icon: Radio, title: "服务端语音中转", description: "低延迟 LiveKit SFU，支持屏幕共享与文字聊天" },
   { icon: ShieldCheck, title: "权限与内容可控", description: "管理员可配置注册、游客、房间与音质策略" },
   { icon: MessageSquare, title: "频道与聊天", description: "按分类整理房间，房间内实时文字消息" },
 ];

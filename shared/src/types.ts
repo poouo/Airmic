@@ -14,6 +14,9 @@ export type Role = "admin" | "moderator" | "user" | "guest";
 
 export type RegistrationMode = "open" | "invite" | "closed";
 
+/** 语音媒体传输方式：固定为服务端 SFU 中转（不进行客户端 P2P 互联） */
+export type MediaTransport = "sfu";
+
 /** 音频预设标识 */
 export type AudioPresetId = "voice-low" | "voice-standard" | "voice-high" | "music" | "custom";
 
@@ -68,6 +71,12 @@ export interface ServerSettingsPublic {
   forceRelay: boolean;
   roomCategories: string[];
   version: string;
+  /** 客户端可连接的 LiveKit SFU 信令地址；null 表示尚未配置语音中转服务 */
+  livekitUrl: string | null;
+  /** 语音中转服务是否已配置好（未配置时房间内无法通话） */
+  voiceAvailable: boolean;
+  /** 媒体传输方式，固定 sfu */
+  mediaTransport: MediaTransport;
 }
 
 /** 管理员可见的完整服务器设置 */
@@ -75,6 +84,10 @@ export interface ServerSettings extends ServerSettingsPublic {
   registrationCode: string;
   maxMessagesPerRoom: number;
   allowGuestChat: boolean;
+  /** LiveKit API Key（仅管理员可见） */
+  livekitApiKey: string | null;
+  /** LiveKit API Secret（仅管理员可见） */
+  livekitApiSecret: string | null;
 }
 
 export interface UserPublic {

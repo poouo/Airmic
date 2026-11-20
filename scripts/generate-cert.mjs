@@ -369,7 +369,7 @@ function generate(options) {
   console.log("  1. 在项目根目录 .env 中设置（或修改为实际路径）：");
   console.log("       SSL_KEY=./certs/key.pem");
   console.log("       SSL_CERT=./certs/cert.pem");
-  console.log("  2. 重启 AirMic，然后用 https://<本机IP>:3000 访问。");
+  console.log("  2. 重启 AirMic，然后用 https://<本机IP>:9811 访问。");
   console.log("  3. 首次访问浏览器会提示证书不受信任；需要在每台设备上导入并信任 cert.pem，");
   console.log("     Windows/macOS/iOS/Android 的具体步骤见 docs/DEPLOY.md 的 TLS 章节。");
   console.log("  4. 局域网 IP 变化后需要重新生成（node scripts/generate-cert.mjs --force）。");

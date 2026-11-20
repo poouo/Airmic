@@ -85,7 +85,7 @@ export function RoomControls({
             <>
               <span className="text-white/10">|</span>
               <span className={quality.textClass}>{quality.label}</span>
-              <span className="font-mono">{latency === null ? "延迟 --" : "延迟 " + latency + " ms"}</span>
+              <span className="font-mono">{latency === null ? "服务端中转" : "延迟 " + latency + " ms"}</span>
             </>
           )}
           {selfState.forceMuted && (

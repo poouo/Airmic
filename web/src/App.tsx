@@ -9,6 +9,7 @@ import AdminPage from "@/pages/AdminPage";
 import AuthPage from "@/pages/AuthPage";
 import LobbyPage from "@/pages/LobbyPage";
 import RoomPage from "@/pages/RoomPage";
+import SetupPage from "@/pages/SetupPage";
 import { initRealtime } from "@/lib/events";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -47,6 +48,9 @@ function GlobalOverlays() {
 function AppRoutes() {
   const status = useAuthStore((state) => state.status);
   const serverName = useAppStore((state) => state.server?.name);
+  const setupRequired = useAppStore((state) => state.setupRequired);
+  const bootstrapped = useAppStore((state) => state.bootstrapped);
+  const location = useLocation();
 
   useEffect(() => {
     document.title = serverName ? serverName + " · AirMic" : "AirMic · 网页语音开黑";
@@ -54,8 +58,14 @@ function AppRoutes() {
 
   if (status === "loading") return <FullScreenLoader text="正在连接 AirMic…" />;
 
+  // 服务器尚未初始化时强制进入初始化向导（未登录也可访问）
+  if (bootstrapped && setupRequired && location.pathname !== "/setup") {
+    return <Navigate to="/setup" replace />;
+  }
+
   return (
     <Routes>
+      <Route path="/setup" element={<SetupPage />} />
       <Route path="/login" element={<AuthPage />} />
       <Route
         element={

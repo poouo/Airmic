@@ -1,25 +1,47 @@
-# AirMic docker compose
+# AirMic docker compose（AirMic + LiveKit SFU 语音中转，两个服务都必须运行）
 #
-# 1) 准备配置（可选，全部使用默认值也能跑）：
+# 语音架构：浏览器 ⇄ LiveKit SFU（服务端转发音频），不再有 P2P/Mesh。AirMic 只负责
+# 账号/房间/权限/聊天与签发 LiveKit 访问令牌；LiveKit 负责媒体转发。
+#
+# 1) 准备配置：
 #      cp .env.example .env      # Windows: Copy-Item .env.example .env
+#        - 生产环境把 LIVEKIT_URL 改成 wss://livekit.example.com（浏览器可访问的地址）
+#        - 生产环境务必修改 LIVEKIT_API_KEY / LIVEKIT_API_SECRET，并与 deploy/livekit.yaml 的 keys 一致
 #        - 反向代理后把 TRUST_PROXY 改为 true
-#        - 直接对外暴露时建议设置 JWT_SECRET
-# 2) 构建并启动：
+#        - 可选：设置 SETUP_TOKEN 保护首次初始化
+# 2) 构建并启动（会自动启动 LiveKit 与 AirMic）：
 #      docker compose up -d --build
-# 3) 查看状态与日志：
+# 3) 打开 http://localhost:9811/setup 完成初始化（创建管理员、服务器信息、LiveKit 配置）
+# 4) 查看状态与日志：
 #      docker compose ps
-#      docker compose logs -f airmic
-# 4) 备份（备份文件会写入 /data/backups，随命名卷持久化）：
+#      docker compose logs -f airmic livekit
+# 5) 备份（备份文件会写入 /data/backups，随命名卷持久化）：
 #      docker compose exec airmic node scripts/backup.mjs
 #
-# 可选：TURN 中继服务（coturn）
-#      - 先把 deploy/coturn.conf 里的 realm / external-ip / 用户名密码改好
-#      - 再执行：docker compose --profile turn up -d
-#      - 需要 Linux 主机（network_mode: host）；Windows/macOS Docker Desktop 不支持 host 网络，
-#        请改为在宿主机安装 coturn，或映射端口并把 external-ip 配成宿主机公网 IP。
+# 生产网络提示：
+#   - LiveKit 的媒体端口（7881/tcp、7882/udp）必须直达，不能只靠 HTTP 反向代理。
+#   - Linux 生产环境推荐给 livekit 使用 host 网络（见下方注释），避免 Docker NAT 影响 ICE。
+#   - 云主机/1:1 NAT 环境请在 deploy/livekit.yaml 中设置 rtc.use_external_ip: true。
 name: airmic
 
 services:
+  # ===== LiveKit SFU：语音媒体服务（必需）=====
+  livekit:
+    image: livekit/livekit-server:${LIVEKIT_VERSION:-v1.13.11}
+    container_name: airmic-livekit
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./deploy/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"       # HTTP / WebSocket 信令（可经 Nginx/Caddy 反代为 wss）
+      - "7881:7881"       # RTC over TCP（UDP 被封时的回退）
+      - "7882:7882/udp"   # RTC UDP mux（媒体主通道）
+    # 生产推荐（仅 Linux）：使用宿主机网络，媒体端口直达，避免 Docker NAT 导致 ICE 失败。
+    # 启用后删除上面的 ports 配置，并在 Firewall 中直接放行 7880/7881/7882。
+    # network_mode: host
+
+  # ===== AirMic 应用：账号/房间/权限/聊天/令牌签发 =====
   airmic:
     build:
       context: .
@@ -28,7 +50,7 @@ services:
     container_name: airmic
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "9811:9811"
     env_file:
       # Compose >= 2.24 支持 required: false（.env 不存在时也能启动）。
       # 旧版 Compose 请改成下面一行： - .env
@@ -37,12 +59,19 @@ services:
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
-      PORT: "3000"
+      PORT: "9811"
       DATABASE_PATH: /data/airmic.db
       WEB_DIST: /app/web/dist
       # 容器内备份默认写入数据卷（可在 .env 中覆盖 BACKUP_DIR）
       BACKUP_DIR: /data/backups
       RETENTION: "10"
+      # LiveKit SFU（返回给浏览器的信令地址：本机开发用 ws://localhost:7880，
+      # 生产环境必须改成浏览器可访问的 wss://livekit.example.com）
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+    depends_on:
+      - livekit
     volumes:
       - airmic-data:/data
       # 可选：容器内直接启用 HTTPS 时挂载自签证书，并在 .env 设置
@@ -54,31 +83,12 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://127.0.0.1:9811/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     stop_grace_period: 20s
-
-  # 可选：coturn TURN 中继（默认不启动，使用 --profile turn）
-  coturn:
-    image: coturn/coturn:4.6.3
-    container_name: airmic-coturn
-    profiles: ["turn"]
-    restart: unless-stopped
-    # TURN 中继需要大量 UDP 端口，host 网络是 Linux 上最可靠的部署方式。
-    # 注意：host 网络下 compose 的 ports 会被忽略，防火墙直接管理宿主机端口。
-    network_mode: host
-    volumes:
-      - ./deploy/coturn.conf:/etc/coturn/turnserver.conf:ro
-    command: ["-c", "/etc/coturn/turnserver.conf"]
-    # 桥接网络替代方案（Linux）：删除 network_mode: host，改为下面的端口映射，
-    # 但必须在 coturn 配置中填写 external-ip=<宿主机公网IP>，否则中继候选不可用。
-    # ports:
-    #   - "3478:3478/tcp"
-    #   - "3478:3478/udp"
-    #   - "49160-49200:49160-49200/udp"
 
 volumes:
   airmic-data:

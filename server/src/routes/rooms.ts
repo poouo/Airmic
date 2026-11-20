@@ -29,7 +29,7 @@ const createRoomSchema = z.object({
   description: z.string().max(200).optional(),
   category: z.string().trim().max(20).optional(),
   password: z.string().min(4, "房间密码至少 4 位").max(64).nullable().optional(),
-  maxUsers: z.number().int().min(0).max(100).optional(),
+  maxUsers: z.number().int().min(0).max(500).optional(),
   sortOrder: z.number().int().min(-100000).max(100000).optional(),
   locked: z.boolean().optional(),
   screenShareEnabled: z.boolean().optional(),

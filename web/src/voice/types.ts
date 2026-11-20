@@ -3,7 +3,7 @@ import type { AudioSettings } from "@airmic/shared";
 /** 语音连接质量等级（用于成员卡片的质量图标） */
 export type VoiceQuality = "good" | "fair" | "poor" | "unknown";
 
-/** 一条 PeerConnection 的网络统计（每 2 秒更新一次） */
+/** 一个参与者的语音连接质量（SFU 模式下由 LiveKit ConnectionQuality 汇总，每 2 秒更新） */
 export interface PeerNetworkStats {
   userId: number;
   /** 往返延迟（毫秒） */

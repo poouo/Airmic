@@ -21,6 +21,7 @@ Thumbs.db
 playwright-report/
 test-results/
 e2e/artifacts/
+.tools/
 
 # 本地数据库备份（scripts/backup.mjs）
 backups/

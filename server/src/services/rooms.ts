@@ -108,10 +108,14 @@ export class RoomsService {
     };
   }
 
+  /**
+   * 房间生效人数上限：max_users <= 0 表示继承服务器设置（默认 100、可调到 500）。
+   * SFU 模式下没有客户端 P2P 互联的 10 人限制，容量只由服务器设置与房间配置决定。
+   */
   maxUsersFor(row: RoomRow): number {
-    const limit = this.settings.get().maxUsersPerRoom;
-    if (row.max_users <= 0) return limit;
-    return Math.min(row.max_users, limit);
+    const serverLimit = this.settings.get().maxUsersPerRoom;
+    if (row.max_users <= 0) return serverLimit;
+    return Math.min(row.max_users, serverLimit);
   }
 
   effectiveAudio(row: RoomRow): AudioSettings {
@@ -315,5 +319,5 @@ export class RoomsService {
 function clampRoomMaxUsers(value: unknown): number {
   const num = Number(value);
   if (!Number.isFinite(num)) return 0;
-  return Math.min(100, Math.max(0, Math.trunc(num)));
+  return Math.min(500, Math.max(0, Math.trunc(num)));
 }

@@ -1,0 +1,26 @@
+[Unit]
+Description=LiveKit SFU server for AirMic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署修改用户、目录与二进制路径
+User=livekit
+Group=livekit
+WorkingDirectory=/opt/livekit
+ExecStart=/opt/livekit/livekit-server --config /opt/livekit/livekit.yaml
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+# 安全加固（LiveKit 无需写文件；如需保存录制/日志再放开对应目录）
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
