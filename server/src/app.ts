@@ -1,0 +1,122 @@
+import fs from "node:fs";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import cookie from "@fastify/cookie";
+import fastifyStatic from "@fastify/static";
+import type { AppConfig } from "./config.js";
+import { loadConfig } from "./config.js";
+import { AppError } from "./lib/errors.js";
+import { registerAuthDecorators } from "./plugins/auth.js";
+import { registerRealtime } from "./realtime/index.js";
+import { getHub } from "./realtime/instance.js";
+import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerRoomRoutes } from "./routes/rooms.js";
+import { registerServerRoutes } from "./routes/server.js";
+import { registerUserRoutes } from "./routes/users.js";
+import { createServices } from "./services/index.js";
+
+export interface BuildAppOptions {
+  config?: AppConfig;
+}
+
+export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const config = options.config ?? loadConfig();
+  const services = createServices(config);
+
+  const loggerOption = config.logLevel === "silent" ? false : { level: config.logLevel };
+  const baseOptions = {
+    logger: loggerOption,
+    trustProxy: config.trustProxy,
+    bodyLimit: 2 * 1024 * 1024,
+  };
+  // HTTPS 可选：Fastify 的类型推断对 http/https 返回不同的实例泛型，这里统一视为默认实例
+  const app = (
+    config.ssl ? Fastify({ ...baseOptions, https: config.ssl }) : Fastify(baseOptions)
+  ) as unknown as FastifyInstance;
+
+  app.decorate("services", services);
+
+  await app.register(cookie);
+
+  const indexHtmlPath = path.join(config.webDist, "index.html");
+
+  // 错误响应与 404 处理器必须在路由/插件注册之前设置：
+  // Fastify 在 register() 之后设置错误处理器时，无法作用到此前已注册的路由。
+  app.setNotFoundHandler((request, reply) => {
+    const url = request.raw.url ?? "";
+    if (request.method === "GET" && !url.startsWith("/api/") && !url.startsWith("/ws")) {
+      if (fs.existsSync(indexHtmlPath)) {
+        reply.header("Cache-Control", "no-store");
+        return reply.type("text/html; charset=utf-8").send(fs.createReadStream(indexHtmlPath));
+      }
+    }
+    return reply.code(404).send({ error: { code: "not_found", message: "资源不存在" } });
+  });
+
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AppError) {
+      return reply.code(error.statusCode).send({
+        error: { code: error.code, message: error.message, details: error.details },
+      });
+    }
+    const candidate = error as { statusCode?: number; code?: string; message?: string; validation?: unknown };
+    if (candidate.validation) {
+      return reply.code(400).send({ error: { code: "validation_error", message: "请求参数不正确" } });
+    }
+    if (typeof candidate.statusCode === "number" && candidate.statusCode >= 400 && candidate.statusCode < 500) {
+      return reply.code(candidate.statusCode).send({
+        error: { code: candidate.code ?? "bad_request", message: candidate.message ?? "请求不正确" },
+      });
+    }
+    request.log.error({ err: error }, "未处理的服务端错误");
+    return reply.code(500).send({ error: { code: "internal", message: "服务器内部错误" } });
+  });
+
+  app.addHook("onRequest", async (request) => {
+    const url = request.raw.url ?? "";
+    if (url.startsWith("/api/") || url.startsWith("/ws")) {
+      request.raw.socket.setNoDelay?.(true);
+    }
+  });
+
+  app.addHook("onSend", async (request, reply) => {
+    const url = request.raw.url ?? "";
+    if (!url.startsWith("/api/") && !url.startsWith("/ws")) return;
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Referrer-Policy", "same-origin");
+    reply.header("Permissions-Policy", "microphone=(self), camera=(self), display-capture=(self)");
+  });
+
+  registerAuthDecorators(app, services);
+
+  await registerServerRoutes(app, services);
+  await registerAuthRoutes(app, services);
+  await registerUserRoutes(app, services);
+  await registerRoomRoutes(app, services);
+  await registerAdminRoutes(app, services);
+  await registerRealtime(app, services);
+
+  if (fs.existsSync(indexHtmlPath)) {
+    // 显式处理根路径：@fastify/static 使用 index:false + wildcard:true 时，"/" 会被当作目录请求返回 403
+    app.get("/", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return reply.type("text/html; charset=utf-8").send(fs.createReadStream(indexHtmlPath));
+    });
+    await app.register(fastifyStatic, {
+      root: config.webDist,
+      prefix: "/",
+      index: false,
+      maxAge: config.isProduction ? "1h" : 0,
+      wildcard: true,
+    });
+  }
+
+  app.addHook("onClose", async () => {
+    getHub()?.shutdown();
+    services.db.close();
+  });
+
+  return app;
+}

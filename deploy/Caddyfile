@@ -1,0 +1,35 @@
+# =============================================================================
+# AirMic 的 Caddy 配置示例（Caddy v2）
+#
+# 使用方式（宿主机安装 Caddy）：
+#   1. 把 airmic.example.com 换成你的域名，并确保 DNS 已解析到本机
+#   2. sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   3. sudo systemctl reload caddy
+#   Caddy 会自动申请并续期 Let's Encrypt 证书，并自动处理 WebSocket upgrade。
+#
+# 前提：AirMic 监听 127.0.0.1:3000（.env: HOST=127.0.0.1 PORT=3000 TRUST_PROXY=true）
+# 局域网自签场景可把站点地址写成 https://airmic.local 并添加：
+#   tls internal
+# =============================================================================
+
+airmic.example.com {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "same-origin"
+        Permissions-Policy "microphone=(self), camera=(self), display-capture=(self)"
+    }
+
+    # Caddy 会自动转发 WebSocket 的 Upgrade/Connection 头
+    reverse_proxy 127.0.0.1:3000
+}
+
+# -----------------------------------------------------------------------------
+# Docker Compose 内部网络版本（配合 DEPLOY.md 的 Caddy 容器方案）：
+# 把上面的 reverse_proxy 改为：
+#   reverse_proxy airmic:3000
+# 站点地址仍用公网域名，Caddy 容器需要暴露 80/443 端口并挂载 caddy-data 卷。
+# -----------------------------------------------------------------------------

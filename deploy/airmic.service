@@ -1,0 +1,42 @@
+[Unit]
+Description=AirMic 网页语音服务器
+Documentation=file:/opt/airmic/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署修改 User/Group/WorkingDirectory 与 node 路径（which node 的结果）
+User=airmic
+Group=airmic
+WorkingDirectory=/opt/airmic
+
+# 从 .env 读取服务端配置；如使用下方 Environment= 覆盖，注意优先级高于 EnvironmentFile
+EnvironmentFile=/opt/airmic/.env
+Environment=NODE_ENV=production
+
+# 注意：systemd 不加载 shell 的 PATH，请写 node 的绝对路径（which node）
+ExecStart=/usr/bin/node /opt/airmic/server/dist/index.js
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# ---- 安全加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 数据库、WAL、备份等运行时写入目录
+ReadWritePaths=/opt/airmic/data
+# 如果希望把备份写在项目内 /opt/airmic/backups，取消下一行注释（- 表示目录不存在时忽略）
+# ReadWritePaths=-/opt/airmic/backups
+# 日志目录（如果 LOG_LEVEL 之外还接了文件日志）
+# ReadWritePaths=/opt/airmic/logs
+# 需要容器内读证书时无需额外配置（ProtectSystem 仍允许读）
+# LimitNOFILE：WebSocket 并发连接数上限
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
