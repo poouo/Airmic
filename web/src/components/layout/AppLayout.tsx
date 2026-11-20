@@ -32,7 +32,7 @@ export default function AppLayout() {
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px] animate-fade-in dark:bg-black/50" onClick={() => setSidebarOpen(false)} aria-hidden />
-          <div className="absolute inset-y-0 left-0 flex w-[86%] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-popover animate-rise-in">
+          <div className="absolute inset-y-0 left-0 flex w-[72%] max-w-[17rem] flex-col border-r border-sidebar-border bg-sidebar shadow-popover animate-rise-in">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
               <span className="flex items-center gap-2.5">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">

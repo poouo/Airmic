@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Volume2, WifiOff } from "lucide-react";
+import { HeadphoneOff, Headphones, Mic, MicOff, Volume2, WifiOff } from "lucide-react";
 import type { PeerInfo, PeerStatePatch, Role, UserSelf } from "@airmic/shared";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { JoinGate } from "@/components/room/JoinGate";
@@ -17,6 +17,7 @@ import { useRoomStore } from "@/stores/room";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import { voice } from "@/voice/engine";
+import { MASTER_VOLUME_KEY } from "@/voice/engine";
 import type { VoiceStateSnapshot } from "@/voice/engine";
 
 const ROLE_RANK: Record<Role, number> = { admin: 0, moderator: 1, user: 2, guest: 3 };
@@ -44,6 +45,8 @@ export default function RoomPage() {
   const peerStats = usePeerStats();
   const screenStreams = useScreenStreams();
   const perUserVolume = useSettingsStore((state) => state.perUserVolume ?? {});
+  /** 手机端快捷条用的主音量（0-200，100 为原始音量） */
+  const masterVolume = perUserVolume[MASTER_VOLUME_KEY] ?? 100;
   const pttEnabled = useSettingsStore((state) => state.pttEnabled);
   const pttKey = useSettingsStore((state) => state.pttKey);
 
@@ -432,6 +435,56 @@ export default function RoomPage() {
         onToggleChat={handleToggleChat}
         onRetryMicrophone={handleRetryMicrophone}
       />
+
+      {/* 手机/平板快捷操作条：麦克风、耳聋、主音量（桌面端底部控制栏已有完整按钮） */}
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 pb-2 lg:hidden">
+        <button
+          type="button"
+          onClick={handleToggleMic}
+          aria-label={selfState.micEnabled && selfState.hasMicrophone ? "静音麦克风" : "开启麦克风"}
+          className={
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors " +
+            (selfState.micEnabled && selfState.hasMicrophone
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground")
+          }
+        >
+          {selfState.micEnabled && selfState.hasMicrophone ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+          <span>{selfState.micEnabled && selfState.hasMicrophone ? "麦克风" : "已静音"}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleToggleDeafen}
+          aria-label={selfState.deafened ? "取消耳聋" : "耳聋（只听不说）"}
+          className={
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors " +
+            (selfState.deafened ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground")
+          }
+        >
+          {selfState.deafened ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
+        </button>
+
+        <label className="ml-auto flex min-w-0 flex-1 items-center gap-2 text-[11px] text-muted-foreground">
+          <Volume2 className="h-4 w-4 shrink-0" />
+          <input
+            type="range"
+            min={0}
+            max={200}
+            step={5}
+            value={masterVolume}
+            aria-label="主音量"
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              const store = useSettingsStore.getState();
+              store.update({ perUserVolume: { ...store.perUserVolume, [MASTER_VOLUME_KEY]: value } });
+              voice.setMasterVolume(value);
+            }}
+            className="h-1.5 w-full min-w-0 accent-primary"
+          />
+          <span className="tabular w-9 shrink-0 text-right">{masterVolume}%</span>
+        </label>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
