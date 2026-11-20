@@ -159,6 +159,8 @@ export interface PeerInfo {
   speaking: boolean;
   screenSharing: boolean;
   forceMuted: boolean;
+  /** 服务端用 WebSocket 心跳测得的往返延迟（毫秒）；还没测到时为 null */
+  rttMs?: number | null;
   joinedAt: string;
 }
 

@@ -15,8 +15,9 @@ import {
 import type { SocketStatus } from "@/lib/ws";
 import { cn, prettyKey } from "@/lib/format";
 import { Kbd } from "@/components/ui";
+import { useRoomStore } from "@/stores/room";
 import type { PeerNetworkStats, VoiceStateSnapshot } from "@/voice/engine";
-import { averageRtt, qualityMeta, worstQuality } from "./quality";
+import { qualityMeta, worstQuality } from "./quality";
 
 export interface RoomControlsProps {
   selfState: VoiceStateSnapshot;
@@ -53,7 +54,11 @@ export function RoomControls({
   onOpenSettings,
   onLeave,
 }: RoomControlsProps) {
-  const latency = averageRtt(peerStats);
+  // 延迟由服务端心跳测得并广播（见 hub 的 ping/pong），这里取房间内已测到的平均值
+  const latencyMap = useRoomStore((state) => state.latency);
+  const latencyValues = Object.values(latencyMap).filter((value): value is number => typeof value === "number");
+  const latency =
+    latencyValues.length > 0 ? Math.round(latencyValues.reduce((total, value) => total + value, 0) / latencyValues.length) : null;
   const quality = peerStats.length > 0 ? qualityMeta(worstQuality(peerStats)) : null;
   const connected = connection === "online";
   const micMuted = !selfState.micEnabled || !selfState.hasMicrophone || selfState.forceMuted;

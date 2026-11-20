@@ -97,6 +97,10 @@ export function initRealtime(): void {
     useRoomStore.getState().applyPeerState(message.userId, message.state);
   });
 
+  socket.on("peer_latency", (message) => {
+    useRoomStore.getState().setLatency(message.userId, message.rttMs);
+  });
+
   socket.on("chat_message", (message) => {
     useRoomStore.getState().applyMessage(message.message);
   });

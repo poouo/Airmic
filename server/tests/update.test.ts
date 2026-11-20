@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { UpdateCheckResponse } from "@airmic/shared";
+import { APP_VERSION, type UpdateCheckResponse } from "@airmic/shared";
 import { createTestContext } from "./helpers.js";
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -37,7 +37,7 @@ test("更新检查：GitHub Release 有新版本", async () => {
     });
     const result = await admin.get<UpdateCheckResponse>("/api/system/update");
     assert.equal(result.status, 200);
-    assert.equal(result.body.currentVersion, "1.1.0");
+    assert.equal(result.body.currentVersion, APP_VERSION);
     assert.equal(result.body.latestVersion, "9.9.9");
     assert.equal(result.body.latestRef, "v9.9.9");
     assert.equal(result.body.latestSource, "release");

@@ -75,6 +75,10 @@ interface ClientConnection {
   joinedAt: string | null;
   state: PeerPresenceState;
   missedHeartbeats: number;
+  /** 上一次心跳 ping 的发送时间，用于收到 pong 时算 RTT */
+  pingSentAt: number | null;
+  /** 最近一次测得的往返延迟（毫秒） */
+  rttMs: number | null;
   closed: boolean;
   closeTimer: NodeJS.Timeout | null;
 }
@@ -196,6 +200,8 @@ export class Hub implements HubLike {
       joinedAt: null,
       state: { muted: false, deafened: false, speaking: false, screenSharing: false, forceMuted: false },
       missedHeartbeats: 0,
+      pingSentAt: null,
+      rttMs: null,
       closed: false,
       closeTimer: null,
     };
@@ -206,6 +212,22 @@ export class Hub implements HubLike {
 
     socket.on("pong", () => {
       conn.missedHeartbeats = 0;
+      const sentAt = conn.pingSentAt;
+      conn.pingSentAt = null;
+      if (sentAt === null) return;
+      // 用服务端 ping / 客户端 pong 的往返时间作为该用户的延迟；
+      // 浏览器 WebSocket 会自动回 pong，不需要客户端额外配合。
+      const rttMs = Math.max(0, Math.round(Date.now() - sentAt));
+      conn.rttMs = rttMs;
+      if (conn.roomId !== null && !conn.closed) {
+        const message: Extract<ServerMessage, { t: "peer_latency" }> = {
+          t: "peer_latency",
+          roomId: conn.roomId,
+          userId: conn.userId,
+          rttMs,
+        };
+        this.broadcastToRoom(conn.roomId, message);
+      }
     });
     socket.on("message", (data: RawData, isBinary: boolean) => this.handleRawMessage(conn, data, isBinary));
     socket.on("close", (code: number, reason: Buffer) => this.handleSocketClose(conn, code, reason.toString()));
@@ -984,6 +1006,7 @@ export class Hub implements HubLike {
       }
       conn.missedHeartbeats += 1;
       try {
+        conn.pingSentAt = Date.now();
         conn.socket.ping();
       } catch {
         this.terminateSocket(conn);
@@ -1108,6 +1131,7 @@ export class Hub implements HubLike {
       speaking: conn.state.speaking,
       screenSharing: conn.state.screenSharing,
       forceMuted: conn.state.forceMuted,
+      rttMs: conn.rttMs,
       joinedAt: conn.joinedAt ?? nowIso(),
     };
   }

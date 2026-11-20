@@ -77,6 +77,7 @@ export type ServerMessage =
   | { t: "peer_left"; roomId: number; userId: number; reason?: string }
   | { t: "peer_updated"; roomId: number; peer: PeerInfo }
   | { t: "peer_state"; roomId: number; userId: number; state: PeerStatePatch }
+  | { t: "peer_latency"; roomId: number; userId: number; rttMs: number | null }
   | { t: "chat_message"; roomId: number; message: ChatMessage }
   | { t: "notice"; roomId: number | null; level: "info" | "warn" | "error"; text: string; createdAt: string }
   | { t: "signal"; from: number; payload: SignalPayload }

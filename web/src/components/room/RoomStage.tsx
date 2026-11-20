@@ -3,6 +3,7 @@ import { MonitorUp, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { useUiStore } from "@/stores/ui";
+import { useRoomStore } from "@/stores/room";
 import type { PeerNetworkStats } from "@/voice/engine";
 import { MemberCard } from "./MemberCard";
 import type { RoomMember } from "./types";
@@ -31,6 +32,7 @@ export function RoomStage({
   onLocalMute,
   onStopScreenShare,
 }: RoomStageProps) {
+  const latency = useRoomStore((state) => state.latency);
   if (screenSharer) {
     const stream = screenSharer.isSelf ? selfScreenStream : screenStream;
     return (
@@ -57,6 +59,7 @@ export function RoomStage({
               <MemberCard
                 member={member}
                 stats={peerStats[member.userId]}
+                latency={latency[member.userId] ?? null}
                 volume={volumes[String(member.userId)] ?? 100}
                 onVolumeChange={onVolumeChange}
                 onLocalMute={onLocalMute}
@@ -85,6 +88,7 @@ export function RoomStage({
             key={member.userId}
             member={member}
             stats={peerStats[member.userId]}
+                latency={latency[member.userId] ?? null}
             volume={volumes[String(member.userId)] ?? 100}
             onVolumeChange={onVolumeChange}
             onLocalMute={onLocalMute}

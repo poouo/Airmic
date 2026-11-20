@@ -22,6 +22,8 @@ interface RoomState {
   joining: boolean;
   joinError: JoinError | null;
   screenSharerId: number | null;
+  /** 各成员的实时延迟（毫秒），由服务端心跳测量后广播；未知为 null */
+  latency: Record<number, number | null>;
   lastJoin: { roomId: number; password?: string } | null;
   joinRoom: (roomId: number, password?: string, force?: boolean) => void;
   retryJoin: () => void;
@@ -32,6 +34,7 @@ interface RoomState {
   applyPeerLeft: (userId: number, reason?: string) => void;
   applyPeerUpdated: (peer: PeerInfo) => void;
   applyPeerState: (userId: number, patch: PeerStatePatch) => void;
+  setLatency: (userId: number, rttMs: number | null) => void;
   applyMessage: (message: ChatMessage) => void;
   addNotice: (text: string, level?: NoticeLine["level"]) => void;
   sendChat: (content: string) => boolean;
@@ -50,6 +53,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   joining: false,
   joinError: null,
   screenSharerId: null,
+  latency: {},
   lastJoin: null,
 
   joinRoom(roomId, password, force = false) {
@@ -84,6 +88,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   applySnapshot(snapshot) {
+    const latency: Record<number, number | null> = {};
+    for (const peer of snapshot.peers) {
+      if (typeof peer.rttMs === "number") latency[peer.userId] = peer.rttMs;
+    }
     set({
       snapshot,
       peers: snapshot.peers,
@@ -92,26 +100,34 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       joinError: null,
       screenSharerId: snapshot.screenSharerId,
       notices: [],
+      latency,
     });
   },
 
   applyLeft(reason) {
-    set({ snapshot: null, peers: [], messages: [], joining: false, lastJoin: null, screenSharerId: null });
+    set({ snapshot: null, peers: [], messages: [], joining: false, lastJoin: null, screenSharerId: null, latency: {} });
     if (reason) get().addNotice(reason, "warn");
   },
 
   applyPeerJoined(peer) {
     set((state) => {
       if (state.peers.some((item) => item.userId === peer.userId)) return state;
-      return { peers: [...state.peers, peer] };
+      const latency =
+        typeof peer.rttMs === "number" ? { ...state.latency, [peer.userId]: peer.rttMs } : state.latency;
+      return { peers: [...state.peers, peer], latency };
     });
   },
 
   applyPeerLeft(userId) {
-    set((state) => ({
-      peers: state.peers.filter((peer) => peer.userId !== userId),
-      screenSharerId: state.screenSharerId === userId ? null : state.screenSharerId,
-    }));
+    set((state) => {
+      const latency = { ...state.latency };
+      delete latency[userId];
+      return {
+        peers: state.peers.filter((peer) => peer.userId !== userId),
+        screenSharerId: state.screenSharerId === userId ? null : state.screenSharerId,
+        latency,
+      };
+    });
   },
 
   applyPeerUpdated(peer) {
@@ -157,6 +173,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set({ joining });
   },
 
+  setLatency(userId, rttMs) {
+    set((state) => ({ latency: { ...state.latency, [userId]: rttMs } }));
+  },
+
   reset() {
     set({
       snapshot: null,
@@ -167,6 +187,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       joinError: null,
       lastJoin: null,
       screenSharerId: null,
+      latency: {},
     });
   },
 }));

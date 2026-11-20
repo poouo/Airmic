@@ -12,6 +12,8 @@ import type { RoomMember } from "./types";
 export interface MemberCardProps {
   member: RoomMember;
   stats?: PeerNetworkStats;
+  /** 该成员到语音服务器的往返延迟（毫秒）；未知为 null/undefined */
+  latency?: number | null;
   volume: number;
   onVolumeChange: (userId: number, volume: number) => void;
   onLocalMute: (userId: number, muted: boolean) => void;
@@ -20,7 +22,7 @@ export interface MemberCardProps {
 }
 
 /** 成员卡片：头像/说话高亮/角色徽章/状态标识/连接质量 + 本地音量面板 */
-export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute, compact = false }: MemberCardProps) {
+export function MemberCard({ member, stats, latency, volume, onVolumeChange, onLocalMute, compact = false }: MemberCardProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const canOpenPanel = !member.isSelf;
 
@@ -82,6 +84,21 @@ export function MemberCard({ member, stats, volume, onVolumeChange, onLocalMute,
           </span>
           {member.isSelf && (
             <span className="rounded bg-brand/10 px-1 py-0.5 text-[10px] leading-none text-brand">你</span>
+          )}
+          {typeof latency === "number" && (
+            <span
+              title={"延迟 " + latency + " ms（到语音服务器往返）"}
+              className={cn(
+                "shrink-0 rounded px-1 py-0.5 text-[10px] leading-none tabular",
+                latency <= 80
+                  ? "bg-success/10 text-success"
+                  : latency <= 160
+                    ? "bg-warning/10 text-warning"
+                    : "bg-destructive/10 text-destructive",
+              )}
+            >
+              {latency} ms
+            </span>
           )}
         </div>
 
