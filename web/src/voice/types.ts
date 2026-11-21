@@ -23,7 +23,7 @@ export interface PeerNetworkStats {
 export interface VoiceStateSnapshot {
   /** 用户意图：是否开启麦克风 */
   micEnabled: boolean;
-  /** 是否开启耳聋（静音所有远端声音） */
+  /** 是否关闭收听并暂停接收远端音频轨道 */
   deafened: boolean;
   /** 是否正在共享屏幕 */
   screenSharing: boolean;

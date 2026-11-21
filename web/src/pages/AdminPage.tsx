@@ -88,68 +88,65 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <div className="app-canvas app-scroll min-h-0 flex-1 overflow-y-auto scroll-pb-20">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-5 sm:py-6">
-          {/* 移动端二级导航 */}
-          <nav aria-label="后台功能" className="lg:hidden">
-            <Select label="管理模块" options={allowed.map((section) => ({ value: section.id, label: section.label }))}
-              value={active.id} onChange={(event) => setActiveId(event.target.value as AdminSection["id"])} />
-          </nav>
+      <div className="app-canvas flex min-h-0 flex-1 flex-col">
+        <nav aria-label="后台功能" className="shrink-0 px-3 pt-4 sm:px-5 lg:hidden">
+          <Select label="管理模块" options={allowed.map((section) => ({ value: section.id, label: section.label }))}
+            value={active.id} onChange={(event) => setActiveId(event.target.value as AdminSection["id"])} />
+        </nav>
 
-          <div className="flex items-start gap-6">
-            {/* 桌面端二级导航 */}
-            <aside className="hidden w-56 shrink-0 lg:block">
-              <div className="sticky top-6 flex flex-col gap-1 rounded-2xl border border-border bg-card p-2 shadow-card">
-                <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">管理后台</p>
-                {allowed.map((section) => {
-                  const Icon = section.icon;
-                  const isActive = section.id === active.id;
-                  return (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => setActiveId(section.id)}
-                      className={cn(
-                        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
-                        isActive ? "bg-accent font-semibold text-brand" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                      )}
-                    >
-                      <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-foreground" : "text-muted-foreground")} />
-                      {section.label}
-                    </button>
-                  );
-                })}
+        <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 lg:gap-6 lg:px-5">
+          <aside aria-label="后台功能" className="hidden min-h-0 w-56 shrink-0 py-6 lg:block">
+            <div className="app-scroll flex max-h-full flex-col gap-1 overflow-y-auto overscroll-y-contain rounded-2xl border border-border bg-card p-2 shadow-card [&>*]:shrink-0">
+              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">管理后台</p>
+              {allowed.map((section) => {
+                const Icon = section.icon;
+                const isActive = section.id === active.id;
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => setActiveId(section.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
+                      isActive ? "bg-accent font-semibold text-brand" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                    )}
+                  >
+                    <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-foreground" : "text-muted-foreground")} />
+                    {section.label}
+                  </button>
+                );
+              })}
 
-                <Divider className="my-1.5" />
+              <Divider className="my-1.5" />
 
-                <div className="flex items-center gap-2 rounded-lg px-2 py-1.5">
-                  <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-foreground">{user.displayName}</p>
-                    <p className="truncate text-[11px] text-muted-foreground">{ROLE_LABELS[user.role]}</p>
-                  </div>
+              <div className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+                <Avatar name={user.displayName} color={user.avatarColor} emoji={user.avatarEmoji} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">{user.displayName}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{ROLE_LABELS[user.role]}</p>
                 </div>
-                <Link
-                  to="/"
-                  className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  返回大厅
-                </Link>
               </div>
-            </aside>
+              <Link
+                to="/"
+                className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                返回大厅
+              </Link>
+            </div>
+          </aside>
 
-            <main className="min-w-0 flex-1">
-              {active.id === "overview" && <OverviewTab />}
-              {active.id === "rooms" && <RoomDirectoryManager />}
-              {active.id === "users" && <UsersTab />}
-              {active.id === "bans" && <BansTab />}
-              {active.id === "audit" && <AuditTab />}
-              {active.id === "logs" && <LogsTab />}
-              {active.id === "settings" && <SettingsTab />}
-              {active.id === "sessions" && <SessionsTab />}
-            </main>
-          </div>
+          <main key={active.id} className="app-scroll page-scroll min-h-0 min-w-0 flex-1 scroll-pb-20 px-3 py-4 sm:px-5 lg:px-0 lg:py-6">
+            {active.id === "overview" && <OverviewTab />}
+            {active.id === "rooms" && <RoomDirectoryManager />}
+            {active.id === "users" && <UsersTab />}
+            {active.id === "bans" && <BansTab />}
+            {active.id === "audit" && <AuditTab />}
+            {active.id === "logs" && <LogsTab />}
+            {active.id === "settings" && <SettingsTab />}
+            {active.id === "sessions" && <SessionsTab />}
+          </main>
         </div>
       </div>
     </div>

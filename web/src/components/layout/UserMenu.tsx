@@ -75,7 +75,7 @@ export default function UserMenu() {
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-popover animate-scale-in"
+          className="app-scroll absolute right-0 top-full z-50 mt-2 max-h-[calc(var(--visible-height,var(--viewport-height))-var(--safe-top)-var(--safe-bottom)-3.5rem)] w-64 origin-top-right overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-popover text-popover-foreground shadow-popover animate-scale-in"
           role="menu"
         >
           <div className="border-b border-border px-3.5 py-3">

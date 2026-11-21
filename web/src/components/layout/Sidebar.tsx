@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useRoomStore } from "@/stores/room";
 import { useUiStore } from "@/stores/ui";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
+import CodeRoomModal from "@/components/lobby/CodeRoomModal";
 import RoomEditor from "@/components/lobby/RoomEditor";
 import { canOpenRoomManagement, needsRoomPassword, roomCreationAreas } from "@/components/lobby/access";
 import OnlineUsersList from "./OnlineUsersList";
@@ -25,6 +26,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
   const directory = useAppStore((state) => state.directory);
   const currentRoomId = useRoomStore((state) => state.snapshot?.room.id ?? null);
   const [joinTarget, setJoinTarget] = useState<RoomSummary | null>(null);
+  const [codeTarget, setCodeTarget] = useState<RoomSummary | null>(null);
   const [creating, setCreating] = useState(false);
 
   const defaultCreateArea = roomCreationAreas(user, server, directory)[0];
@@ -48,6 +50,10 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
       useUiStore.getState().toast("房间已满", "warning");
       return;
     }
+    if (room.codeOnly) {
+      setCodeTarget(room);
+      return;
+    }
     if (needsRoomPassword(user, directory, room)) {
       // 不关闭移动端抽屉：密码弹窗由 Modal 渲染在抽屉之上
       setJoinTarget(room);
@@ -69,6 +75,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
       <SidebarUserCard />
 
       {joinTarget && <JoinRoomPasswordModal room={joinTarget} onClose={() => setJoinTarget(null)} />}
+      {codeTarget && <CodeRoomModal target={{ mode: "join", room: codeTarget }} onClose={() => setCodeTarget(null)} onJoined={onNavigate} />}
       {creating && defaultCreateArea && <RoomEditor target={{ kind: "create", areaId: defaultCreateArea.id }} onClose={() => setCreating(false)} />}
     </div>
   );

@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { ROOM_AUDIO_BITRATE_CHOICES, ROOM_AUDIO_BITRATE_THRESHOLD_MAX } from "@airmic/shared";
 import type {
   AdminAuditResponse,
   AdminBanListResponse,
@@ -104,12 +105,21 @@ const updateSettingsSchema = z.object({
   maxRooms: z.number({ invalid_type_error: "房间数量上限必须为数字" }).int().min(0, "房间数量上限不能小于 0").max(1000, "房间数量上限不能大于 1000").optional(),
   allowRoomCreation: z.boolean({ invalid_type_error: "创建房间开关必须为布尔值" }).optional(),
   allowGuestRoomCreation: z.boolean({ invalid_type_error: "游客创建房间开关必须为布尔值" }).optional(),
+  allowCodeRoomCreation: z.boolean().optional(),
+  allowGuestCodeRoomCreation: z.boolean().optional(),
   allowScreenShare: z.boolean({ invalid_type_error: "屏幕共享开关必须为布尔值" }).optional(),
   allowTextChat: z.boolean({ invalid_type_error: "文字聊天开关必须为布尔值" }).optional(),
   allowGuestChat: z.boolean({ invalid_type_error: "游客聊天开关必须为布尔值" }).optional(),
   maxChatLength: z.number({ invalid_type_error: "聊天长度上限必须为数字" }).int().min(20, "聊天长度上限不能小于 20").max(5000, "聊天长度上限不能大于 5000").optional(),
   maxMessagesPerRoom: z.number({ invalid_type_error: "房间消息保留数必须为数字" }).int().min(0, "房间消息保留数不能小于 0").max(5000, "房间消息保留数不能大于 5000").optional(),
   defaultAudioSettings: audioSettingsPatchSchema.optional(),
+  roomAudioBitrateLimit: z.object({
+    enabled: z.boolean(),
+    userThreshold: z.number().int().min(1).max(ROOM_AUDIO_BITRATE_THRESHOLD_MAX),
+    maxBitrate: z.number().refine((value) => ROOM_AUDIO_BITRATE_CHOICES.some((bitrate) => bitrate === value), {
+      message: "请选择有效的麦克风码率上限",
+    }),
+  }).optional(),
   iceServers: z.array(iceServerSchema).max(20, "最多 20 个 ICE 服务器").optional(),
   forceRelay: z.boolean({ invalid_type_error: "强制中继开关必须为布尔值" }).optional(),
   livekitUrl: z.string().trim().max(300, "LiveKit 地址最多 300 个字符").optional(),
@@ -503,6 +513,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       if (body.roomId !== null) {
         const room = services.rooms.findById(body.roomId);
         if (!room) throw notFound("房间不存在");
+        if (room.area_kind === "code" && hub?.getRoomIdForUser(userId) !== room.id) throw forbidden("请让用户输入口令加入房间");
         if (target.is_guest === 1 && room.allow_guests === 0 && hub?.getRoomIdForUser(userId) !== room.id) {
           throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
         }

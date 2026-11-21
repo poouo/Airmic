@@ -1,16 +1,17 @@
-import { ArrowLeft, Lock, Settings2, Shield, Users } from "lucide-react";
+import { ArrowLeft, KeyRound, Lock, Settings2, Shield, Users } from "lucide-react";
 import type { RoomDetail } from "@airmic/shared";
-import { Badge, IconButton } from "@/components/ui";
+import { Badge, Button, IconButton } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
 import { RoomIcon } from "./roomIcons";
 
-export function RoomHeader({ room, memberCount, capacity, onBack, onEdit, onManageMembers }: {
+export function RoomHeader({ room, memberCount, capacity, onBack, onEdit, onManageMembers, onViewCode }: {
   room: RoomDetail;
   memberCount: number;
   capacity: number;
   onBack: () => void;
   onEdit?: () => void;
   onManageMembers?: () => void;
+  onViewCode?: () => void;
 }) {
   const voiceAvailable = useAppStore((state) => state.server?.voiceAvailable ?? true);
   const path = `${room.channel} / ${room.category}`;
@@ -23,6 +24,7 @@ export function RoomHeader({ room, memberCount, capacity, onBack, onEdit, onMana
         <div className="flex items-center gap-1.5">
           <h1 className="min-w-0 truncate text-base font-semibold" title={room.name}>{room.name}</h1>
           {room.hasPassword && <Lock aria-label="需密码" className="h-3.5 w-3.5 shrink-0 text-warning" />}
+          {room.codeOnly && <KeyRound aria-label="口令房" className="h-3.5 w-3.5 shrink-0 text-brand" />}
           {room.locked && <Badge tone="warn">已锁定</Badge>}
         </div>
         <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -31,6 +33,8 @@ export function RoomHeader({ room, memberCount, capacity, onBack, onEdit, onMana
           {!voiceAvailable && <span className="shrink-0 text-warning">语音未配置</span>}
         </div>
       </div>
+      {onViewCode && <Button variant="secondary" size="sm" className="min-h-9 shrink-0" aria-haspopup="dialog"
+        icon={<KeyRound className="h-3.5 w-3.5" />} onClick={onViewCode}>查看口令</Button>}
       {onEdit && <IconButton label="编辑当前房间" onClick={onEdit} className="h-10 w-10"><Settings2 className="h-4 w-4" /></IconButton>}
       {onManageMembers && <IconButton label="管理房间成员" onClick={onManageMembers} className="h-10 w-10"><Shield className="h-4 w-4" /></IconButton>}
     </header>

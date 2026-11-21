@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import {
+  canCreateCodeRoom,
   PROTOCOL_VERSION,
   WS_CLOSE_CODES,
   WS_HEARTBEAT_INTERVAL_MS,
   type ClientMessage,
+  type CodeRoomRequest,
   type LogCategory,
   type LogLevel,
   type OnlineUser,
@@ -282,17 +284,7 @@ export class Hub implements HubLike {
     const roomId = existing.roomId;
     if (roomId !== null) {
       const room = this.services.rooms.findById(roomId);
-      existing.roomId = null;
-      existing.state.screenSharing = false;
-      existing.state.speaking = false;
-      const peerLeft: Extract<ServerMessage, { t: "peer_left" }> = {
-        t: "peer_left",
-        roomId,
-        userId: existing.userId,
-        reason: "账号已在其他地方登录",
-      };
-      this.broadcastToRoom(roomId, peerLeft, existing.id);
-      this.sendNoticeToRoom(roomId, "info", existing.user.displayName + " 离开了房间", existing.id);
+      this.detachFromRoom(existing, "账号已在其他地方登录");
       this.log(
         "info",
         "room",
@@ -402,6 +394,12 @@ export class Hub implements HubLike {
       case "join_room":
         this.handleJoinRoom(conn, message.roomId, message.password);
         return;
+      case "create_code_room":
+        this.handleCreateCodeRoom(conn, message.name);
+        return;
+      case "join_code_room":
+        this.handleJoinCodeRoom(conn, message.code, message.roomId);
+        return;
       case "leave_room":
         this.handleLeaveRoom(conn);
         return;
@@ -431,47 +429,107 @@ export class Hub implements HubLike {
 
   // ---------- 房间 ----------
 
-  private handleJoinRoom(conn: ClientConnection, roomId: number, password?: string): void {
+  private handleCreateCodeRoom(conn: ClientConnection, name: string): void {
+    const request = "create_code_room";
+    const settings = this.services.settings.get();
+    if (!canCreateCodeRoom(conn.user, settings)) {
+      this.sendError(conn, "forbidden", "当前身份没有创建口令房的权限", request);
+      return;
+    }
+    if (!globalRateLimiter.hit("code:create:user:" + conn.userId, 5, 60_000) ||
+        !globalRateLimiter.hit("code:create:ip:" + conn.ip, 30, 60_000)) {
+      this.sendError(conn, "rate_limited", "创建太频繁，请稍后再试", request);
+      return;
+    }
+    // 创建后会离开当前房间。当前房间若只剩创建者，可以用它释放的名额。
+    const willReleaseRoom = conn.roomId !== null &&
+      this.services.rooms.codeForRoom(conn.roomId) !== undefined &&
+      this.roomConnections(conn.roomId).length === 1;
+    const roomCount = this.services.rooms.countRooms() - (willReleaseRoom ? 1 : 0);
+    if (settings.maxRooms > 0 && roomCount >= settings.maxRooms) {
+      this.sendError(conn, "forbidden", "房间数量已达上限", request);
+      return;
+    }
+    if (settings.maxUsers > 0 && this.getOnlineCount() > settings.maxUsers) {
+      this.sendError(conn, "server_full", "服务器人数已满", request);
+      return;
+    }
+    const room = this.services.rooms.createCodeRoom(name, conn.userId, conn.user.isGuest);
+    if (room === "name_taken") {
+      this.sendError(conn, "bad_request", "已有同名口令房，请更换房间名称", request);
+      return;
+    }
+    if (!room) {
+      this.sendError(conn, "forbidden", "可用口令已用完，请稍后再试", request);
+      return;
+    }
+    this.enterRoom(conn, room, request);
+  }
+
+  private handleJoinCodeRoom(conn: ClientConnection, code: string, roomId?: number): void {
+    const request = "join_code_room";
+    if (!globalRateLimiter.hit("code:join:user:" + conn.userId, 10, 60_000) ||
+        !globalRateLimiter.hit("code:join:ip:" + conn.ip, 40, 60_000)) {
+      this.sendError(conn, "rate_limited", "尝试次数过多，请稍后再试", request);
+      return;
+    }
+    const room = this.services.rooms.findByCode(code);
+    if (!room || (roomId !== undefined && room.id !== roomId)) {
+      this.sendError(conn, "room_code_invalid", "口令无效或房间已结束", request);
+      return;
+    }
+    this.handleJoinRoom(conn, room.id, undefined, request);
+  }
+
+  private handleJoinRoom(conn: ClientConnection, roomId: number, password?: string, request: "join_room" | "join_code_room" = "join_room"): void {
     const row = this.services.rooms.findById(roomId);
     if (!row) {
-      this.sendError(conn, "room_not_found", "房间不存在", "join_room");
+      this.sendError(conn, "room_not_found", "房间不存在", request);
       return;
     }
     // 已在目标房间：直接重发快照（便于客户端重连后刷新），不产生成员进出广播
     if (conn.roomId === row.id) {
-      this.sendRoomJoined(conn, row);
+      this.sendRoomJoined(conn, row, request === "join_code_room" ? request : undefined);
+      return;
+    }
+    if (row.area_kind === "code" && request !== "join_code_room") {
+      this.sendError(conn, "room_code_required", "请输入四位房间口令", request);
       return;
     }
     if (conn.user.isGuest && row.allow_guests === 0) {
-      this.sendError(conn, "room_guests_disabled", "该房间仅限注册用户进入", "join_room");
+      this.sendError(conn, "room_guests_disabled", "该房间仅限注册用户进入", request);
       return;
     }
     if (row.locked === 1) {
-      this.sendError(conn, "room_locked", "房间已被锁定", "join_room");
+      this.sendError(conn, "room_locked", "房间已被锁定", request);
       return;
     }
     if (this.services.rooms.hasPassword(row) && !this.services.roomDirectory.canManageRoom(conn.user, row)) {
       if (!password) {
-        this.sendError(conn, "room_password_required", "该房间需要密码", "join_room");
+        this.sendError(conn, "room_password_required", "该房间需要密码", request);
         return;
       }
       if (!this.services.rooms.verifyPassword(row, password)) {
-        this.sendError(conn, "room_password_invalid", "房间密码不正确", "join_room");
+        this.sendError(conn, "room_password_invalid", "房间密码不正确", request);
         return;
       }
     }
     const maxUsers = this.services.rooms.maxUsersFor(row);
     const currentUsers = this.getRoomCounts().get(row.id) ?? 0;
     if (currentUsers >= maxUsers) {
-      this.sendError(conn, "room_full", "房间人数已满", "join_room");
+      this.sendError(conn, "room_full", "房间人数已满", request);
       return;
     }
     const settings = this.services.settings.get();
     if (settings.maxUsers > 0 && this.getOnlineCount() > settings.maxUsers) {
-      this.sendError(conn, "server_full", "服务器人数已满", "join_room");
+      this.sendError(conn, "server_full", "服务器人数已满", request);
       return;
     }
 
+    this.enterRoom(conn, row, request === "join_code_room" ? request : undefined);
+  }
+
+  private enterRoom(conn: ClientConnection, row: RoomRow, request?: CodeRoomRequest["t"]): void {
     if (conn.roomId !== null) {
       const previousRoomId = conn.roomId;
       const previousRoom = this.services.rooms.findById(previousRoomId);
@@ -485,7 +543,7 @@ export class Hub implements HubLike {
       );
       this.sendRoomLeft(conn, "切换房间");
     }
-    this.attachToRoom(conn, row);
+    this.attachToRoom(conn, row, request);
   }
 
   private handleLeaveRoom(conn: ClientConnection): void {
@@ -508,13 +566,13 @@ export class Hub implements HubLike {
     this.broadcastOnlineUsers();
   }
 
-  private attachToRoom(conn: ClientConnection, row: RoomRow): void {
+  private attachToRoom(conn: ClientConnection, row: RoomRow, request?: CodeRoomRequest["t"]): void {
     conn.roomId = row.id;
     conn.joinedAt = nowIso();
     conn.state.speaking = false;
     conn.state.screenSharing = false;
     this.log("info", "room", "加入房间", { userId: conn.userId, roomId: row.id, roomName: row.name }, conn);
-    this.sendRoomJoined(conn, row);
+    this.sendRoomJoined(conn, row, request);
 
     const peer = this.toPeerInfo(conn);
     const peerJoined: Extract<ServerMessage, { t: "peer_joined" }> = {
@@ -544,10 +602,13 @@ export class Hub implements HubLike {
     if (peerLeftReason) peerLeft.reason = peerLeftReason;
     this.broadcastToRoom(roomId, peerLeft, conn.id);
     this.sendNoticeToRoom(roomId, "info", noticeText ?? conn.user.displayName + " 离开了房间", conn.id);
+    if (this.services.rooms.codeForRoom(roomId) !== undefined && this.roomConnections(roomId).length === 0) {
+      this.services.rooms.remove(roomId);
+    }
   }
 
-  private sendRoomJoined(conn: ClientConnection, row: RoomRow): void {
-    this.send(conn, { t: "room_joined", snapshot: this.buildRoomSnapshot(conn, row) });
+  private sendRoomJoined(conn: ClientConnection, row: RoomRow, request?: CodeRoomRequest["t"]): void {
+    this.send(conn, { t: "room_joined", snapshot: this.buildRoomSnapshot(conn, row), request });
   }
 
   private buildRoomSnapshot(conn: ClientConnection, row: RoomRow): RoomSnapshot {
@@ -559,6 +620,7 @@ export class Hub implements HubLike {
     const sharer = members.find((member) => member.state.screenSharing);
     return {
       room: this.services.rooms.toDetail(row, members.length),
+      inviteCode: this.services.rooms.ownerId(row) === conn.userId ? this.services.rooms.codeForRoom(row.id) : undefined,
       peers,
       messages: this.services.rooms.listMessages(row, 50),
       screenSharerId: sharer ? sharer.userId : null,
@@ -895,7 +957,7 @@ export class Hub implements HubLike {
     if (conn.roomId === roomId) return true;
     const row = this.services.rooms.findById(roomId);
     if (!row) return false;
-    if (row.locked === 1 || (conn.user.isGuest && row.allow_guests === 0)) return false;
+    if (row.area_kind === "code" || row.locked === 1 || (conn.user.isGuest && row.allow_guests === 0)) return false;
     const currentUsers = this.getRoomCounts().get(roomId) ?? 0;
     if (currentUsers >= this.services.rooms.maxUsersFor(row)) return false;
     if (conn.roomId !== null) {

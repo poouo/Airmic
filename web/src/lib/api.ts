@@ -143,8 +143,10 @@ export const api = {
 
   roomDirectory: {
     get: () => request<RoomDirectory>("GET", "/api/room-directory"),
-    create: (parentId: number | null, name: string) => request<{ area: RoomArea }>("POST", "/api/room-directory/areas", { parentId, name }),
-    update: (id: number, name: string, sortOrder: number) => request<{ area: RoomArea }>("PATCH", `/api/room-directory/areas/${id}`, { name, sortOrder }),
+    create: (parentId: number | null, name: string, icon: RoomArea["icon"]) =>
+      request<{ area: RoomArea }>("POST", "/api/room-directory/areas", { parentId, name, icon }),
+    update: (id: number, name: string, sortOrder: number, icon?: RoomArea["icon"]) =>
+      request<{ area: RoomArea }>("PATCH", `/api/room-directory/areas/${id}`, { name, sortOrder, icon }),
     remove: (id: number) => request<{ ok: boolean }>("DELETE", `/api/room-directory/areas/${id}`),
     managers: (scope: RoomManagementScope, signal?: AbortSignal) => request<{ managers: RoomManager[] }>("GET", managersPath(scope), undefined, signal),
     grant: (scope: RoomManagementScope, username: string) => request<{ managers: RoomManager[] }>("POST", managersPath(scope), { username }),

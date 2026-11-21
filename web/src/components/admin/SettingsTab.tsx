@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { ServerSettings, UpdateSettingsRequest } from "@airmic/shared";
-import { DEFAULT_AUDIO_SETTINGS } from "@airmic/shared";
+import type { RoomAudioBitrateLimit, ServerSettings, UpdateSettingsRequest } from "@airmic/shared";
+import { AUDIO_PRESET_LIST, DEFAULT_AUDIO_SETTINGS, ROOM_AUDIO_BITRATE_CHOICES, ROOM_AUDIO_BITRATE_THRESHOLD_MAX, formatBitrate } from "@airmic/shared";
 import { Eye, EyeOff, RadioTower, RefreshCw, Save, Sparkles, WifiOff } from "lucide-react";
 import { Alert, Badge, Button, Card, Input, Select, Switch, Textarea } from "@/components/ui";
 import AudioSettingsEditor from "@/components/lobby/AudioSettingsEditor";
@@ -15,9 +15,15 @@ function cloneSettings(settings: ServerSettings): ServerSettings {
   return {
     ...settings,
     defaultAudioSettings: { ...settings.defaultAudioSettings },
+    roomAudioBitrateLimit: { ...settings.roomAudioBitrateLimit },
     iceServers: settings.iceServers.map((server) => ({ ...server })),
   };
 }
+
+const bitrateLimitOptions = ROOM_AUDIO_BITRATE_CHOICES.map((bitrate) => {
+  const preset = AUDIO_PRESET_LIST.find((option) => option.id !== "custom" && option.settings.bitrate === bitrate);
+  return { value: String(bitrate), label: (preset?.label ?? "清晰语音") + " · " + formatBitrate(bitrate) };
+});
 
 function randomInviteCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -51,6 +57,11 @@ export default function SettingsTab() {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
   };
 
+  const updateBitrateLimit = (patch: Partial<RoomAudioBitrateLimit>) => {
+    setFormError(null);
+    setDraft((prev) => prev && { ...prev, roomAudioBitrateLimit: { ...prev.roomAudioBitrateLimit, ...patch } });
+  };
+
   /** 语音中转配置只有被修改时才提交，避免把服务端未返回的密钥清空 */
   const updateLivekit = (patch: Partial<Pick<ServerSettings, "livekitUrl" | "livekitApiKey" | "livekitApiSecret">>) => {
     setLivekitDirty(true);
@@ -64,6 +75,9 @@ export default function SettingsTab() {
     if (current.registrationMode === "invite" && !current.registrationCode.trim()) return "邀请码注册模式需要填写邀请码";
     if (current.maxUsers < 1 || current.maxUsers > 10000) return "服务器人数上限需在 1 - 10000 之间";
     if (current.maxUsersPerRoom < 1 || current.maxUsersPerRoom > 500) return "单房间人数上限需在 1 - 500 之间";
+    if (current.roomAudioBitrateLimit.userThreshold < 1 || current.roomAudioBitrateLimit.userThreshold > ROOM_AUDIO_BITRATE_THRESHOLD_MAX) {
+      return "限码率人数阈值需在 1 - 499 之间";
+    }
     if (current.maxRooms < 0 || current.maxRooms > 1000) return "房间数量上限需在 0 - 1000 之间";
     if (current.maxChatLength < 20 || current.maxChatLength > 5000) return "聊天长度上限需在 20 - 5000 之间";
     if (current.maxMessagesPerRoom < 0 || current.maxMessagesPerRoom > 5000) return "房间消息保留数需在 0 - 5000 之间";
@@ -95,12 +109,15 @@ export default function SettingsTab() {
       maxRooms: draft.maxRooms,
       allowRoomCreation: draft.allowRoomCreation,
       allowGuestRoomCreation: draft.allowGuestRoomCreation,
+      allowCodeRoomCreation: draft.allowCodeRoomCreation,
+      allowGuestCodeRoomCreation: draft.allowGuestCodeRoomCreation,
       allowScreenShare: draft.allowScreenShare,
       allowTextChat: draft.allowTextChat,
       allowGuestChat: draft.allowGuestChat,
       maxChatLength: draft.maxChatLength,
       maxMessagesPerRoom: draft.maxMessagesPerRoom,
       defaultAudioSettings: draft.defaultAudioSettings,
+      roomAudioBitrateLimit: draft.roomAudioBitrateLimit,
     };
     if (livekitDirty) {
       // 空字符串表示清除对应配置（服务端会归一化为 null）
@@ -242,6 +259,15 @@ export default function SettingsTab() {
         </div>
       </SectionCard>
 
+      <SectionCard title="口令房">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Switch label="允许普通用户创建口令房" checked={draft.allowCodeRoomCreation}
+            onChange={(allowCodeRoomCreation) => update({ allowCodeRoomCreation })} />
+          <Switch label="允许游客创建口令房" checked={draft.allowGuestCodeRoomCreation}
+            onChange={(allowGuestCodeRoomCreation) => update({ allowGuestCodeRoomCreation })} />
+        </div>
+      </SectionCard>
+
       <SectionCard title="语音中转">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={draft.voiceAvailable ? "good" : "warn"}>
@@ -298,6 +324,32 @@ export default function SettingsTab() {
 
       <SectionCard title="默认音质">
         <AudioSettingsEditor base={DEFAULT_AUDIO_SETTINGS} value={draft.defaultAudioSettings} onChange={(defaultAudioSettings) => update({ defaultAudioSettings })} />
+      </SectionCard>
+
+      <SectionCard title="多人房间音质">
+        <Switch
+          label="自动限制麦克风码率"
+          checked={draft.roomAudioBitrateLimit.enabled}
+          onChange={(enabled) => updateBitrateLimit({ enabled })}
+        />
+        {draft.roomAudioBitrateLimit.enabled && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <NumberField
+              label="人数阈值"
+              value={draft.roomAudioBitrateLimit.userThreshold}
+              min={1}
+              max={ROOM_AUDIO_BITRATE_THRESHOLD_MAX}
+              hint="超过此人数生效，回落后自动恢复"
+              onChange={(userThreshold) => updateBitrateLimit({ userThreshold })}
+            />
+            <Select
+              label="麦克风码率上限"
+              value={String(draft.roomAudioBitrateLimit.maxBitrate)}
+              options={bitrateLimitOptions}
+              onChange={(event) => updateBitrateLimit({ maxBitrate: Number(event.target.value) })}
+            />
+          </div>
+        )}
       </SectionCard>
 
       <UpdateCard />

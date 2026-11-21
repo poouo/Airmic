@@ -458,6 +458,84 @@ test("锁定房间返回 room_locked", TEST_OPTIONS, () =>
   }),
 );
 
+test("口令房仅凭四位口令加入，最后一个连接离开后即时清除", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const creator = await session.registerUser("code_creator");
+    const { ws: creatorWs } = await session.connectWithHello(creator.client);
+    const guest = session.ctx.newClient();
+    assert.equal((await guest.guest("口令测试游客")).status, 200);
+    const { ws: guestWs, hello: guestHello } = await session.connectWithHello(guest);
+    const { ws: adminWs } = await session.connectWithHello(session.admin);
+
+    guestWs.send({ t: "create_code_room", name: "游客房" });
+    assert.equal((await guestWs.waitFor("error", (message) => message.request === "create_code_room")).code, "forbidden");
+    creatorWs.send({ t: "create_code_room", name: "  " });
+    assert.equal((await creatorWs.waitFor("error", (message) => message.request === "create_code_room")).code, "bad_request");
+
+    creatorWs.send({ t: "create_code_room", name: "联机小队" });
+    const created = await creatorWs.waitFor("room_joined", (message) => message.request === "create_code_room");
+    const { room, inviteCode } = created.snapshot;
+    assert.ok(inviteCode && /^\d{4}$/.test(inviteCode));
+    assert.equal(room.codeOnly, true);
+    assert.equal(room.channel, "口令房专区");
+    assert.equal(room.name, "联机小队");
+    const listing = await guestWs.waitFor("rooms", (message) => message.rooms.some(({ id }) => id === room.id));
+    const listedRoom = listing.rooms.find(({ id }) => id === room.id);
+    assert.equal(listedRoom?.userCount, 1);
+    assert.equal(Object.hasOwn(listedRoom!, "inviteCode"), false);
+    assert.equal((await guest.get("/api/rooms/" + room.id + "/messages")).status, 403);
+    assert.equal((await session.admin.post("/api/admin/users/" + guestHello.user.id + "/move", { roomId: room.id })).status, 403);
+    assert.equal((await session.admin.post("/api/rooms", { name: "普通房", areaId: room.areaId })).status, 403);
+    assert.equal((await session.admin.del("/api/room-directory/areas/" + room.areaId)).status, 403);
+
+    adminWs.send({ t: "join_room", roomId: room.id, password: inviteCode });
+    assert.equal((await adminWs.waitFor("error", (message) => message.request === "join_room")).code, "room_code_required");
+    guestWs.send({ t: "join_code_room", code: inviteCode, roomId: room.id + 1 });
+    assert.equal((await guestWs.waitFor("error", (message) => message.request === "join_code_room")).code, "room_code_invalid");
+    guestWs.send({ t: "join_code_room", code: inviteCode });
+    const joined = await guestWs.waitFor("room_joined", (message) => message.request === "join_code_room");
+    assert.equal(joined.snapshot.room.id, room.id);
+    assert.equal(joined.snapshot.inviteCode, undefined);
+
+    creatorWs.send({ t: "leave_room" });
+    await creatorWs.waitFor("room_left");
+    assert.ok(session.ctx.services.rooms.findById(room.id));
+    guestWs.close();
+    await waitUntil(() => session.ctx.services.rooms.findById(room.id) === undefined, "空口令房回收");
+    adminWs.send({ t: "join_code_room", code: inviteCode });
+    assert.equal((await adminWs.waitFor("error", (message) => message.request === "join_code_room")).code, "room_code_invalid");
+  }),
+);
+
+test("后台独立管理普通用户和游客创建口令房的权限", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const member = await session.registerUser("code_member");
+    const guest = session.ctx.newClient();
+    assert.equal((await guest.guest("可创建的游客")).status, 200);
+    const { ws: memberWs } = await session.connectWithHello(member.client);
+    const { ws: guestWs } = await session.connectWithHello(guest);
+    const { ws: adminWs } = await session.connectWithHello(session.admin);
+    const result = await session.admin.patch("/api/admin/settings", {
+      allowCodeRoomCreation: false,
+      allowGuestCodeRoomCreation: true,
+    });
+    assert.equal(result.status, 200);
+    memberWs.send({ t: "create_code_room", name: "普通用户小队" });
+    assert.equal((await memberWs.waitFor("error", (message) => message.request === "create_code_room")).code, "forbidden");
+    guestWs.send({ t: "create_code_room", name: "游客小队" });
+    const guestRoom = await guestWs.waitFor("room_joined", (message) => message.request === "create_code_room");
+    assert.ok(guestRoom.snapshot.inviteCode);
+    const guestId = guestRoom.snapshot.room.createdById;
+    assert.ok(guestId);
+    const current = session.ctx.services.rooms.findById(guestRoom.snapshot.room.id);
+    assert.equal(current?.created_by, null);
+
+    adminWs.send({ t: "create_code_room", name: "管理员小队" });
+    const adminRoom = await adminWs.waitFor("room_joined", (message) => message.request === "create_code_room");
+    assert.notEqual(adminRoom.snapshot.inviteCode, guestRoom.snapshot.inviteCode);
+  }),
+);
+
 // ============================================================
 // 4. 聊天
 // ============================================================

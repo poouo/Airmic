@@ -129,8 +129,8 @@
   2. 用 `livekit-client` 的 `Room.connect(url, token)` 连接 LiveKit，发布麦克风轨道（`setMicrophoneEnabled` / `publishTrack`）；
   3. 订阅房间内其他人的音频轨道并播放；对已存在成员与后续加入成员都要处理；
   4. 获取麦克风失败时通过 `error` 事件提示，但仍可收听（receive-only）。
-- **麦克风/耳聋/PTT**：`setMicEnabled` 控制本地麦克风轨道发布；`setDeafened` 静音所有远端音频；PTT 按住时发布、松开时静音。
-- **每用户音量/本地静音**：按 LiveKit participant identity（用户 ID）管理 Audio 元素/GainNode，`setPeerVolume` 即时生效；耳聋时全部静音。
+- **麦克风/收听/PTT**：`setMicEnabled` 控制本地麦克风轨道发布。关闭收听时，`setDeafened` 立即静音并暂停 LiveKit 转发的远端音频轨道。恢复收听时重新启用音频轨道。PTT 按住时发布，松开时静音。
+- **每用户音量/本地静音**：按 LiveKit participant identity（用户 ID）管理 Audio 元素/GainNode，`setPeerVolume` 即时生效。恢复收听时应用保存的主音量和每用户音量。
 - **说话检测**：本地 AudioContext AnalyserNode 计算电平（约 10 次/秒，`local-level` 事件含 speaking），
   说话状态变化通过 WS `state.speaking` 节流上报（≤5 次/秒）；远端说话高亮可用 LiveKit `ActiveSpeakersChanged` 或音频分析实现。
 - **连接质量统计**：每 2 秒汇总 LiveKit 的 `ConnectionQuality`（并尽量从 `getStats` 读取 RTT/丢包/抖动/码率），通过 `peer-stats` 事件输出（用于成员卡片与底部状态；某些统计在浏览器/SFU 下可能不可用，需做空值兼容）。
@@ -154,9 +154,9 @@ local-level、peer-stats、state、error 等）；内部从 Mesh 换成 LiveKit 
   直接 URL 进入无密码时展示 joinError 与重试/返回大厅）。加入中显示 loading，失败显示错误卡片。
 - 页面结构：顶部房间信息栏（名称、简介、分类、人数、音质摘要、密码/锁图标、返回/离开，
   **并显示"服务端中转 / SFU"标识**）；中间舞台（成员网格 / 屏幕共享大画面 / 空位提示）；
-  右侧聊天面板（可折叠）；底部控制栏（麦克风、耳聋、屏幕共享、语音设置、离开；连接状态与连接质量/延迟提示）。
+  右侧聊天面板（可折叠）；底部控制栏（麦克风、收听、屏幕共享、语音设置、离开；连接状态与连接质量/延迟提示）。
 - 顶部或舞台在 `voiceAvailable=false` 时显示"语音服务未配置"的提示条（不可通话但可聊天）。
-- 成员卡片：头像（说话高亮）、昵称、角色徽章、静音/耳聋/强制静音图标、连接质量（`peer-stats`）、
+- 成员卡片：头像（说话高亮）、昵称、角色徽章、静音/关闭收听/强制静音状态、连接质量（`peer-stats`）、
   点击展开音量滑块（本地音量，settingsStore + engine.setPeerVolume）与“本地静音”。自己卡片显示麦克风电平条。
 - 聊天：历史消息 + 新消息 + notice 系统提示；发送输入框（Enter 发送，Shift+Enter 换行）；自动滚到底部；自己的消息右侧高亮。
 - 断线重连：appStore.connection 为 reconnecting 时显示横幅；恢复后自动重建房间状态与 LiveKit 连接。
@@ -165,7 +165,7 @@ local-level、peer-stats、state、error 等）；内部从 Mesh 换成 LiveKit 
 
 ## 语音设置弹窗（SettingsModal）
 
-- 输入/输出设备选择、主音量/每用户音量、耳聋、PTT 开关与按键、本地音质覆盖；
+- 输入/输出设备选择、主音量/每用户音量、PTT 开关与按键、本地音质覆盖；
 - 显示当前媒体传输方式：**服务端 SFU 中转（LiveKit）**，以及连接状态与连接质量（延迟/码率在数据可用时显示）；
 - 网络页应显示「传输模式：服务端 SFU 中转」，不再提供 P2P/ICE/STUN/TURN 选项；当前 NetworkTab 若仍显示「ICE 服务器」「P2P 优先」等旧版文案，属于待清理的遗留 UI。
 

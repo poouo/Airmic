@@ -100,33 +100,37 @@ export async function launchBrowser(options = {}) {
   };
 }
 
-/** 等待页面中任意一条 RTCPeerConnection 进入 connected，且收到远端音频字节 */
-export async function waitForAudioConnection(page, timeoutMs = 25_000) {
+export async function readAudioConnection(page) {
+  return page.evaluate(async () => {
+    const pcs = window.__airmicPeerConnections || [];
+    const result = { total: pcs.length, connected: 0, receivingAudio: 0, audioBytes: 0, states: [] };
+    for (const pc of pcs) {
+      result.states.push(pc.connectionState);
+      if (pc.connectionState !== "connected") continue;
+      result.connected += 1;
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "inbound-rtp" && report.kind === "audio" && report.bytesReceived > 0) {
+            result.receivingAudio += 1;
+            result.audioBytes += report.bytesReceived;
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    return result;
+  });
+}
+
+/** 等待已连接的 RTCPeerConnection 收到音频，或超过已接收的字节数 */
+export async function waitForAudioConnection(page, timeoutMs = 25_000, previousBytes = 0) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
-    last = await page.evaluate(async () => {
-      const pcs = window.__airmicPeerConnections || [];
-      const result = { total: pcs.length, connected: 0, receivingAudio: 0, states: [] };
-      for (const pc of pcs) {
-        result.states.push(pc.connectionState);
-        if (pc.connectionState === "connected") {
-          result.connected += 1;
-          try {
-            const stats = await pc.getStats();
-            stats.forEach((report) => {
-              if (report.type === "inbound-rtp" && report.kind === "audio" && (report.bytesReceived || 0) > 0) {
-                result.receivingAudio += 1;
-              }
-            });
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      return result;
-    });
-    if (last.connected > 0 && last.receivingAudio > 0) return last;
+    last = await readAudioConnection(page);
+    if (last.connected > 0 && last.audioBytes > previousBytes) return last;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error("等待语音连接超时，状态：" + JSON.stringify(last));

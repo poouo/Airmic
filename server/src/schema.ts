@@ -238,6 +238,22 @@ DELETE FROM users WHERE is_guest = 1;
 DROP TABLE legacy_guest_ids;
 `;
 
+const V9 = `
+ALTER TABLE room_areas ADD COLUMN kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'code'));
+WITH RECURSIVE names(n, name) AS (
+  VALUES (0, '口令房专区')
+  UNION ALL
+  SELECT n + 1, '口令房专区（系统' || (n + 1) || '）' FROM names
+  WHERE EXISTS (SELECT 1 FROM room_areas WHERE parent_id IS NULL AND room_areas.name = names.name)
+)
+INSERT INTO room_areas (name, sort_order, icon, kind)
+SELECT name, 100001, 'target', 'code' FROM names
+WHERE NOT EXISTS (SELECT 1 FROM room_areas WHERE parent_id IS NULL AND room_areas.name = names.name)
+LIMIT 1;
+INSERT INTO room_areas (parent_id, name, kind)
+SELECT id, '临时房间', 'code' FROM room_areas WHERE kind = 'code' AND parent_id IS NULL;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
   { version: 2, name: "app-logs", sql: V2 },
@@ -246,4 +262,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 5, name: "room-guest-access", sql: V5 },
   { version: 6, name: "room-chat-settings", sql: V6 },
   { version: 7, name: "temporary-guests", sql: V7 },
+  { version: 8, name: "room-area-icons", sql: "ALTER TABLE room_areas ADD COLUMN icon TEXT;" },
+  { version: 9, name: "code-room-area", sql: V9 },
 ];

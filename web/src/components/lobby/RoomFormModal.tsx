@@ -66,7 +66,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
 
   const areas = directory?.areas ?? [];
   const destinations = isEdit
-    ? areas.filter((area) => area.parentId !== null && (area.id === initial.areaId || (user && directory && canManageArea(user, area, directory.grants))))
+    ? areas.filter((area) => area.parentId !== null && (area.id === initial.areaId ||
+      (!initial.codeOnly && area.kind !== "code" && user && directory && canManageArea(user, area, directory.grants))))
     : roomCreationAreas(user, server, directory);
   const areaOptions = destinations.map((area) => ({
     value: String(area.id),
@@ -276,7 +277,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                 <Switch label="允许文字聊天" checked={textChatEnabled} onChange={setTextChatEnabled} />
               </div>
 
-              <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+              {!initial.codeOnly && <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
                 <Switch
                   label="需要密码"
                   description={isEdit && initial.hasPassword ? "关闭后清除密码" : undefined}
@@ -307,7 +308,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                     onChange={(event) => setPassword(event.target.value)}
                   />
                 )}
-              </div>
+              </div>}
             </CardContent>
           </Card>
         </div>

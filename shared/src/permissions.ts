@@ -1,4 +1,4 @@
-import type { Permission, Role, RoomArea, RoomDirectory, RoomManagementScope, RoomSummary, UserSelf } from "./types.js";
+import type { Permission, Role, RoomArea, RoomDirectory, RoomManagementScope, RoomSummary, ServerSettingsPublic, UserSelf } from "./types.js";
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
@@ -42,6 +42,12 @@ export function canManageArea(user: UserSelf, area: RoomArea, grants: RoomManage
   return user.permissions.includes("manage_rooms") || grants.some(
     (grant) => grant.kind === "area" && (grant.id === area.id || grant.id === area.parentId),
   );
+}
+
+export function canCreateCodeRoom(user: UserSelf, settings: ServerSettingsPublic): boolean {
+  return user.isGuest
+    ? settings.allowGuestCodeRoomCreation
+    : user.permissions.includes("manage_server") || settings.allowCodeRoomCreation;
 }
 
 export function canManageRoomScope(user: UserSelf, room: Pick<RoomSummary, "id" | "areaId">, directory: RoomDirectory): boolean {

@@ -2,6 +2,8 @@ import {
   APP_VERSION,
   DEFAULT_AUDIO_SETTINGS,
   MEDIA_TRANSPORT,
+  ROOM_AUDIO_BITRATE_CHOICES,
+  ROOM_AUDIO_BITRATE_THRESHOLD_MAX,
   SFU_RECOMMENDED_ROOM_USERS,
   isLivekitConfigured,
   normalizeAudioSettings,
@@ -11,6 +13,7 @@ import type {
   IceServerConfig,
   LivekitCredentials,
   RegistrationMode,
+  RoomAudioBitrateLimit,
   ServerSettings,
   ServerSettingsPublic,
 } from "@airmic/shared";
@@ -35,12 +38,15 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   maxRooms: 100,
   allowRoomCreation: false,
   allowGuestRoomCreation: false,
+  allowCodeRoomCreation: true,
+  allowGuestCodeRoomCreation: false,
   allowScreenShare: true,
   allowTextChat: true,
   allowGuestChat: true,
   maxChatLength: 1000,
   maxMessagesPerRoom: 300,
   defaultAudioSettings: { ...DEFAULT_AUDIO_SETTINGS },
+  roomAudioBitrateLimit: { enabled: false, userThreshold: 20, maxBitrate: 24_000 },
   iceServers: [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
     { urls: "stun:stun.cloudflare.com:3478" },
@@ -56,7 +62,7 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   version: APP_VERSION,
 };
 
-const JSON_KEYS = new Set<keyof ServerSettings>(["defaultAudioSettings", "iceServers", "roomCategories"]);
+const JSON_KEYS = new Set<keyof ServerSettings>(["defaultAudioSettings", "roomAudioBitrateLimit", "iceServers", "roomCategories"]);
 const LIVEKIT_KEYS = new Set<keyof ServerSettings>(["livekitUrl", "livekitApiKey", "livekitApiSecret"]);
 /** 由其他配置推导出来的字段，不写入数据库 */
 const DERIVED_KEYS = new Set<keyof ServerSettings>(["voiceAvailable", "mediaTransport"]);
@@ -110,6 +116,7 @@ export class SettingsService {
     }
     result.version = APP_VERSION;
     result.defaultAudioSettings = normalizeAudioSettings(result.defaultAudioSettings, DEFAULT_AUDIO_SETTINGS);
+    result.roomAudioBitrateLimit = normalizeRoomAudioBitrateLimit(result.roomAudioBitrateLimit);
     result.livekitUrl = normalizeOptionalText(result.livekitUrl, LIVEKIT_URL_MAX_LENGTH);
     result.livekitApiKey = normalizeOptionalText(result.livekitApiKey, LIVEKIT_API_KEY_MAX_LENGTH);
     result.livekitApiSecret = normalizeOptionalText(result.livekitApiSecret, LIVEKIT_API_SECRET_MAX_LENGTH);
@@ -145,6 +152,7 @@ export class SettingsService {
     return {
       ...this.cache,
       defaultAudioSettings: { ...this.cache.defaultAudioSettings },
+      roomAudioBitrateLimit: { ...this.cache.roomAudioBitrateLimit },
       iceServers: this.cache.iceServers.map((server) => ({ ...server })),
       roomCategories: [...this.cache.roomCategories],
     };
@@ -163,11 +171,14 @@ export class SettingsService {
       maxRooms: settings.maxRooms,
       allowRoomCreation: settings.allowRoomCreation,
       allowGuestRoomCreation: settings.allowGuestRoomCreation,
+      allowCodeRoomCreation: settings.allowCodeRoomCreation,
+      allowGuestCodeRoomCreation: settings.allowGuestCodeRoomCreation,
       allowScreenShare: settings.allowScreenShare,
       allowTextChat: settings.allowTextChat,
       allowGuestChat: settings.allowGuestChat,
       maxChatLength: settings.maxChatLength,
       defaultAudioSettings: { ...settings.defaultAudioSettings },
+      roomAudioBitrateLimit: settings.roomAudioBitrateLimit,
       iceServers: settings.iceServers.map((server) => ({ ...server })),
       forceRelay: settings.forceRelay,
       roomCategories: [...settings.roomCategories],
@@ -202,6 +213,8 @@ export class SettingsService {
     if (patch.maxRooms !== undefined) next.maxRooms = clampInt(patch.maxRooms, 0, 1000, current.maxRooms);
     if (patch.allowRoomCreation !== undefined) next.allowRoomCreation = Boolean(patch.allowRoomCreation);
     if (patch.allowGuestRoomCreation !== undefined) next.allowGuestRoomCreation = Boolean(patch.allowGuestRoomCreation);
+    if (patch.allowCodeRoomCreation !== undefined) next.allowCodeRoomCreation = Boolean(patch.allowCodeRoomCreation);
+    if (patch.allowGuestCodeRoomCreation !== undefined) next.allowGuestCodeRoomCreation = Boolean(patch.allowGuestCodeRoomCreation);
     if (patch.allowScreenShare !== undefined) next.allowScreenShare = Boolean(patch.allowScreenShare);
     if (patch.allowTextChat !== undefined) next.allowTextChat = Boolean(patch.allowTextChat);
     if (patch.allowGuestChat !== undefined) next.allowGuestChat = Boolean(patch.allowGuestChat);
@@ -211,6 +224,9 @@ export class SettingsService {
     }
     if (patch.defaultAudioSettings !== undefined) {
       next.defaultAudioSettings = normalizeAudioSettings(patch.defaultAudioSettings as Partial<AudioSettings>, current.defaultAudioSettings);
+    }
+    if (patch.roomAudioBitrateLimit !== undefined) {
+      next.roomAudioBitrateLimit = normalizeRoomAudioBitrateLimit(patch.roomAudioBitrateLimit);
     }
     if (patch.iceServers !== undefined) next.iceServers = sanitizeIceServers(patch.iceServers);
     if (patch.forceRelay !== undefined) next.forceRelay = Boolean(patch.forceRelay);
@@ -284,6 +300,15 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(num)));
+}
+
+function normalizeRoomAudioBitrateLimit(value: RoomAudioBitrateLimit | null): RoomAudioBitrateLimit {
+  const defaults = DEFAULT_SERVER_SETTINGS.roomAudioBitrateLimit;
+  return {
+    enabled: value?.enabled === true,
+    userThreshold: clampInt(value?.userThreshold, 1, ROOM_AUDIO_BITRATE_THRESHOLD_MAX, defaults.userThreshold),
+    maxBitrate: ROOM_AUDIO_BITRATE_CHOICES.find((bitrate) => bitrate === value?.maxBitrate) ?? defaults.maxBitrate,
+  };
 }
 
 function sanitizeIceServers(input: unknown): IceServerConfig[] {

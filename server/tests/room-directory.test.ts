@@ -73,6 +73,7 @@ test("旧数据库按原有路径迁移，保留房间 ID、密码、聊天和�
       assert.equal(db.get<{ content: string }>("SELECT content FROM messages WHERE id = 13 AND room_id = 7")?.content, "上车");
       assert.equal(db.get<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'rooms'")?.seq, 12);
       assert.equal(db.get<{ name: string }>("SELECT name FROM room_areas WHERE name = '备用' AND parent_id IS NOT NULL")?.name, "备用");
+      assert.equal(db.get("SELECT 1 FROM room_areas WHERE kind = 'standard' AND icon IS NOT NULL"), undefined);
       assert.deepEqual(db.all("PRAGMA foreign_key_check"), []);
       db.run("DELETE FROM rooms WHERE id = 7");
       assert.equal(db.get("SELECT 1 FROM messages WHERE id = 13"), undefined);
@@ -114,6 +115,31 @@ test("分区独立存在，房间可跨子区同名，移动和删除保护原�
     assert.equal((await admin.del(`${areasPath}/${delta}`)).status, 409);
     assert.equal((await admin.del(`${areasPath}/${empty}`)).status, 200);
     assert.equal((await admin.del(`${areasPath}/${entertainment}`)).status, 200);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("一级分区和子区保存内置图标，编辑时可保留或恢复默认", async () => {
+  const ctx = await createTestContext();
+  try {
+    const admin = await ctx.registerUser("icon_admin");
+    const member = await ctx.registerUser("icon_member");
+    const root = await admin.post<{ area: RoomArea }>(areasPath, { parentId: null, name: "游戏区", icon: "gamepad" });
+    assert.equal(root.status, 200);
+    assert.equal(root.body.area.icon, "gamepad");
+    const child = await admin.post<{ area: RoomArea }>(areasPath, { parentId: root.body.area.id, name: "三角洲", icon: "delta-force" });
+    assert.equal(child.status, 200);
+    assert.equal(child.body.area.icon, "delta-force");
+    const childPath = `${areasPath}/${child.body.area.id}`;
+    assert.equal((await member.patch(childPath, { icon: "music" })).status, 403);
+    assert.equal((await admin.patch(childPath, { icon: "unknown-logo" })).status, 400);
+    const renamed = await admin.patch<{ area: RoomArea }>(childPath, { name: "三角洲行动" });
+    assert.equal(renamed.body.area.icon, "delta-force");
+    const directory = await member.get<RoomDirectory>(directoryPath);
+    assert.equal(directory.body.areas.find((area) => area.id === child.body.area.id)?.icon, "delta-force");
+    const reset = await admin.patch<{ area: RoomArea }>(childPath, { icon: null });
+    assert.equal(reset.body.area.icon, null);
   } finally {
     await ctx.close();
   }

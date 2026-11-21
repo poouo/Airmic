@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { DEFAULT_AUDIO_SETTINGS, mergeAudioSettings } from "@airmic/shared";
+import { DEFAULT_AUDIO_SETTINGS, capAudioBitrate, mergeAudioSettings, roomAudioBitrateCap } from "@airmic/shared";
 import type { AudioOverride, AudioSettings } from "@airmic/shared";
 import { useAppStore } from "@/stores/app";
 import { useRoomStore } from "@/stores/room";
@@ -13,11 +13,14 @@ export function useBaseAudioSettings(): AudioSettings {
   return useMemo(() => mergeAudioSettings(roomAudio ?? serverDefault, null), [roomAudio, serverDefault]);
 }
 
-/** 当前生效音质：房间音质（不在房间时为服务器默认）叠加本机覆盖 */
+/** 当前发送音质应用本机覆盖与多人房间码率上限 */
 export function useEffectiveAudioSettings(): AudioSettings {
   const base = useBaseAudioSettings();
   const override = useSettingsStore((state) => state.localAudioOverride);
-  return useMemo(() => mergeAudioSettings(base, override), [base, override]);
+  const limit = useAppStore((state) => state.server?.roomAudioBitrateLimit);
+  const users = useRoomStore((state) => state.snapshot ? state.peers.length + 1 : 0);
+  const cap = roomAudioBitrateCap(limit, users);
+  return useMemo(() => capAudioBitrate(mergeAudioSettings(base, override), cap), [base, override, cap]);
 }
 
 /** 更新本机音质覆盖并让语音引擎立即生效；patch 为 null 时恢复跟随房间 */

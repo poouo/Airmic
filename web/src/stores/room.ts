@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, PeerInfo, PeerStatePatch, RoomSnapshot } from "@airmic/shared";
+import type { ChatMessage, CodeRoomRequest, PeerInfo, PeerStatePatch, RoomSnapshot } from "@airmic/shared";
 import { socket } from "../lib/ws";
 
 export interface NoticeLine {
@@ -24,11 +24,14 @@ interface RoomState {
   screenSharerId: number | null;
   /** 各成员的实时延迟（毫秒），由服务端心跳测量后广播；未知为 null */
   latency: Record<number, number | null>;
-  lastJoin: { roomId: number; password?: string } | null;
+  lastJoin: { roomId: number; password?: string; code?: string } | null;
+  pendingCode: CodeRoomRequest | null;
+  codeRevealRoomId: number | null;
   joinRoom: (roomId: number, password?: string, force?: boolean) => void;
-  retryJoin: () => void;
+  requestCodeRoom: (request: CodeRoomRequest) => void;
+  retryJoin: (force?: boolean) => void;
   leaveRoom: () => void;
-  applySnapshot: (snapshot: RoomSnapshot) => void;
+  applySnapshot: (snapshot: RoomSnapshot, request?: CodeRoomRequest["t"]) => void;
   applyLeft: (reason?: string) => void;
   applyPeerJoined: (peer: PeerInfo) => void;
   applyPeerLeft: (userId: number, reason?: string) => void;
@@ -55,6 +58,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   screenSharerId: null,
   latency: {},
   lastJoin: null,
+  pendingCode: null,
+  codeRevealRoomId: null,
 
   joinRoom(roomId, password, force = false) {
     const current = get().snapshot;
@@ -66,11 +71,18 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
   },
 
-  retryJoin() {
+  requestCodeRoom(request) {
+    set({ pendingCode: request, joining: true, joinError: null });
+    if (!socket.send(request)) {
+      get().setJoinError({ code: "offline", message: "实时连接未建立，请稍后重试" });
+    }
+  },
+
+  retryJoin(force = false) {
     const last = get().lastJoin;
     if (!last) return;
-    set({ joinError: null });
-    get().joinRoom(last.roomId, last.password);
+    if (last.code) get().requestCodeRoom({ t: "join_code_room", code: last.code, roomId: last.roomId });
+    else get().joinRoom(last.roomId, last.password, force);
   },
 
   leaveRoom() {
@@ -84,30 +96,41 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       joining: false,
       screenSharerId: null,
       lastJoin: null,
+      pendingCode: null,
+      codeRevealRoomId: null,
     });
   },
 
-  applySnapshot(snapshot) {
+  applySnapshot(snapshot, request) {
     const latency: Record<number, number | null> = {};
     for (const peer of snapshot.peers) {
       if (typeof peer.rttMs === "number") latency[peer.userId] = peer.rttMs;
     }
-    set((state) => ({
-      snapshot,
-      peers: snapshot.peers,
-      messages: snapshot.messages,
-      joining: state.joining && state.lastJoin?.roomId !== snapshot.room.id,
-      joinError: null,
-      lastJoin: state.joining || state.lastJoin?.roomId === snapshot.room.id ? state.lastJoin : { roomId: snapshot.room.id },
-      screenSharerId: snapshot.screenSharerId,
-      notices: [],
-      latency,
-    }));
+    set((state) => {
+      const completingCode = state.pendingCode !== null && state.pendingCode.t === request;
+      const code = state.pendingCode?.t === "join_code_room" && completingCode ? state.pendingCode.code : snapshot.inviteCode;
+      const keepLastJoin = (state.joining && !completingCode) || state.lastJoin?.roomId === snapshot.room.id;
+      return {
+        snapshot,
+        peers: snapshot.peers,
+        messages: snapshot.messages,
+        joining: !completingCode && state.joining && state.lastJoin?.roomId !== snapshot.room.id,
+        joinError: null,
+        lastJoin: code ? { roomId: snapshot.room.id, code }
+          : keepLastJoin ? state.lastJoin : { roomId: snapshot.room.id },
+        pendingCode: completingCode ? null : state.pendingCode,
+        codeRevealRoomId: completingCode && request === "create_code_room" ? snapshot.room.id : state.codeRevealRoomId,
+        screenSharerId: snapshot.screenSharerId,
+        notices: [],
+        latency,
+      };
+    });
   },
 
   applyLeft(reason) {
     set((state) => {
-      const switching = state.joining && state.lastJoin !== null && state.lastJoin.roomId !== state.snapshot?.room.id;
+      const switching = state.joining && (state.pendingCode !== null ||
+        (state.lastJoin !== null && state.lastJoin.roomId !== state.snapshot?.room.id));
       return { snapshot: null, peers: [], messages: [], joining: switching, lastJoin: switching ? state.lastJoin : null, screenSharerId: null, latency: {} };
     });
     if (reason) get().addNotice(reason, "warn");
@@ -170,7 +193,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   setJoinError(error) {
-    set({ joinError: error, joining: false });
+    set({ joinError: error, joining: false, pendingCode: null });
   },
 
   setJoining(joining) {
@@ -190,6 +213,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       joining: false,
       joinError: null,
       lastJoin: null,
+      pendingCode: null,
+      codeRevealRoomId: null,
       screenSharerId: null,
       latency: {},
     });

@@ -158,7 +158,7 @@ try {
   const manageUser = button(page.getByRole("main"), "管理").first();
   await manageUser.waitFor();
   await manageUser.evaluate((element) => {
-    const scroller = element.closest(".app-scroll.app-canvas");
+    const scroller = element.closest("main");
     scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 130;
   });
   await assertTappable(manageUser);

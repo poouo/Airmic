@@ -37,6 +37,8 @@ export type WsErrorCode =
   | "room_not_found"
   | "room_password_required"
   | "room_password_invalid"
+  | "room_code_required"
+  | "room_code_invalid"
   | "room_full"
   | "room_locked"
   | "room_guests_disabled"
@@ -50,8 +52,13 @@ export type WsErrorCode =
   | "internal";
 
 /** 客户端 -> 服务端 */
+export type CodeRoomRequest =
+  | { t: "create_code_room"; name: string }
+  | { t: "join_code_room"; code: string; roomId?: number };
+
 export type ClientMessage =
   | { t: "join_room"; roomId: number; password?: string }
+  | CodeRoomRequest
   | { t: "leave_room" }
   | { t: "chat"; content: string }
   | { t: "state"; state: PeerStatePatch }
@@ -75,7 +82,7 @@ export type ServerMessage =
   | { t: "rooms"; rooms: RoomSummary[] }
   | { t: "room_directory_changed" }
   | { t: "online_users"; users: OnlineUser[] }
-  | { t: "room_joined"; snapshot: RoomSnapshot }
+  | { t: "room_joined"; snapshot: RoomSnapshot; request?: CodeRoomRequest["t"] }
   | { t: "room_left"; reason?: string }
   | { t: "peer_joined"; roomId: number; peer: PeerInfo }
   | { t: "peer_left"; roomId: number; userId: number; reason?: string }

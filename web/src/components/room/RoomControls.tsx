@@ -31,6 +31,7 @@ export function RoomControls({ selfState, pttEnabled, pttKey, screenShareAllowed
   const quality = peerStats.length ? qualityMeta(worstQuality(peerStats)) : null;
   const micMuted = !selfState.micEnabled || !selfState.hasMicrophone || selfState.forceMuted;
   const micLabel = selfState.forceMuted ? "已被强制静音" : !selfState.hasMicrophone ? "启用麦克风" : micMuted ? "取消静音" : "静音麦克风";
+  const listeningLabel = selfState.deafened ? "恢复收听" : "关闭收听";
 
   return (
     <footer aria-label="语音控制" className="shrink-0 border-t border-border bg-card px-2 py-1.5 sm:px-4 sm:py-2.5">
@@ -46,7 +47,7 @@ export function RoomControls({ selfState, pttEnabled, pttKey, screenShareAllowed
         </div>
         <div className="grid min-w-0 flex-1 grid-cols-6 gap-1 sm:flex sm:flex-none sm:gap-2">
           <Control label={micLabel} caption={micMuted ? "静音" : "麦克风"} selected={!micMuted} danger={micMuted} onClick={onToggleMic} icon={micMuted ? <MicOff /> : <Mic />} />
-          <Control label={selfState.deafened ? "恢复声音" : "关闭声音"} caption={selfState.deafened ? "无声" : "声音"} selected={selfState.deafened} onClick={onToggleDeafen} icon={selfState.deafened ? <HeadphoneOff /> : <Headphones />} />
+          <Control label={listeningLabel} caption={listeningLabel} selected={selfState.deafened} onClick={onToggleDeafen} icon={selfState.deafened ? <HeadphoneOff /> : <Headphones />} />
           <Control label={selfState.screenSharing ? "停止共享屏幕" : "共享屏幕"} caption="共享" selected={selfState.screenSharing}
             disabled={shareBusy || (!screenShareAllowed && !selfState.screenSharing)} onClick={onToggleScreenShare} icon={selfState.screenSharing ? <MonitorOff /> : <MonitorUp />} />
           <Control label="聊天" caption="聊天" selected={chatOpen} onClick={onToggleChat} icon={<MessageSquare />} />

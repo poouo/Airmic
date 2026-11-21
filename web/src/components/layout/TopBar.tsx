@@ -28,10 +28,12 @@ export default function TopBar({ onOpenSidebar, sidebarCollapsed, onToggleSideba
       {onOpenSidebar && <IconButton label="打开侧栏" className="h-10 w-10 lg:hidden" onClick={onOpenSidebar}>
         <Menu className="h-5 w-5" />
       </IconButton>}
-      {user && <IconButton label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"} aria-controls="desktop-room-sidebar"
-        aria-expanded={!sidebarCollapsed} className="hidden shrink-0 lg:inline-flex" onClick={onToggleSidebar}>
-        {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-      </IconButton>}
+      {user && <div className="hidden shrink-0 lg:block">
+        <IconButton label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"} aria-controls="desktop-room-sidebar"
+          aria-expanded={!sidebarCollapsed} onClick={onToggleSidebar}>
+          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </IconButton>
+      </div>}
 
       <Link
         to="/"

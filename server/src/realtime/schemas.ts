@@ -37,6 +37,8 @@ export const clientMessageSchema = z.discriminatedUnion("t", [
       password: z.string().max(64).optional(),
     })
     .strict(),
+  z.object({ t: z.literal("create_code_room"), name: z.string().trim().min(1).max(40) }).strict(),
+  z.object({ t: z.literal("join_code_room"), code: z.string().regex(/^\d{4}$/), roomId: z.number().int().positive().safe().optional() }).strict(),
   z.object({ t: z.literal("leave_room") }).strict(),
   z.object({ t: z.literal("chat"), content: z.string().max(MAX_SDP_CHARS) }).strict(),
   z.object({ t: z.literal("state"), state: peerStatePatchSchema }).strict(),
@@ -59,6 +61,8 @@ export type ParsedPeerStatePatch = z.infer<typeof peerStatePatchSchema>;
 
 const CLIENT_MESSAGE_TYPES: ReadonlySet<string> = new Set<ClientMessage["t"]>([
   "join_room",
+  "create_code_room",
+  "join_code_room",
   "leave_room",
   "chat",
   "state",

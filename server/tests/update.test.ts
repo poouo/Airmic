@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { APP_VERSION, type UpdateCheckResponse } from "@airmic/shared";
+import { parseVersion } from "../src/lib/version.js";
 import { createTestContext } from "./helpers.js";
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -67,17 +68,21 @@ test("更新检查：版本相同/更旧时无需更新", async () => {
 });
 
 test("更新检查：无 Release 时回退到最高 Tag", async () => {
+  const current = parseVersion(APP_VERSION);
+  assert.ok(current);
+  const nextVersion = `${current.major}.${current.minor}.${current.patch + 1}`;
+  const latestVersion = `${current.major}.${current.minor}.${current.patch + 2}`;
   const ctx = await createTestContext();
   try {
     const admin = await ctx.registerUser("upd_admin3");
     installFetcher(ctx, (url) => {
       if (url.includes("/releases/latest")) return jsonResponse({ message: "Not Found" }, 404);
-      if (url.includes("/tags")) return jsonResponse([{ name: "v1.2.0" }, { name: "v1.3.5" }, { name: "v1.3.4" }]);
+      if (url.includes("/tags")) return jsonResponse([{ name: "v" + APP_VERSION }, { name: "v" + latestVersion }, { name: "v" + nextVersion }]);
       return jsonResponse({ default_branch: "main" });
     });
     const result = await admin.get<UpdateCheckResponse>("/api/system/update");
     assert.equal(result.body.latestSource, "tag");
-    assert.equal(result.body.latestVersion, "1.3.5");
+    assert.equal(result.body.latestVersion, latestVersion);
     assert.equal(result.body.updateAvailable, true);
   } finally {
     await ctx.close();

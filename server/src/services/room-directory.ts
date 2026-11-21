@@ -1,7 +1,7 @@
 import { canManageRoomScope, type RoomArea, type RoomDirectory, type RoomManagementScope, type RoomManager, type UserSelf } from "@airmic/shared";
 import type { Database } from "../db.js";
 
-const AREA_COLUMNS = "id, parent_id AS parentId, name, sort_order AS sortOrder";
+const AREA_COLUMNS = "id, parent_id AS parentId, name, sort_order AS sortOrder, icon, kind";
 
 export class RoomDirectoryService {
   constructor(private readonly db: Database) {}
@@ -32,14 +32,18 @@ export class RoomDirectoryService {
     return this.db.get<RoomArea>(`SELECT ${AREA_COLUMNS} FROM room_areas WHERE parent_id IS ? AND name = ?`, parentId, name);
   }
 
-  create(parentId: number | null, name: string): RoomArea {
-    const { lastInsertRowid } = this.db.run("INSERT INTO room_areas (parent_id, name) VALUES (?, ?)", parentId, name);
-    return { id: lastInsertRowid, parentId, name, sortOrder: 0 };
+  codeArea(): RoomArea | undefined {
+    return this.db.get<RoomArea>(`SELECT ${AREA_COLUMNS} FROM room_areas WHERE kind = 'code' AND parent_id IS NOT NULL`);
   }
 
-  update(area: RoomArea, name: string, sortOrder: number): RoomArea {
-    this.db.run("UPDATE room_areas SET name = ?, sort_order = ? WHERE id = ?", name, sortOrder, area.id);
-    return { ...area, name, sortOrder };
+  create(parentId: number | null, name: string, icon: RoomArea["icon"] = null): RoomArea {
+    const { lastInsertRowid } = this.db.run("INSERT INTO room_areas (parent_id, name, icon) VALUES (?, ?, ?)", parentId, name, icon);
+    return { id: lastInsertRowid, parentId, name, sortOrder: 0, icon, kind: "standard" };
+  }
+
+  update(area: RoomArea, name: string, sortOrder: number, icon: RoomArea["icon"]): RoomArea {
+    this.db.run("UPDATE room_areas SET name = ?, sort_order = ?, icon = ? WHERE id = ?", name, sortOrder, icon, area.id);
+    return { ...area, name, sortOrder, icon };
   }
 
   isEmpty(id: number): boolean {

@@ -121,7 +121,7 @@ export default function ChatPanel({ className, open, onClose }: ChatPanelProps) 
             stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
             if (stickRef.current) setHasNew(false);
           }}
-          className="absolute inset-0 space-y-3 overflow-y-auto px-3 py-3 app-scroll"
+          className="app-scroll absolute inset-0 space-y-3 overflow-y-auto overscroll-y-contain px-3 py-3"
         >
           {timeline.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { canManageArea } from "@airmic/shared";
+import { canManageArea, isAreaIconId } from "@airmic/shared";
 import type { RoomManagementScope } from "@airmic/shared";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
@@ -12,8 +12,13 @@ import type { Services } from "../types.js";
 const idSchema = z.number().int().positive().safe();
 const urlIdSchema = z.string().regex(/^\d+$/).pipe(z.coerce.number().int().positive().safe());
 const nameSchema = z.string().trim().min(1, "名称不能为空").max(20, "名称最多 20 个字符");
-const createAreaSchema = z.object({ parentId: idSchema.nullable(), name: nameSchema });
-const updateAreaSchema = z.object({ name: nameSchema.optional(), sortOrder: z.number().int().min(-100000).max(100000).optional() });
+const iconSchema = z.string().refine(isAreaIconId, "请选择内置图标").nullable().optional();
+const createAreaSchema = z.object({ parentId: idSchema.nullable(), name: nameSchema, icon: iconSchema });
+const updateAreaSchema = z.object({
+  name: nameSchema.optional(),
+  sortOrder: z.number().int().min(-100000).max(100000).optional(),
+  icon: iconSchema,
+});
 const scopeSchema = z.object({ kind: z.enum(["area", "room"]), id: urlIdSchema });
 
 export async function registerRoomDirectoryRoutes(app: FastifyInstance, services: Services): Promise<void> {
@@ -54,16 +59,17 @@ export async function registerRoomDirectoryRoutes(app: FastifyInstance, services
 
   app.post("/api/room-directory/areas", async (request) => {
     const { user } = requireAuth(request);
-    const { parentId, name } = parseWith(createAreaSchema, request.body);
+    const { parentId, name, icon } = parseWith(createAreaSchema, request.body);
     if (parentId === null) {
       if (!user.permissions.includes("manage_server")) throw forbidden("只有服务器管理员可以创建一级分区");
     } else {
       const parent = findArea(parentId);
+      if (parent.kind === "code") throw forbidden("口令房分区由系统管理");
       if (parent.parentId !== null) throw badRequest("子区下面只能创建房间");
       if (!canManageArea(user, parent, directory.forUser(user.id).grants)) throw forbidden("没有权限在该分区下创建子区");
     }
     if (directory.findByName(parentId, name)) throw conflict("此处已有同名分区");
-    const area = directory.create(parentId, name);
+    const area = directory.create(parentId, name, icon);
     log(request, "room_area_create", { kind: "area", id: area.id }, area.name);
     getHub()?.broadcastRoomDirectoryChanged();
     return { area };
@@ -72,12 +78,13 @@ export async function registerRoomDirectoryRoutes(app: FastifyInstance, services
   app.patch("/api/room-directory/areas/:id", async (request) => {
     const { user } = requireAuth(request);
     const area = findArea(parseWith(z.object({ id: urlIdSchema }), request.params).id);
+    if (area.kind === "code") throw forbidden("口令房分区由系统管理");
     if (!canManageArea(user, area, directory.forUser(user.id).grants)) throw forbidden("没有权限修改该分区");
     const body = parseWith(updateAreaSchema, request.body);
     const name = body.name ?? area.name;
     const duplicate = directory.findByName(area.parentId, name);
     if (duplicate && duplicate.id !== area.id) throw conflict("此处已有同名分区");
-    const updated = directory.update(area, name, body.sortOrder ?? area.sortOrder);
+    const updated = directory.update(area, name, body.sortOrder ?? area.sortOrder, body.icon === undefined ? area.icon : body.icon);
     log(request, "room_area_update", { kind: "area", id: area.id }, name);
     const hub = getHub();
     hub?.broadcastRoomDirectoryChanged();
@@ -95,6 +102,7 @@ export async function registerRoomDirectoryRoutes(app: FastifyInstance, services
   app.delete("/api/room-directory/areas/:id", async (request) => {
     const { user } = requireAuth(request);
     const area = findArea(parseWith(z.object({ id: urlIdSchema }), request.params).id);
+    if (area.kind === "code") throw forbidden("口令房分区由系统管理");
     const allowed = area.parentId === null
       ? user.permissions.includes("manage_server")
       : canManageArea(user, findArea(area.parentId), directory.forUser(user.id).grants);

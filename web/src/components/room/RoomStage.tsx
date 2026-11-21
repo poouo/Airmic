@@ -10,6 +10,7 @@ import type { RoomMember } from "./types";
 
 export interface RoomStageProps {
   members: RoomMember[];
+  codeOnly: boolean;
   screenSharer: RoomMember | null;
   screenStream: MediaStream | null;
   selfScreenStream: MediaStream | null;
@@ -23,6 +24,7 @@ export interface RoomStageProps {
 /** 房间舞台：成员网格；有人共享屏幕时切换为大画面 + 成员条 */
 export function RoomStage({
   members,
+  codeOnly,
   screenSharer,
   screenStream,
   selfScreenStream,
@@ -53,7 +55,7 @@ export function RoomStage({
             </div>
           )}
         </div>
-        <div className="flex shrink-0 gap-2 overflow-x-auto pb-1 app-scroll">
+        <div className="app-scroll flex shrink-0 gap-2 overflow-x-auto overscroll-x-contain pb-1">
           {members.map((member) => (
             <div key={member.userId} className="w-36 shrink-0 sm:w-40">
               <MemberCard
@@ -96,7 +98,7 @@ export function RoomStage({
           />
         ))}
       </div>
-      {count <= 1 && <InviteHint />}
+      {count <= 1 && !codeOnly && <InviteHint />}
     </div>
   );
 }

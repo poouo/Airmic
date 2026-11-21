@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
-import { ChevronRight, Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2, UserRoundCheck } from "lucide-react";
+import { ChevronRight, KeyRound, Lock, LockKeyhole, Plus, Settings2, UserRoundCheck } from "lucide-react";
 import { IconButton } from "@/components/ui";
+import AreaIcon from "@/components/lobby/AreaIcon";
 import { cn } from "@/lib/format";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
 import { groupRoomDirectory, useAppStore } from "@/stores/app";
@@ -42,7 +43,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto app-scroll px-3 pb-3">
+      <div className="app-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pb-3">
         {groups.length === 0 ? (
           <div className="px-2 py-6 text-center">
             <p className="text-xs text-muted-foreground">{directory ? "还没有分区" : "正在加载分区…"}</p>
@@ -71,11 +72,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                   className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-card px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", !channelCollapsed && "rotate-90")} />
-                  {channelCollapsed ? (
-                    <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
-                  ) : (
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
-                  )}
+                  <AreaIcon icon={group.area.icon} isRoot expanded={!channelCollapsed} className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
                     {group.area.name}
                   </span>
@@ -99,7 +96,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                             className="flex min-h-9 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8"
                           >
                             <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground transition-transform", !gameCollapsed && "rotate-90")} />
-                            <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <AreaIcon icon={game.area.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground">
                               {game.area.name}
                             </span>
@@ -139,6 +136,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                                       {room.name}
                                     </span>
                                     {room.hasPassword && <Lock className="h-3 w-3 shrink-0 text-warning" />}
+                                    {room.codeOnly && <KeyRound aria-label="口令房" className="h-3 w-3 shrink-0 text-brand" />}
                                     {room.allowGuests === false && <span title="仅注册用户" className="shrink-0"><UserRoundCheck role="img" aria-label="仅注册用户" className="h-3 w-3 text-muted-foreground" /></span>}
                                     {room.locked && <LockKeyhole className="h-3 w-3 shrink-0 text-muted-foreground" />}
                                     <span

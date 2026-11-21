@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServer } from "./lib/server.mjs";
-import { launchBrowser, waitForAudioConnection } from "./lib/browser.mjs";
+import { launchBrowser, readAudioConnection, waitForAudioConnection } from "./lib/browser.mjs";
 import { startLivekit } from "./lib/livekit.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +32,27 @@ const consoleIssues = (entry) =>
   [...(entry.consoleErrors || [])].filter(
     (text) => !/favicon|AudioContext was not allowed|autoplay|status of 401|status of 404/i.test(text),
   );
+
+async function waitForMicBitrate(page, bitrate) {
+  const result = await page.waitForFunction((expected) => {
+    const connections = window.__airmicPeerConnections ?? [];
+    for (const [index, connection] of connections.entries()) {
+      if (connection.connectionState !== "connected") continue;
+      const sender = connection.getSenders().find((candidate) => candidate.track?.kind === "audio");
+      if (sender?.getParameters().encodings[0]?.maxBitrate === expected) {
+        return { connection: index, track: sender.track.id };
+      }
+    }
+    return null;
+  }, bitrate, { timeout: 10000, polling: 100 });
+  return result.jsonValue();
+}
+
+function assertSameMic(before, after) {
+  if (before.connection !== after.connection || before.track !== after.track) {
+    throw new Error("码率切换重建了麦克风或语音连接");
+  }
+}
 
 async function main() {
   if (!existsSync(path.join(projectRoot, "web", "dist", "index.html")) || !existsSync(path.join(projectRoot, "server", "dist", "index.js"))) {
@@ -159,6 +180,27 @@ async function main() {
       return "roomId=" + roomId + ", maxUsers=20";
     });
 
+    await step("7b. 后台开启多人房间麦克风码率上限", async () => {
+      const page = adminPage.page;
+      await page.goto(server.url + "/admin", { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: "服务器设置", exact: true }).first().click();
+      const toggle = page.getByRole("switch", { name: "自动限制麦克风码率" });
+      await toggle.waitFor({ timeout: 5000 });
+      if (await toggle.getAttribute("aria-checked") !== "false") throw new Error("默认未关闭限码率");
+      await toggle.click();
+      await page.getByLabel("人数阈值", { exact: true }).fill("2");
+      await page.getByRole("combobox", { name: "麦克风码率上限" }).click();
+      await page.getByRole("option", { name: /24 kbps/ }).click();
+      const saved = page.waitForResponse((response) => response.url().endsWith("/api/admin/settings") && response.request().method() === "PATCH");
+      await page.getByRole("button", { name: "保存设置", exact: true }).click();
+      const response = await saved;
+      if (!response.ok()) throw new Error("保存码率上限失败 HTTP " + response.status());
+      const { settings } = await response.json();
+      const limit = settings.roomAudioBitrateLimit;
+      if (!limit?.enabled || limit.userThreshold !== 2 || limit.maxBitrate !== 24000) throw new Error("保存的码率上限不正确");
+      return "超过 2 人时限 24 kbps";
+    });
+
     await step("8. 从房间直链完成游客进入并返回原房间", async () => {
       await guestPage.page.goto(server.url + "/room/" + roomId);
       await guestPage.page.waitForURL(server.url + "/");
@@ -190,6 +232,98 @@ async function main() {
       await browser.screenshot(adminPage.page, "04-room-sfu-admin");
       await browser.screenshot(guestPage.page, "05-room-sfu-guest");
       return "connected=" + adminState.connected + "/" + guestState.connected + " audio=" + adminState.receivingAudio + "/" + guestState.receivingAudio;
+    });
+
+    await step("10b. 关闭收听暂停接收音频，恢复收听后继续接收", async () => {
+      const listener = guestPage.page;
+      const peer = adminPage.page;
+      const closeListening = listener.getByRole("button", { name: "关闭收听", exact: true });
+      const resumeListening = listener.getByRole("button", { name: "恢复收听", exact: true });
+      const initial = await waitForAudioConnection(listener, 5000);
+      await waitForAudioConnection(listener, 5000, initial.audioBytes);
+      await closeListening.click();
+      await resumeListening.waitFor({ timeout: 5000 });
+
+      // LiveKit 暂停时会发送约一秒的静音帧来清空解码缓冲区。
+      await sleep(1600);
+      const [paused, peerBefore] = await Promise.all([readAudioConnection(listener), readAudioConnection(peer)]);
+      const peerAfter = await waitForAudioConnection(peer, 5000, peerBefore.audioBytes);
+      await sleep(1000);
+      const stable = await readAudioConnection(listener);
+      await resumeListening.click();
+
+      if (stable.connected === 0 || stable.audioBytes !== paused.audioBytes) {
+        throw new Error("关闭收听后远端音频数据未停止（" + paused.audioBytes + " → " + stable.audioBytes + " 字节）");
+      }
+      const resumed = await waitForAudioConnection(listener, 5000, stable.audioBytes);
+      return "暂停接收 0 字节，对方仍收到本地麦克风 " + (peerAfter.audioBytes - peerBefore.audioBytes)
+        + " 字节，恢复后收到 " + (resumed.audioBytes - stable.audioBytes) + " 字节";
+    });
+
+    await step("10c. 关闭收听期间自动暂停新发布的音频轨道", async () => {
+      const listener = guestPage.page;
+      const peer = adminPage.page;
+      await listener.getByRole("button", { name: "关闭收听", exact: true }).click();
+      await peer.reload({ waitUntil: "networkidle" });
+      await peer.getByRole("button", { name: "静音麦克风", exact: true }).waitFor({ timeout: 10000 });
+      await waitForAudioConnection(peer, 10000);
+      await sleep(1600);
+      const before = await readAudioConnection(listener);
+      await sleep(1000);
+      const after = await readAudioConnection(listener);
+      await listener.getByRole("button", { name: "恢复收听", exact: true }).click();
+      if (after.connected === 0 || after.audioBytes !== before.audioBytes) {
+        throw new Error("新发布的音频轨道未暂停（" + before.audioBytes + " → " + after.audioBytes + " 字节）");
+      }
+      await waitForAudioConnection(listener, 5000, after.audioBytes);
+      return "新轨道暂停接收，恢复收听后收到音频";
+    });
+
+    await step("10d. 人数跨过阈值时保留连接和麦克风轨道", async () => {
+      const page = adminPage.page;
+      const guest = guestPage.page;
+      const original = await waitForMicBitrate(page, 32000);
+      await guest.getByLabel("语音控制").getByRole("button", { name: "语音设置", exact: true }).click();
+      const dialog = guest.getByRole("dialog");
+      await dialog.getByRole("button", { name: "网络", exact: true }).click();
+      await dialog.getByRole("button", { name: /极省流/ }).click();
+      await guest.keyboard.press("Escape");
+      const lowBitrateMic = await waitForMicBitrate(guest, 16000);
+      const newcomer = await browser.newPage("bitrate-guest");
+      try {
+        await newcomer.page.goto(server.url + "/room/" + roomId);
+        await newcomer.page.getByLabel("游客昵称").fill("码率测试游客");
+        await newcomer.page.getByRole("button", { name: "以游客身份进入" }).click();
+        await guest.getByText("房间麦克风上限 24 kbps", { exact: true }).waitFor({ timeout: 5000 });
+        assertSameMic(original, await waitForMicBitrate(page, 24000));
+        assertSameMic(lowBitrateMic, await waitForMicBitrate(guest, 16000));
+        await waitForMicBitrate(newcomer.page, 24000);
+        await waitForAudioConnection(newcomer.page, 5000);
+
+        const updateLimit = async (enabled) => {
+          const response = await page.request.patch(server.url + "/api/admin/settings", {
+            data: { roomAudioBitrateLimit: { enabled, userThreshold: 2, maxBitrate: 24000 } },
+          });
+          if (!response.ok()) throw new Error("切换码率限制失败 HTTP " + response.status());
+        };
+        const restoredNotice = guest.getByText("房间码率已恢复", { exact: true });
+        await updateLimit(false);
+        await restoredNotice.waitFor({ timeout: 5000 });
+        assertSameMic(original, await waitForMicBitrate(page, 32000));
+        await updateLimit(true);
+        assertSameMic(original, await waitForMicBitrate(page, 24000));
+
+        await restoredNotice.waitFor({ state: "hidden", timeout: 5000 });
+        await newcomer.page.getByLabel("语音控制").getByRole("button", { name: "离开房间", exact: true }).click();
+        await restoredNotice.waitFor({ timeout: 5000 });
+        assertSameMic(original, await waitForMicBitrate(page, 32000));
+        assertSameMic(lowBitrateMic, await waitForMicBitrate(guest, 16000));
+        const resumed = await readAudioConnection(guest);
+        await waitForAudioConnection(guest, 5000, resumed.audioBytes);
+        return "32 → 24 → 32 kbps，低码率保持 16 kbps，现有连接与麦克风轨道保持";
+      } finally {
+        await newcomer.context.close();
+      }
     });
 
     await step("11. 房间聊天实时互通", async () => {

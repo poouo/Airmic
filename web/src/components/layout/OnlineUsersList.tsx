@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { ChevronRight, EarOff, MicOff, Search, Users } from "lucide-react";
+import { ChevronRight, HeadphoneOff, MicOff, Search, Users } from "lucide-react";
 import { ROLE_LABELS, type OnlineUser } from "@airmic/shared";
 import { Avatar, Button, Input, Modal } from "@/components/ui";
 import { cn } from "@/lib/format";
@@ -72,7 +72,7 @@ function OnlineUsersDialog({ users, selfId, onClose }: { users: OnlineUser[]; se
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{user.roomName ?? "大厅"} · {ROLE_LABELS[user.role]}</p>
               </div>
-              {user.deafened ? <EarOff aria-label="声音已关闭" className="h-4 w-4 shrink-0 text-muted-foreground" /> : user.muted ? (
+              {user.deafened ? <HeadphoneOff aria-label="已关闭收听" className="h-4 w-4 shrink-0 text-muted-foreground" /> : user.muted ? (
                 <MicOff aria-label="已静音" className="h-4 w-4 shrink-0 text-muted-foreground" />
               ) : null}
             </li>

@@ -333,7 +333,7 @@ export function Select({ label, hint, error, options, className, id, value, onCh
       </button>
       {open && !disabled && position && createPortal(
         <div ref={menu} id={listId} role="listbox" aria-label={typeof label === "string" ? label : ariaLabel ?? "选项"}
-          className="app-scroll fixed z-[80] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-popover" style={position}>
+          className="app-scroll fixed z-[80] overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-popover" style={position}>
           {options.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">暂无选项</p>}
           {options.map((option, index) => (
             <button key={option.value} id={`${listId}-${index}`} role="option" type="button" tabIndex={-1}
@@ -778,7 +778,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             )}
           </div>
         )}
-        <div className="app-scroll min-h-0 overflow-y-auto scroll-py-4 px-4 py-3 sm:px-5 sm:py-4" data-dialog-body>{children}</div>
+        <div className="app-scroll min-h-0 overflow-y-auto overscroll-y-contain scroll-py-4 px-4 py-3 sm:px-5 sm:py-4" data-dialog-body>{children}</div>
         {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-4 py-2 [&_button]:min-h-11 sm:px-5 sm:py-3 sm:[&_button]:min-h-8" data-dialog-footer>{footer}</div>}
       </div>
     </div>,

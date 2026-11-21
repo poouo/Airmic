@@ -10,6 +10,7 @@ import { JoinGate } from "@/components/room/JoinGate";
 import { RoomControls } from "@/components/room/RoomControls";
 import { RoomHeader } from "@/components/room/RoomHeader";
 import RoomMembersModal from "@/components/room/RoomMembersModal";
+import RoomCodeShareModal from "@/components/room/RoomCodeShareModal";
 import { RoomStage } from "@/components/room/RoomStage";
 import type { RoomMember } from "@/components/room/types";
 import { playJoinSound, playLeaveSound } from "@/components/room/sounds";
@@ -40,6 +41,7 @@ export default function RoomPage() {
   const joining = useRoomStore((state) => state.joining);
   const joinError = useRoomStore((state) => state.joinError);
   const screenSharerId = useRoomStore((state) => state.screenSharerId);
+  const codeRevealRoomId = useRoomStore((state) => state.codeRevealRoomId);
   const me = useAuthStore((state) => state.user);
   const server = useAppStore((state) => state.server);
   const connection = useAppStore((state) => state.connection);
@@ -57,10 +59,18 @@ export default function RoomPage() {
   const [shareBusy, setShareBusy] = useState(false);
   const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
   const [managingMembersIn, setManagingMembersIn] = useState<number | null>(null);
+  const [viewingCodeIn, setViewingCodeIn] = useState<number | null>(null);
 
   const room = snapshot !== null && snapshot.room.id === roomId ? snapshot.room : null;
   const inRoom = room !== null;
   const roomName = room?.name ?? rooms.find((item) => item.id === roomId)?.name ?? null;
+  const inviteCode = inRoom ? snapshot?.inviteCode : undefined;
+
+  useEffect(() => {
+    if (codeRevealRoomId !== roomId || !inviteCode) return;
+    setViewingCodeIn(roomId);
+    useRoomStore.setState({ codeRevealRoomId: null });
+  }, [codeRevealRoomId, inviteCode, roomId]);
 
   // ============ 加入房间 ============
   useEffect(() => {
@@ -82,10 +92,10 @@ export default function RoomPage() {
       joinedRoomRef.current = roomId;
       return;
     }
-    if (joinedRoomRef.current !== roomId || joining) return;
+    if (joinedRoomRef.current !== roomId || joining || snapshot?.room.codeOnly) return;
     joinedRoomRef.current = null;
     navigate("/", { replace: true });
-  }, [inRoom, joining, navigate, roomId]);
+  }, [inRoom, joining, navigate, roomId, snapshot?.room.codeOnly]);
 
   // ============ 状态上报（节流 ≤5 次/秒） ============
   const stateQueueRef = useRef<PeerStatePatch>({});
@@ -145,7 +155,7 @@ export default function RoomPage() {
     setSyncToken((value) => value + 1);
   }, [snapshot]);
 
-  // 麦克风/耳聋状态上报（首次进入时上报一次）
+  // 麦克风与收听状态上报（首次进入时上报一次）
   useEffect(() => {
     if (!inRoom) {
       reportedMuteRef.current = null;
@@ -381,6 +391,7 @@ export default function RoomPage() {
         onRetry={() => useRoomStore.getState().retryJoin()}
         onBack={() => navigate("/")}
         onPasswordSubmit={(password) => useRoomStore.getState().joinRoom(roomId, password)}
+        onCodeSubmit={(code) => useRoomStore.getState().requestCodeRoom({ t: "join_code_room", code, roomId })}
       />
     );
   }
@@ -411,7 +422,9 @@ export default function RoomPage() {
       )}
 
       <RoomHeader
+        key={room.id}
         room={room}
+        onViewCode={inviteCode ? () => setViewingCodeIn(roomId) : undefined}
         memberCount={members.length}
         capacity={capacity}
         onBack={handleBack}
@@ -421,9 +434,10 @@ export default function RoomPage() {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 app-scroll sm:p-4">
+          <div className="app-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3 sm:p-4">
             <RoomStage
               members={members}
+              codeOnly={room.codeOnly}
               screenSharer={screenSharer}
               screenStream={screenStream}
               selfScreenStream={voice.getLocalScreenStream()}
@@ -460,6 +474,7 @@ export default function RoomPage() {
       </div>
       {canEdit && editingRoomId === room.id && <RoomEditor target={{ kind: "edit", roomId: room.id }} onClose={() => setEditingRoomId(null)} />}
       {canManageMembers && managingMembersIn === room.id && <RoomMembersModal roomId={room.id} members={members} user={me} onClose={() => setManagingMembersIn(null)} />}
+      {inviteCode && viewingCodeIn === room.id && <RoomCodeShareModal roomName={room.name} code={inviteCode} onClose={() => setViewingCodeIn(null)} />}
     </div>
   );
 }

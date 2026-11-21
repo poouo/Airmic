@@ -1,4 +1,5 @@
 import type { OnlineUser, PeerInfo, RoomSummary } from "@airmic/shared";
+import { formatBitrate } from "@airmic/shared";
 import { useAppStore } from "../stores/app";
 import { useAuthStore } from "../stores/auth";
 import { useRoomStore } from "../stores/room";
@@ -17,6 +18,13 @@ function toast(
   useUiStore.getState().toast(message, type, title, duration);
 }
 
+function syncRoomBitrateCap(): void {
+  const cap = voice.refreshRoomBitrateCap();
+  if (cap === undefined) return;
+  const message = cap === null ? "房间码率已恢复" : "房间麦克风上限 " + formatBitrate(cap);
+  toast(message, "info", undefined, 3000);
+}
+
 /** 注册所有 WebSocket 事件到 store / 语音引擎（只执行一次） */
 export function initRealtime(): void {
   if (initialized) return;
@@ -24,6 +32,10 @@ export function initRealtime(): void {
 
   socket.onStatus((status) => {
     useAppStore.getState().setConnection(status);
+    const roomStore = useRoomStore.getState();
+    if (status !== "online" && roomStore.pendingCode) {
+      roomStore.setJoinError({ code: "offline", message: "连接已断开，请重试" });
+    }
     if (status === "reconnecting") {
       const room = useRoomStore.getState().snapshot;
       if (room) toast("实时连接已断开，正在重连…", "warning");
@@ -47,7 +59,7 @@ export function initRealtime(): void {
     // 此时 lastJoin 已记录但 snapshot 为空，需要在 hello 之后补发 join_room。
     const roomState = useRoomStore.getState();
     if (roomState.lastJoin) {
-      roomState.joinRoom(roomState.lastJoin.roomId, roomState.lastJoin.password, true);
+      roomState.retryJoin(true);
     }
   });
 
@@ -66,7 +78,7 @@ export function initRealtime(): void {
   socket.on("room_joined", (message) => {
     const roomStore = useRoomStore.getState();
     const previousRoomId = roomStore.snapshot?.room.id;
-    roomStore.applySnapshot(message.snapshot);
+    roomStore.applySnapshot(message.snapshot, message.request);
     if (previousRoomId === message.snapshot.room.id) {
       // 重连/刷新快照：重建语音连接
       voice.leave();
@@ -84,6 +96,7 @@ export function initRealtime(): void {
 
   socket.on("peer_joined", (message) => {
     useRoomStore.getState().applyPeerJoined(message.peer);
+    syncRoomBitrateCap();
     void voice.addPeer(message.peer).catch((error: unknown) => {
       console.error("[voice] addPeer failed", error);
     });
@@ -91,6 +104,7 @@ export function initRealtime(): void {
 
   socket.on("peer_left", (message) => {
     useRoomStore.getState().applyPeerLeft(message.userId);
+    syncRoomBitrateCap();
     voice.removePeer(message.userId);
   });
 
@@ -128,9 +142,7 @@ export function initRealtime(): void {
       useRoomStore.setState({
         snapshot: { ...roomState.snapshot, room: message.room },
       });
-      void voice.applyAudioSettings(message.room.audioSettings).catch(() => {
-        /* 忽略：音质调整失败不影响通话 */
-      });
+      voice.applyAudioSettings(message.room.audioSettings);
     }
   });
 
@@ -146,6 +158,7 @@ export function initRealtime(): void {
 
   socket.on("server_settings", (message) => {
     useAppStore.getState().setServer(message.server);
+    syncRoomBitrateCap();
   });
 
   socket.on("kicked", (message) => {
@@ -174,8 +187,19 @@ export function initRealtime(): void {
   });
 
   socket.on("error", (message) => {
+    const roomStore = useRoomStore.getState();
+    if (roomStore.pendingCode && roomStore.pendingCode.t === message.request) {
+      if (message.code === "room_code_invalid" && roomStore.snapshot && roomStore.pendingCode.t === "join_code_room" &&
+          roomStore.pendingCode.roomId === roomStore.snapshot?.room.id) {
+        voice.leave();
+        roomStore.reset();
+        toast("口令房已结束", "info");
+      }
+      roomStore.setJoinError({ code: message.code, message: message.message });
+      return;
+    }
     if (message.request === "join_room") {
-      useRoomStore.getState().setJoinError({ code: message.code, message: message.message });
+      roomStore.setJoinError({ code: message.code, message: message.message });
     }
     if (message.code === "rate_limited") {
       toast("操作太频繁，请稍后再试", "warning");

@@ -1,3 +1,5 @@
+import type { AreaIconId } from "./area-icons.js";
+
 /** 权限点 */
 export type Permission =
   | "manage_server"
@@ -51,6 +53,12 @@ export interface IceServerConfig {
   credential?: string;
 }
 
+export interface RoomAudioBitrateLimit {
+  enabled: boolean;
+  userThreshold: number;
+  maxBitrate: number;
+}
+
 /** 公开的服务器设置（登录页/客户端可见） */
 export interface ServerSettingsPublic {
   name: string;
@@ -62,11 +70,14 @@ export interface ServerSettingsPublic {
   maxRooms: number;
   allowRoomCreation: boolean;
   allowGuestRoomCreation: boolean;
+  allowCodeRoomCreation: boolean;
+  allowGuestCodeRoomCreation: boolean;
   allowScreenShare: boolean;
   allowTextChat: boolean;
   allowGuestChat: boolean;
   maxChatLength: number;
   defaultAudioSettings: AudioSettings;
+  roomAudioBitrateLimit: RoomAudioBitrateLimit;
   iceServers: IceServerConfig[];
   forceRelay: boolean;
   roomCategories: string[];
@@ -127,6 +138,8 @@ export interface RoomArea {
   parentId: number | null;
   name: string;
   sortOrder: number;
+  icon: AreaIconId | null;
+  kind: "standard" | "code";
 }
 
 export interface RoomManagementScope {
@@ -157,6 +170,7 @@ export interface RoomSummary {
   /** 房间图标 key（对应前端 ROOM_ICONS） */
   icon: string;
   hasPassword: boolean;
+  codeOnly: boolean;
   allowGuests: boolean;
   textChatEnabled: boolean;
   chatHistoryDays: number;
@@ -211,6 +225,7 @@ export interface ChatMessage {
 
 export interface RoomSnapshot {
   room: RoomDetail;
+  inviteCode?: string;
   peers: PeerInfo[];
   messages: ChatMessage[];
   screenSharerId: number | null;

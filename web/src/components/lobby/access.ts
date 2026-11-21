@@ -8,7 +8,7 @@ function allowsPersonalRooms(user: UserSelf, server: ServerSettingsPublic | null
 
 export function roomCreationAreas(user: UserSelf | null, server: ServerSettingsPublic | null, directory: RoomDirectory | null) {
   if (!user || !directory) return [];
-  return directory.areas.filter((area) => area.parentId !== null && (
+  return directory.areas.filter((area) => area.parentId !== null && area.kind !== "code" && (
     allowsPersonalRooms(user, server) || canManageArea(user, area, directory.grants)
   ));
 }

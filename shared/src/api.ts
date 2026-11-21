@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   OnlineUser,
   Role,
+  RoomAudioBitrateLimit,
   RoomDetail,
   RoomSummary,
   ServerSettings,
@@ -264,12 +265,15 @@ export interface UpdateSettingsRequest {
   maxRooms?: number;
   allowRoomCreation?: boolean;
   allowGuestRoomCreation?: boolean;
+  allowCodeRoomCreation?: boolean;
+  allowGuestCodeRoomCreation?: boolean;
   allowScreenShare?: boolean;
   allowTextChat?: boolean;
   allowGuestChat?: boolean;
   maxChatLength?: number;
   maxMessagesPerRoom?: number;
   defaultAudioSettings?: AudioSettings;
+  roomAudioBitrateLimit?: RoomAudioBitrateLimit;
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   forceRelay?: boolean;
   roomCategories?: string[];

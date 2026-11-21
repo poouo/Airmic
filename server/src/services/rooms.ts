@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import {
   diffAudioSettings,
   mergeAudioSettings,
@@ -13,6 +14,7 @@ import type { RoomDirectoryService } from "./room-directory.js";
 export interface RoomRow {
   id: number;
   area_id: number;
+  area_kind: RoomArea["kind"];
   name: string;
   description: string;
   category: string;
@@ -43,7 +45,7 @@ export interface MessageRow {
   created_at: string;
 }
 
-const ROOM_SELECT = `SELECT r.*, child.name AS category, root.name AS channel FROM rooms r
+const ROOM_SELECT = `SELECT r.*, child.kind AS area_kind, child.name AS category, root.name AS channel FROM rooms r
   JOIN room_areas child ON child.id = r.area_id JOIN room_areas root ON root.id = child.parent_id`;
 
 export interface RoomInput {
@@ -70,6 +72,8 @@ export interface CreateRoomInput extends RoomInput {
 
 export class RoomsService {
   private readonly guestOwners = new Map<number, number>();
+  private readonly roomCodes = new Map<number, string>();
+  private readonly roomsByCode = new Map<string, number>();
 
   constructor(
     private readonly db: Database,
@@ -102,11 +106,11 @@ export class RoomsService {
       return area?.parentId != null ? area : undefined;
     }
     if (current && input.channel === undefined && input.category === undefined) return this.directory.find(current.area_id);
-    const areas = this.directory.list();
+    const areas = this.directory.list().filter((area) => area.kind === "standard");
     const channel = input.channel?.trim() || current?.channel;
     const category = input.category?.trim();
     const root = channel ? this.directory.findByName(null, channel) : undefined;
-    if (channel && !root) return undefined;
+    if (channel && (!root || root.kind === "code")) return undefined;
     if (root && category) return this.directory.findByName(root.id, category);
     if (category) {
       for (const area of areas) {
@@ -150,6 +154,7 @@ export class RoomsService {
       channel: row.channel,
       icon: row.icon,
       hasPassword: row.password_hash !== null,
+      codeOnly: row.area_kind === "code",
       maxUsers: this.maxUsersFor(row),
       userCount,
       locked: row.locked === 1,
@@ -211,7 +216,42 @@ export class RoomsService {
 
   create(input: CreateRoomInput, actorId: number | null, guestOwner = false): RoomRow {
     const area = this.resolveArea(input);
-    if (!area) throw new Error("创建房间需要有效的子区");
+    if (!area || area.kind !== "standard") throw new Error("创建房间需要有效的普通子区");
+    return this.insert(input, area, actorId, guestOwner);
+  }
+
+  createCodeRoom(name: string, actorId: number, guestOwner: boolean): RoomRow | "name_taken" | null {
+    if (this.roomsByCode.size >= 10_000) return null;
+    const area = this.directory.codeArea();
+    if (!area) throw new Error("口令房分区不存在");
+    if (this.findByName(area.id, name)) return "name_taken";
+    let digits = randomInt(10_000);
+    let code = String(digits).padStart(4, "0");
+    while (this.roomsByCode.has(code)) {
+      digits = (digits + 1) % 10_000;
+      code = String(digits).padStart(4, "0");
+    }
+
+    const row = this.insert({ name, icon: "target" }, area, actorId, guestOwner);
+    this.roomCodes.set(row.id, code);
+    this.roomsByCode.set(code, row.id);
+    return row;
+  }
+
+  codeForRoom(roomId: number): string | undefined {
+    return this.roomCodes.get(roomId);
+  }
+
+  findByCode(code: string): RoomRow | undefined {
+    const id = this.roomsByCode.get(code);
+    return id === undefined ? undefined : this.findById(id);
+  }
+
+  clearCodeRooms(): void {
+    this.db.run("DELETE FROM rooms WHERE area_id IN (SELECT id FROM room_areas WHERE kind = 'code')");
+  }
+
+  private insert(input: CreateRoomInput, area: RoomArea, actorId: number | null, guestOwner: boolean): RoomRow {
     const icon = (input.icon ?? "gamepad").trim() || "gamepad";
     const passwordHash = input.password ? hashRoomPassword(input.password) : null;
     const nextSort =
@@ -329,6 +369,9 @@ export class RoomsService {
   remove(id: number): void {
     this.db.run("DELETE FROM rooms WHERE id = ?", id);
     this.guestOwners.delete(id);
+    const code = this.roomCodes.get(id);
+    if (code !== undefined) this.roomsByCode.delete(code);
+    this.roomCodes.delete(id);
   }
 
   verifyPassword(row: RoomRow, password: string | null | undefined): boolean {

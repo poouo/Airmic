@@ -328,18 +328,22 @@ test("settings 读取、更新、审计与广播", async (t) => {
   assert.equal(initial.body.settings.version, APP_VERSION);
   assert.equal(initial.body.settings.name, "AirMic 语音服务器");
   assert.equal(typeof initial.body.settings.registrationCode, "string");
+  assert.equal(initial.body.settings.roomAudioBitrateLimit.enabled, false);
 
+  const roomAudioBitrateLimit = { enabled: true, userThreshold: 20, maxBitrate: 24000 };
   const res = await env.admin.client.patch<AdminSettingsResponse>("/api/admin/settings", {
     name: "测试语音服",
     motd: "欢迎光临",
     maxUsers: 50,
     registrationMode: "invite",
+    roomAudioBitrateLimit,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.settings.name, "测试语音服");
   assert.equal(res.body.settings.motd, "欢迎光临");
   assert.equal(res.body.settings.maxUsers, 50);
   assert.equal(res.body.settings.registrationMode, "invite");
+  assert.deepEqual(res.body.settings.roomAudioBitrateLimit, roomAudioBitrateLimit);
   assert.ok(res.body.settings.registrationCode.length > 0);
   assert.equal(env.hub.callsOf("broadcastServerSettings").length, 1);
 
@@ -348,13 +352,14 @@ test("settings 读取、更新、审计与广播", async (t) => {
   assert.equal(audit.actorId, env.admin.row.id);
   assert.equal(audit.actorName, "管理员");
   const details = JSON.parse(audit.details ?? "{}") as { fields?: string[] };
-  for (const field of ["name", "motd", "maxUsers", "registrationMode"]) {
+  for (const field of ["name", "motd", "maxUsers", "registrationMode", "roomAudioBitrateLimit"]) {
     assert.ok((details.fields ?? []).includes(field), "审计应记录字段 " + field);
   }
 
   // 公开接口同步生效
-  const publicInfo = await env.ctx.newClient().get<{ server: { name: string } }>("/api/server");
+  const publicInfo = await env.ctx.newClient().get<{ server: { name: string; roomAudioBitrateLimit: unknown } }>("/api/server");
   assert.equal(publicInfo.body.server.name, "测试语音服");
+  assert.deepEqual(publicInfo.body.server.roomAudioBitrateLimit, roomAudioBitrateLimit);
 
   // 音质支持部分字段更新（以当前默认值为基准合并）
   const audioRes = await env.admin.client.patch<AdminSettingsResponse>("/api/admin/settings", {
@@ -368,6 +373,14 @@ test("settings 读取、更新、审计与广播", async (t) => {
   assert.equal(badRange.status, 400);
   assert.match(errorMessage(badRange.body), /请求参数不正确/);
   assert.equal((await env.admin.client.patch("/api/admin/settings", { registrationMode: "weird" })).status, 400);
+  assert.equal(
+    (await env.admin.client.patch("/api/admin/settings", { roomAudioBitrateLimit: { ...roomAudioBitrateLimit, userThreshold: 0 } })).status,
+    400,
+  );
+  assert.equal(
+    (await env.admin.client.patch("/api/admin/settings", { roomAudioBitrateLimit: { ...roomAudioBitrateLimit, maxBitrate: 1000 } })).status,
+    400,
+  );
   assert.equal(
     (await env.admin.client.patch("/api/admin/settings", { defaultAudioSettings: { bitrate: 1 } })).status,
     400,

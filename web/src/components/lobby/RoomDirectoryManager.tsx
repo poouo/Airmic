@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { canManageArea } from "@airmic/shared";
 import type { RoomArea, RoomManagementScope } from "@airmic/shared";
-import { Folder, KeyRound, Layers, Lock, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Folder, KeyRound, Lock, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Input, PageHeader, Spinner } from "@/components/ui";
 import { RoomIcon } from "@/components/room/roomIcons";
 import { api, errorMessage } from "@/lib/api";
@@ -10,6 +10,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 import { canEditRoom } from "./access";
 import AreaEditor, { type AreaEditorTarget } from "./AreaEditor";
+import AreaIcon from "./AreaIcon";
 import RoomEditor, { type RoomEditorTarget } from "./RoomEditor";
 import RoomManagersModal, { type ManagersTarget } from "./RoomManagersModal";
 
@@ -86,14 +87,14 @@ export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: 
         <Card key={root.area.id} className="overflow-hidden">
           <section aria-label={root.area.name}>
             <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-3 sm:px-4">
-              <Folder className="h-4 w-4 shrink-0 text-brand" />
+              <AreaIcon icon={root.area.icon} isRoot className="h-5 w-5 shrink-0 text-brand" />
               <h2 className="mr-auto min-w-0 truncate text-base font-semibold">{root.area.name}</h2>
               <div className="flex items-center gap-1">
-                {root.canManage && <>
+                {root.canManage && root.area.kind !== "code" && <>
                   <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setAreaEditor({ parent: root.area })}>添加子区</Button>
                   <IconButton label={`编辑一级分区 ${root.area.name}`} onClick={() => setAreaEditor({ area: root.area })}><Pencil className="h-4 w-4" /></IconButton>
                 </>}
-                {isAdmin && <>
+                {isAdmin && root.area.kind !== "code" && <>
                   <IconButton label={`管理 ${root.area.name} 的授权`} onClick={() => openManagers({ kind: "area", id: root.area.id }, root.area.name, "权限覆盖此分区、下面所有子区和房间，也会应用到以后添加的房间。") }><KeyRound className="h-4 w-4" /></IconButton>
                   <IconButton label={`删除一级分区 ${root.area.name}`} onClick={() => void removeArea(root.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>
                 </>}
@@ -106,15 +107,15 @@ export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: 
                 return (
                   <section key={child.area.id} aria-label={path} className="px-3 py-3 sm:px-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <AreaIcon icon={child.area.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <h3 className="mr-auto min-w-0 truncate text-sm font-semibold">{child.area.name}</h3>
                       <div className="flex items-center gap-1">
-                        {child.canManage && <>
+                        {child.canManage && child.area.kind !== "code" && <>
                           <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setRoomEditor({ kind: "create", areaId: child.area.id })}>创建房间</Button>
                           <IconButton label={`编辑子区 ${path}`} onClick={() => setAreaEditor({ area: child.area })}><Pencil className="h-4 w-4" /></IconButton>
                         </>}
-                        {isAdmin && <IconButton label={`管理 ${path} 的授权`} onClick={() => openManagers({ kind: "area", id: child.area.id }, path, "权限覆盖此子区及其现有和未来的房间。") }><KeyRound className="h-4 w-4" /></IconButton>}
-                        {root.canManage && <IconButton label={`删除子区 ${path}`} onClick={() => void removeArea(child.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>}
+                        {isAdmin && child.area.kind !== "code" && <IconButton label={`管理 ${path} 的授权`} onClick={() => openManagers({ kind: "area", id: child.area.id }, path, "权限覆盖此子区及其现有和未来的房间。") }><KeyRound className="h-4 w-4" /></IconButton>}
+                        {root.canManage && child.area.kind !== "code" && <IconButton label={`删除子区 ${path}`} onClick={() => void removeArea(child.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>}
                       </div>
                     </div>
                     {child.rooms.length === 0 ? <p className="py-2 pl-6 text-sm text-muted-foreground">还没有房间</p> : (

@@ -93,6 +93,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const body = parseWith(createRoomSchema, request.body);
     const area = services.rooms.resolveArea(body);
     if (!area) throw badRequest("请选择已有的子区");
+    if (area.kind === "code") throw forbidden("请使用新建口令房入口");
     if (!canManageArea(auth.user, area, services.roomDirectory.forUser(auth.user.id).grants) && !allowsPersonalRooms(services, auth.user)) {
       throw forbidden("没有权限在这个子区创建房间");
     }
@@ -131,6 +132,8 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const area = services.rooms.resolveArea(body, row);
     if (!area) throw badRequest("请选择已有的子区");
     const moved = area.id !== row.area_id;
+    if (moved && (area.kind === "code" || row.area_kind === "code")) throw forbidden("口令房使用专属分区");
+    if (row.area_kind === "code" && body.password) throw badRequest("口令房使用自动生成的口令");
     if (moved && !canManageArea(auth.user, area, services.roomDirectory.forUser(auth.user.id).grants)) {
       throw forbidden("没有权限将房间移到这个子区");
     }
@@ -207,7 +210,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const query = request.query as { limit?: string; beforeId?: string };
     if (getHub()?.getRoomIdForUser(user.id) !== room.id) {
       if (user.isGuest && room.allow_guests === 0) throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
-      if (room.password_hash) throw forbidden("请先加入该房间");
+      if (room.password_hash || room.area_kind === "code") throw forbidden("请先加入该房间");
     }
     const limit = query.limit ? Math.min(200, Math.max(1, Number(query.limit))) : 50;
     const beforeId = query.beforeId ? Number(query.beforeId) : undefined;
@@ -220,6 +223,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const roomId = Number((request.params as { id: string }).id);
     const row = services.rooms.findById(roomId);
     if (!row) throw notFound("房间不存在");
+    if (row.area_kind === "code") throw forbidden("请使用口令加入房间", "room_code_required");
     if (user.isGuest && row.allow_guests === 0) throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
     const body = parseWith(z.object({ password: z.string().optional() }), request.body ?? {});
     if (!row.password_hash || services.roomDirectory.canManageRoom(user, row)) return { ok: true, required: false };

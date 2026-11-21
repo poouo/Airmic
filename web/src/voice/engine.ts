@@ -1,7 +1,8 @@
 import type { AudioSettings, LivekitTokenResponse, PeerInfo, RoomSnapshot, SignalPayload } from "@airmic/shared";
-import { DEFAULT_AUDIO_SETTINGS, mergeAudioSettings } from "@airmic/shared";
+import { DEFAULT_AUDIO_SETTINGS, audioSettingsEqual, capAudioBitrate, mergeAudioSettings, roomAudioBitrateCap } from "@airmic/shared";
 import {
   ConnectionQuality,
+  ConnectionState,
   DisconnectReason,
   Room,
   RoomEvent,
@@ -20,6 +21,7 @@ import type {
 } from "livekit-client";
 import { useAppStore } from "../stores/app";
 import { useAuthStore } from "../stores/auth";
+import { useRoomStore } from "../stores/room";
 import { useSettingsStore, volumeFor } from "../stores/settings";
 import { LocalLevelAnalyser } from "./analyser";
 import {
@@ -97,6 +99,8 @@ class VoiceEngine {
   private myUserId: number | null = null;
   private localIdentity: string | null = null;
   private roomAudioSettings: AudioSettings | null = null;
+  private activeRoomBitrateCap: number | null = null;
+  /** 发布时协商的音质，人数变化只调整 sender 的码率上限。 */
   private audioSettings: AudioSettings | null = null;
 
   private nameDirectory = new Map<number, PeerNameHint>();
@@ -196,9 +200,10 @@ class VoiceEngine {
 
     const preferences = useSettingsStore.getState();
     this.roomAudioSettings = snapshot.room.audioSettings;
+    this.activeRoomBitrateCap = this.readRoomBitrateCap() ?? null;
     this.audioSettings = mergeAudioSettings(snapshot.room.audioSettings, preferences.localAudioOverride);
     this.setState({
-      audioSettings: this.audioSettings,
+      audioSettings: capAudioBitrate(this.audioSettings, this.activeRoomBitrateCap),
       hasMicrophone: false,
       pttActive: false,
       screenSharing: false,
@@ -270,7 +275,7 @@ class VoiceEngine {
     this.syncExistingTracks();
     this.handleConnectionQualityChanged(room.localParticipant.connectionQuality, room.localParticipant);
     this.startLoops();
-    await this.performMicUpdate();
+    await this.queueMicUpdate();
   }
 
   /** SFU 模式下成员由 LiveKit 管理，这里只补充身份映射兜底 */
@@ -304,6 +309,7 @@ class VoiceEngine {
     this.localIdentity = null;
     this.nameDirectory.clear();
     this.roomAudioSettings = null;
+    this.activeRoomBitrateCap = null;
     this.audioSettings = null;
     this.setState({
       micEnabled: true,
@@ -335,6 +341,7 @@ class VoiceEngine {
     if (this.state.deafened === deafened) return;
     this.setState({ deafened });
     this.applyAllVolumes();
+    this.syncRemoteAudioTracks();
   }
 
   setPTTActive(active: boolean): void {
@@ -348,30 +355,33 @@ class VoiceEngine {
     this.queueMicUpdate();
   }
 
-  async applyAudioSettings(settings: AudioSettings): Promise<void> {
+  applyAudioSettings(settings: AudioSettings): void {
     this.roomAudioSettings = settings;
-    const next = mergeAudioSettings(settings, useSettingsStore.getState().localAudioOverride);
+    const preferred = mergeAudioSettings(settings, useSettingsStore.getState().localAudioOverride);
+    const effective = capAudioBitrate(preferred, this.activeRoomBitrateCap);
     const previous = this.audioSettings;
-    this.audioSettings = next;
-    this.setState({ audioSettings: next });
+    const previousEffective = this.state.audioSettings;
+    this.audioSettings = preferred;
+    this.setState({ audioSettings: effective });
     if (!previous || !this.room) return;
-    const captureChanged =
-      previous.echoCancellation !== next.echoCancellation ||
-      previous.noiseSuppression !== next.noiseSuppression ||
-      previous.autoGainControl !== next.autoGainControl ||
-      previous.sampleRate !== next.sampleRate ||
-      previous.channels !== next.channels;
-    const publishChanged =
-      previous.bitrate !== next.bitrate ||
-      previous.dtx !== next.dtx ||
-      previous.fec !== next.fec ||
-      previous.channels !== next.channels;
-    const room = this.room;
-    const hasMicPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone) !== undefined;
-    if (hasMicPublication && (captureChanged || publishChanged)) {
-      // 关闭后重新发布，让新的采集/编码参数生效
-      this.queueMicUpdate(true);
-    }
+    const restart = !audioSettingsEqual(previous, preferred);
+    if (restart || previousEffective?.bitrate !== effective.bitrate) this.queueMicUpdate(restart);
+  }
+
+  /** 仅在房间上限变化时返回新上限，null 表示恢复。 */
+  refreshRoomBitrateCap(): number | null | undefined {
+    if (!this.roomAudioSettings) return undefined;
+    const cap = this.readRoomBitrateCap();
+    if (cap === undefined || this.activeRoomBitrateCap === cap) return undefined;
+    this.activeRoomBitrateCap = cap;
+    this.applyAudioSettings(this.roomAudioSettings);
+    return cap;
+  }
+
+  private readRoomBitrateCap(): number | null | undefined {
+    const { snapshot, peers } = useRoomStore.getState();
+    if (!snapshot || snapshot.room.id !== this.roomId) return undefined;
+    return roomAudioBitrateCap(useAppStore.getState().server?.roomAudioBitrateLimit, peers.length + 1);
   }
 
   async switchInputDevice(deviceId: string): Promise<void> {
@@ -425,7 +435,7 @@ class VoiceEngine {
 
   /** 重新读取本机偏好（音质覆盖、PTT、全体音量、输出设备）并应用 */
   async refreshFromPreferences(): Promise<void> {
-    if (this.roomAudioSettings) await this.applyAudioSettings(this.roomAudioSettings);
+    if (this.roomAudioSettings) this.applyAudioSettings(this.roomAudioSettings);
     this.applyAllVolumes();
     this.setOutputDevice(useSettingsStore.getState().outputDeviceId ?? "");
     if (!useSettingsStore.getState().pttEnabled) this.setPTTActive(false);
@@ -523,6 +533,7 @@ class VoiceEngine {
   private registerRoomListeners(room: Room): void {
     room.on(RoomEvent.ParticipantConnected, this.handleParticipantConnected);
     room.on(RoomEvent.ParticipantDisconnected, this.handleParticipantDisconnected);
+    room.on(RoomEvent.TrackPublished, (publication) => this.syncRemoteAudioTrack(publication));
     room.on(RoomEvent.TrackSubscribed, this.handleTrackSubscribed);
     room.on(RoomEvent.TrackUnsubscribed, this.handleTrackUnsubscribed);
     room.on(RoomEvent.TrackMuted, this.handleTrackMuted);
@@ -531,6 +542,10 @@ class VoiceEngine {
     room.on(RoomEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished);
     room.on(RoomEvent.AudioPlaybackStatusChanged, this.handleAudioPlaybackStatusChanged);
     room.on(RoomEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged);
+    room.on(RoomEvent.Reconnected, () => {
+      this.syncRemoteAudioTracks(true);
+      this.queueMicUpdate();
+    });
     room.on(RoomEvent.Disconnected, this.handleRoomDisconnected);
     room.on(RoomEvent.MediaDevicesError, this.handleMediaDevicesError);
   }
@@ -710,11 +725,10 @@ class VoiceEngine {
   private syncParticipantTracks(participant: RemoteParticipant): void {
     for (const publication of participant.trackPublications.values()) {
       const track = publication.track;
-      if (!publication.isSubscribed || !track) continue;
-      if (track.kind === Track.Kind.Audio) {
-        this.attachRemoteAudio(track, publication, participant);
-      } else if (publication.source === Track.Source.ScreenShare) {
-        this.attachRemoteScreen(track, publication, participant);
+      if (publication.isSubscribed && track) {
+        this.handleTrackSubscribed(track, publication, participant);
+      } else {
+        this.syncRemoteAudioTrack(publication);
       }
     }
   }
@@ -724,6 +738,7 @@ class VoiceEngine {
     publication: RemoteTrackPublication,
     participant: RemoteParticipant,
   ): void {
+    this.syncRemoteAudioTrack(publication);
     const trackSid = publication.trackSid;
     if (!this.audioElements.has(trackSid)) {
       const element = track.attach();
@@ -827,7 +842,27 @@ class VoiceEngine {
     return null;
   }
 
-  // ============ 内部：音量/耳聋 ============
+  // ============ 内部：收听与音量 ============
+
+  private syncRemoteAudioTrack(publication: RemoteTrackPublication, resend = false): void {
+    if (publication.kind !== Track.Kind.Audio) return;
+    const enabled = !this.state.deafened;
+    if (publication.isEnabled !== enabled) {
+      publication.setEnabled(enabled);
+    } else if (resend) {
+      // LiveKit 恢复连接时只重发视频轨道设置。
+      publication.emitTrackUpdate();
+    }
+  }
+
+  private syncRemoteAudioTracks(resend = false): void {
+    if (!this.room) return;
+    for (const participant of this.room.remoteParticipants.values()) {
+      for (const publication of participant.audioTrackPublications.values()) {
+        this.syncRemoteAudioTrack(publication, resend);
+      }
+    }
+  }
 
   private effectiveVolume(userId: number): number {
     return clamp01((volumeFor(userId) / 100) * (readMasterVolumePercent() / 100));
@@ -863,18 +898,19 @@ class VoiceEngine {
     return this.state.micEnabled && !this.state.forceMuted && (!preferences.pttEnabled || this.state.pttActive);
   }
 
-  private queueMicUpdate(restart = false): void {
+  private queueMicUpdate(restart = false): Promise<void> {
     if (restart) this.micOptionsDirty = true;
     this.micChain = this.micChain
       .then(() => this.performMicUpdate())
       .catch((error: unknown) => {
         console.warn("[voice] 麦克风状态更新失败", error);
       });
+    return this.micChain;
   }
 
   private async performMicUpdate(): Promise<void> {
     const room = this.room;
-    if (!room || !this.entered) return;
+    if (!room || !this.entered || room.state !== ConnectionState.Connected) return;
     const desired = this.computeMicDesired();
 
     // 采集/编码参数变化时必须先取消发布再重新发布：mute/unmute 不会应用新的 options
@@ -904,7 +940,11 @@ class VoiceEngine {
       this.emitZeroLevel();
     }
 
-    if (!desired || this.micActive) return;
+    if (!this.computeMicDesired() || this.micActive) {
+      await this.syncMicrophoneBitrate(room);
+      return;
+    }
+    this.micOptionsDirty = false;
     const settings = this.audioSettings ?? DEFAULT_AUDIO_SETTINGS;
     const preferences = useSettingsStore.getState();
     try {
@@ -916,17 +956,31 @@ class VoiceEngine {
       if (this.room !== room) return;
       if (!publication) throw new Error("麦克风轨道发布失败");
       this.micActive = true;
-      this.micOptionsDirty = false;
       this.setState({ hasMicrophone: true });
       this.attachMicAnalyser();
     } catch (error) {
       if (this.room !== room) return;
       const recovered = await this.retryMicrophoneWithDefaults(room, settings, error);
-      if (recovered) return;
-      this.micActive = false;
-      this.setState({ hasMicrophone: false });
-      this.reportMicrophoneError(error);
+      if (!recovered && this.room === room) {
+        this.micActive = false;
+        this.setState({ hasMicrophone: false });
+        this.reportMicrophoneError(error);
+        return;
+      }
     }
+    await this.syncMicrophoneBitrate(room);
+  }
+
+  private async syncMicrophoneBitrate(room: Room): Promise<void> {
+    if (this.room !== room) return;
+    const sender = room.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack?.sender;
+    const bitrate = this.state.audioSettings?.bitrate;
+    if (!sender || !bitrate) return;
+    const parameters = sender.getParameters();
+    const encoding = parameters.encodings[0];
+    if (!encoding || encoding.maxBitrate === bitrate) return;
+    encoding.maxBitrate = bitrate;
+    await sender.setParameters(parameters);
   }
 
   /** 设备被拔出/参数不支持时，退回默认设备与基础处理参数重试一次 */
@@ -952,7 +1006,6 @@ class VoiceEngine {
       );
       if (this.room !== room || !publication) return false;
       this.micActive = true;
-      this.micOptionsDirty = false;
       this.setState({ hasMicrophone: true });
       this.attachMicAnalyser();
       this.emit("error", { code: "mic_device_fallback", message: "所选麦克风不可用，已切换为系统默认设备。" });

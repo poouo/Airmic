@@ -9,6 +9,7 @@ export interface RoomFormInitial {
   /** 房间图标 key（对应 ROOM_ICONS） */
   icon: string;
   hasPassword: boolean;
+  codeOnly: boolean;
   /** 0 表示跟随服务器房间人数上限 */
   maxUsers: number;
   locked: boolean;
@@ -30,6 +31,7 @@ export function createRoomInitial(base: AudioSettings, areaId: number): RoomForm
     areaId,
     icon: "gamepad",
     hasPassword: false,
+    codeOnly: false,
     maxUsers: 0,
     locked: false,
     allowGuests: true,
@@ -50,6 +52,7 @@ export function detailRoomInitial(room: RoomDetail): RoomFormInitial {
     sortOrder: room.sortOrder,
     icon: room.icon,
     hasPassword: room.hasPassword,
+    codeOnly: room.codeOnly,
     maxUsers: room.maxUsers,
     locked: room.locked,
     allowGuests: room.allowGuests !== false,

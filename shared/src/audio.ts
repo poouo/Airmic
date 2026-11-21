@@ -1,7 +1,7 @@
-import type { AudioOverride, AudioPresetId, AudioSettings } from "./types.js";
+import type { AudioOverride, AudioPresetId, AudioSettings, RoomAudioBitrateLimit } from "./types.js";
 
 export const APP_NAME = "AirMic";
-export const APP_VERSION = "1.3.3";
+export const APP_VERSION = "1.3.301";
 export const PROTOCOL_VERSION = 1;
 
 export const AUDIO_LIMITS = {
@@ -63,6 +63,19 @@ const PRESET_DEFINITIONS: Record<Exclude<AudioPresetId, "custom">, AudioSettings
 export const AUDIO_PRESETS = PRESET_DEFINITIONS;
 
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = { ...PRESET_DEFINITIONS["voice-standard"] };
+
+export const ROOM_AUDIO_BITRATE_CHOICES = [16_000, 24_000, 32_000, 64_000, 96_000] as const;
+export const ROOM_AUDIO_BITRATE_THRESHOLD_MAX = 499;
+
+export function roomAudioBitrateCap(limit: RoomAudioBitrateLimit | undefined, users: number): number | null {
+  return limit?.enabled && users > limit.userThreshold ? limit.maxBitrate : null;
+}
+
+export function capAudioBitrate(settings: AudioSettings, cap: number | null): AudioSettings {
+  if (cap === null || settings.bitrate <= cap) return settings;
+  const capped = { ...settings, bitrate: cap };
+  return { ...capped, preset: deriveAudioPreset(capped) };
+}
 
 export interface AudioPresetInfo {
   id: AudioPresetId;

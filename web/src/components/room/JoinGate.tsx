@@ -16,20 +16,23 @@ export interface JoinGateProps {
   onRetry: () => void;
   onBack: () => void;
   onPasswordSubmit: (password: string) => void;
+  onCodeSubmit: (code: string) => void;
 }
 
 /** 进入房间前的状态页：加载中 / 密码 / 加入失败 */
-export function JoinGate({ roomName, joining, error, connection, onRetry, onBack, onPasswordSubmit }: JoinGateProps) {
+export function JoinGate({ roomName, joining, error, connection, onRetry, onBack, onPasswordSubmit, onCodeSubmit }: JoinGateProps) {
   const needsPassword = error !== null && error.code.startsWith("room_password_");
+  const needsCode = error !== null && error.code.startsWith("room_code_");
   const [password, setPassword] = useState("");
+  const valid = needsCode ? /^\d{4}$/.test(password) : password.length > 0;
 
   useEffect(() => {
     setPassword("");
   }, [error?.code]);
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto p-4 app-scroll">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+    <div className="app-scroll flex h-full min-h-0 flex-col items-center overflow-y-auto overscroll-y-contain p-4">
+      <div className="my-auto w-full max-w-md shrink-0 rounded-2xl border border-border bg-card p-6 shadow-card">
         {joining ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
@@ -40,12 +43,14 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
               <p className="mt-1 text-xs text-muted-foreground">正在建立实时连接并同步房间成员</p>
             </div>
           </div>
-        ) : needsPassword && error ? (
+        ) : (needsPassword || needsCode) && error ? (
           <form
             className="space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
-              onPasswordSubmit(password);
+              if (!valid || connection !== "online") return;
+              if (needsCode) onCodeSubmit(password);
+              else onPasswordSubmit(password);
             }}
           >
             <div className="flex flex-col items-center gap-3 text-center">
@@ -53,18 +58,20 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
                 <KeyRound className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground">该房间需要密码</p>
+                <p className="text-sm font-medium text-foreground">{needsCode ? "该房间需要四位口令" : "该房间需要密码"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {roomName ? "「" + roomName + "」" : "房间"}已设置访问密码，请输入后加入
+                  {roomName ? "「" + roomName + "」" : "房间"}{needsCode ? " · 口令房" : "已设置访问密码，请输入后加入"}
                 </p>
               </div>
             </div>
             <Input
-              type="password"
+              type={needsCode ? "text" : "password"}
+              inputMode={needsCode ? "numeric" : undefined}
+              autoComplete="off"
               autoFocus
               value={password}
-              placeholder="请输入房间密码"
-              onChange={(event) => setPassword(event.target.value)}
+              placeholder={needsCode ? "输入四位口令" : "请输入房间密码"}
+              onChange={(event) => setPassword(needsCode ? event.target.value.replace(/\D/g, "").slice(0, 4) : event.target.value)}
               error={error.message}
             />
             <div className="flex items-center gap-2">
@@ -76,7 +83,7 @@ export function JoinGate({ roomName, joining, error, connection, onRetry, onBack
                 size="md"
                 className="flex-1"
                 loading={joining}
-                disabled={!password || connection !== "online"}
+                disabled={!valid || connection !== "online"}
                 icon={<LogIn className="h-4 w-4" />}
               >
                 加入房间

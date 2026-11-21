@@ -64,7 +64,7 @@ export function AdminErrorPanel({ message, onRetry }: { message: string; onRetry
 
 export function TableShell({ children, className, stickyActions = false }: { children: ReactNode; className?: string; stickyActions?: boolean }) {
   return (
-    <div className={cn("app-scroll overflow-x-auto", className)}>
+    <div className={cn("app-scroll overflow-x-auto overscroll-x-contain", className)}>
       <table className={cn("w-full min-w-[40rem] border-separate border-spacing-0 text-sm",
         stickyActions && "max-sm:[&_tr>:last-child]:sticky max-sm:[&_tr>:last-child]:right-0 max-sm:[&_tr>:last-child]:z-10 max-sm:[&_tr>:last-child]:border-l max-sm:[&_tr>:last-child]:bg-card")}>{children}</table>
     </div>

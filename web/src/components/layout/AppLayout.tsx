@@ -52,7 +52,7 @@ export default function AppLayout() {
           className={cn("hidden w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar", !sidebarCollapsed && "lg:flex")}>
           <Sidebar />
         </aside>}
-        <main className="app-canvas relative min-w-0 flex-1 overflow-y-auto app-scroll">
+        <main className="app-canvas app-scroll page-scroll relative min-h-0 min-w-0 flex-1">
           <Outlet />
         </main>
       </div>

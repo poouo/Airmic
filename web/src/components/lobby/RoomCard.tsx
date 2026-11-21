@@ -1,5 +1,5 @@
 import type { RoomSummary } from "@airmic/shared";
-import { Lock, MonitorUp, Pencil, Users } from "lucide-react";
+import { KeyRound, Lock, MonitorUp, Pencil, Users } from "lucide-react";
 import { Badge, Button, IconButton } from "@/components/ui";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
 import { cn } from "@/lib/format";
@@ -31,6 +31,7 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
           <span className="truncate" title={room.name}>{room.name}</span>
         </h4>
         {room.hasPassword && <Badge tone="warn"><Lock className="h-3 w-3" />需密码</Badge>}
+        {room.codeOnly && <Badge tone="brand"><KeyRound className="h-3 w-3" />口令房</Badge>}
         {room.allowGuests === false && <Badge>仅注册用户</Badge>}
         {isCurrent && <Badge tone="brand">当前</Badge>}
       </div>
@@ -56,7 +57,7 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
           className="min-h-11 flex-1 sm:min-h-9"
           onClick={() => onJoin(room)}
         >
-          {isCurrent ? "返回房间" : guestBlocked ? "注册后可进入" : room.locked ? "已锁定" : full ? "房间已满" : "进入房间"}
+          {isCurrent ? "返回房间" : guestBlocked ? "注册后可进入" : room.locked ? "已锁定" : full ? "房间已满" : room.codeOnly ? "输入口令" : "进入房间"}
         </Button>
         {canEdit && (
           <IconButton

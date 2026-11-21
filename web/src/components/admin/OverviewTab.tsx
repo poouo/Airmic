@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { OnlineUser } from "@airmic/shared";
-import { Ban, DoorOpen, EarOff, Ghost, LifeBuoy, LogOut, MessageSquare, MicOff, Timer, TrendingUp, UserCog, Users, Wifi } from "lucide-react";
+import { Ban, DoorOpen, Ghost, HeadphoneOff, LifeBuoy, LogOut, MessageSquare, MicOff, Timer, TrendingUp, UserCog, Users, Wifi } from "lucide-react";
 import { Avatar, Badge, Button, EmptyState, IconButton, StatCard } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDuration, formatRelative } from "@/lib/format";
@@ -148,7 +148,7 @@ export default function OverviewTab() {
                       )}
                       {user.deafened && (
                         <Badge tone="warn">
-                          <EarOff className="h-3 w-3" />耳聋
+                          <HeadphoneOff className="h-3 w-3" />已关闭收听
                         </Badge>
                       )}
                       {!user.speaking && !user.muted && !user.deafened && <span className="text-xs text-muted-foreground">正常</span>}

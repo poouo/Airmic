@@ -120,13 +120,13 @@ export function MemberCard({ member, stats, latency, volume, onVolumeChange, onL
             <SelfLevelMeter active={!member.muted} />
             <p className="text-[10px] text-muted-foreground">
               {member.muted ? (member.forceMuted ? "已被强制静音" : "麦克风已静音") : "麦克风已开启"}
-              {member.deafened ? " · 已关闭声音" : ""}
+              {member.deafened ? " · 已关闭收听" : ""}
             </p>
           </div>
         ) : (
           <>
             <p className="text-[10px] text-muted-foreground">
-              {member.muted ? "已静音" : member.deafened ? "关闭了声音" : "在房间中"}
+              {member.muted ? "已静音" : member.deafened ? "已关闭收听" : "在房间中"}
               {member.joinedAt ? " · " + formatRelative(member.joinedAt) + "加入" : ""}
             </p>
             <div
@@ -168,7 +168,7 @@ export function MemberCard({ member, stats, latency, volume, onVolumeChange, onL
                   : "border-success/25 bg-success/10 text-success",
               )}
             >
-              {volume > 0 ? "本地静音" : "恢复声音"}
+              {volume > 0 ? "本地静音" : "取消本地静音"}
             </button>
             <button
               type="button"

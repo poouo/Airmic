@@ -67,6 +67,7 @@ function bootstrap(services: Services): void {
   }
 
   bans.expireOld();
+  services.rooms.clearCodeRooms();
   services.db.run("DELETE FROM sessions WHERE revoked = 1 OR expires_at < ?", nowIso());
   services.rooms.purgeExpiredMessages();
 }

@@ -4,6 +4,7 @@ import { DoorOpen, Folder, Plus } from "lucide-react";
 import { Badge, Button, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { groupRoomDirectory } from "@/stores/app";
+import AreaIcon from "./AreaIcon";
 import RoomCard from "./RoomCard";
 
 interface LobbyRoomGridProps {
@@ -33,7 +34,7 @@ export default function LobbyRoomGrid({ areas, rooms, currentRoomId, createAreas
       <nav aria-label="一级分区" className="flex flex-wrap gap-2">
         {tree.map(({ area, children }) => (
           <Button key={area.id} className="h-10" variant={root.area.id === area.id ? "primary" : "outline"} aria-pressed={root.area.id === area.id}
-            icon={<Folder className="h-4 w-4" />} onClick={() => { setRootId(area.id); setChildId(null); }}>
+            icon={<AreaIcon icon={area.icon} isRoot className="h-5 w-5" />} onClick={() => { setRootId(area.id); setChildId(null); }}>
             {area.name}
             <span className="opacity-75">{children.reduce((total, node) => total + node.rooms.length, 0)}</span>
           </Button>
@@ -43,6 +44,7 @@ export default function LobbyRoomGrid({ areas, rooms, currentRoomId, createAreas
         <nav aria-label="子区筛选" className="flex flex-wrap gap-1 border-b border-border pb-3">
           <Button className="min-h-10" size="sm" variant={child ? "ghost" : "secondary"} aria-pressed={!child} onClick={() => setChildId(null)}>全部子区</Button>
           {root.children.map(({ area }) => <Button key={area.id} className="min-h-10" size="sm" variant={child?.area.id === area.id ? "secondary" : "ghost"}
+            icon={area.icon ? <AreaIcon icon={area.icon} className="h-4 w-4" /> : undefined}
             aria-pressed={child?.area.id === area.id} onClick={() => setChildId(area.id)}>{area.name}</Button>)}
         </nav>
       )}
@@ -51,6 +53,7 @@ export default function LobbyRoomGrid({ areas, rooms, currentRoomId, createAreas
         {visible.map(({ area, rooms: children }) => (
           <section key={area.id} className="min-w-0 space-y-3">
             <div className="flex items-center gap-2">
+              {area.icon && <AreaIcon icon={area.icon} className="h-5 w-5 shrink-0 text-muted-foreground" />}
               <h3 className="text-sm font-semibold text-foreground">{area.name}</h3>
               <Badge>{children.length}</Badge>
               {createAreas.some((item) => item.id === area.id) && <Button className="ml-auto" size="sm" variant="ghost"
