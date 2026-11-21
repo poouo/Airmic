@@ -254,6 +254,11 @@ INSERT INTO room_areas (parent_id, name, kind)
 SELECT id, '临时房间', 'code' FROM room_areas WHERE kind = 'code' AND parent_id IS NULL;
 `;
 
+const V10 = `
+ALTER TABLE rooms ADD COLUMN voice_mode TEXT NOT NULL DEFAULT 'open' CHECK (voice_mode IN ('open', 'stage'));
+ALTER TABLE rooms ADD COLUMN stage_seats INTEGER NOT NULL DEFAULT 4 CHECK (stage_seats BETWEEN 1 AND 50);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
   { version: 2, name: "app-logs", sql: V2 },
@@ -264,4 +269,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 7, name: "temporary-guests", sql: V7 },
   { version: 8, name: "room-area-icons", sql: "ALTER TABLE room_areas ADD COLUMN icon TEXT;" },
   { version: 9, name: "code-room-area", sql: V9 },
+  { version: 10, name: "room-voice-mode", sql: V10 },
 ];

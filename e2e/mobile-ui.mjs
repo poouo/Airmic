@@ -69,6 +69,7 @@ try {
 
   await page.goto(server.url + "/rooms/manage");
   await page.evaluate(() => document.documentElement.style.setProperty("--safe-bottom", "24px"));
+  await button(page, "展开 默认频道").tap();
   const group = page.getByRole("region", { name: "默认频道 / 开黑房间" });
   await button(group, "创建房间").tap();
   const createDialog = page.getByRole("dialog", { name: "创建房间" });
@@ -100,6 +101,7 @@ try {
   const drawer = page.getByRole("dialog", { name: "房间导航" });
   await button(drawer, "分区与房间管理").tap();
   const directory = page.getByRole("dialog", { name: "分区与房间管理" });
+  await button(directory, "展开 默认频道").tap();
   await directory.getByRole("region", { name: "默认频道 / 开黑房间" }).waitFor();
   assert.equal(page.url(), server.url + "/room/" + protectedRoom.id);
   await button(directory, "关闭").tap();
@@ -177,7 +179,7 @@ try {
   await page.goto(server.url);
   await page.getByRole("heading", { name: "语音房间" }).waitFor();
   await page.getByRole("heading", { name: "短屏测试房" }).waitFor();
-  await page.screenshot({ path: path.join(screenshotDir, "airmic-mobile-lobby.png") });
+  await page.screenshot({ path: path.join(screenshotDir, "airmic-mobile-lobby.png"), animations: "disabled" });
 
   await context.clearCookies();
   await page.goto(server.url);

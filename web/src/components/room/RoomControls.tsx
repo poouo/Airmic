@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { HeadphoneOff, Headphones, LogOut, MessageSquare, Mic, MicOff, MonitorOff, MonitorUp, Settings } from "lucide-react";
+import { Hand, HeadphoneOff, Headphones, LogOut, MessageSquare, Mic, MicOff, MonitorOff, MonitorUp, Settings } from "lucide-react";
 import { cn, prettyKey } from "@/lib/format";
 import { Kbd } from "@/components/ui";
 import { useRoomStore } from "@/stores/room";
@@ -10,11 +10,15 @@ interface RoomControlsProps {
   selfState: VoiceStateSnapshot;
   pttEnabled: boolean;
   pttKey: string;
+  stageMode: boolean;
+  onStage: boolean;
+  stagePending: boolean;
   screenShareAllowed: boolean;
   shareBusy: boolean;
   peerStats: PeerNetworkStats[];
   chatOpen: boolean;
   onToggleMic: () => void;
+  onToggleStage: () => void;
   onToggleDeafen: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
@@ -22,8 +26,8 @@ interface RoomControlsProps {
   onLeave: () => void;
 }
 
-export function RoomControls({ selfState, pttEnabled, pttKey, screenShareAllowed, shareBusy, peerStats,
-  chatOpen, onToggleMic, onToggleDeafen, onToggleScreenShare, onToggleChat, onOpenSettings, onLeave,
+export function RoomControls({ selfState, pttEnabled, pttKey, stageMode, onStage, stagePending, screenShareAllowed, shareBusy, peerStats,
+  chatOpen, onToggleMic, onToggleStage, onToggleDeafen, onToggleScreenShare, onToggleChat, onOpenSettings, onLeave,
 }: RoomControlsProps) {
   const latency = useRoomStore((state) => state.latency);
   const samples = Object.values(latency).filter((value): value is number => value !== null);
@@ -32,6 +36,7 @@ export function RoomControls({ selfState, pttEnabled, pttKey, screenShareAllowed
   const micMuted = !selfState.micEnabled || !selfState.hasMicrophone || selfState.forceMuted;
   const micLabel = selfState.forceMuted ? "已被强制静音" : !selfState.hasMicrophone ? "启用麦克风" : micMuted ? "取消静音" : "静音麦克风";
   const listeningLabel = selfState.deafened ? "恢复收听" : "关闭收听";
+  const stageLabel = onStage ? "下麦" : stagePending ? "取消申请" : "申请上麦";
 
   return (
     <footer aria-label="语音控制" className="shrink-0 border-t border-border bg-card px-2 py-1.5 sm:px-4 sm:py-2.5">
@@ -45,8 +50,10 @@ export function RoomControls({ selfState, pttEnabled, pttKey, screenShareAllowed
           {quality && <span className={quality.textClass}>{quality.label}</span>}
           {average !== null && <span className="tabular-nums">{average} ms</span>}
         </div>
-        <div className="grid min-w-0 flex-1 grid-cols-6 gap-1 sm:flex sm:flex-none sm:gap-2">
-          <Control label={micLabel} caption={micMuted ? "静音" : "麦克风"} selected={!micMuted} danger={micMuted} onClick={onToggleMic} icon={micMuted ? <MicOff /> : <Mic />} />
+        <div className={cn("grid min-w-0 flex-1 gap-1 sm:flex sm:flex-none sm:gap-2", stageMode && onStage ? "grid-cols-7" : "grid-cols-6")}>
+          {stageMode && <Control label={stageLabel} caption={onStage ? "下麦" : stagePending ? "等待" : "上麦"}
+            selected={onStage || stagePending} onClick={onToggleStage} icon={<Hand />} />}
+          {(!stageMode || onStage) && <Control label={micLabel} caption={micMuted ? "静音" : "麦克风"} selected={!micMuted} danger={micMuted} onClick={onToggleMic} icon={micMuted ? <MicOff /> : <Mic />} />}
           <Control label={listeningLabel} caption={listeningLabel} selected={selfState.deafened} onClick={onToggleDeafen} icon={selfState.deafened ? <HeadphoneOff /> : <Headphones />} />
           <Control label={selfState.screenSharing ? "停止共享屏幕" : "共享屏幕"} caption="共享" selected={selfState.screenSharing}
             disabled={shareBusy || (!screenShareAllowed && !selfState.screenSharing)} onClick={onToggleScreenShare} icon={selfState.screenSharing ? <MonitorOff /> : <MonitorUp />} />

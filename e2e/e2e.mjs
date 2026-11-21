@@ -128,7 +128,6 @@ async function main() {
     });
 
     await step("5b. 主题：默认白天模式，可切夜间并持久化", async () => {
-      const adminBody = await adminPage.page.innerText("body");
       const initialTheme = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
       if (initialTheme !== "light") throw new Error("默认主题不是白天模式：" + initialTheme);
       const toggle = adminPage.page.getByTestId("theme-toggle").first();
@@ -145,9 +144,60 @@ async function main() {
       await adminPage.page.waitForTimeout(400);
       const backLight = await adminPage.page.evaluate(() => document.documentElement.dataset.theme);
       if (backLight !== "light") throw new Error("切回白天模式失败：" + backLight);
-      if (!adminBody.includes("欢迎")) throw new Error("大厅未加载");
+      await adminPage.page.getByRole("heading", { name: "语音房间", exact: true }).waitFor({ timeout: 5000 });
       await browser.screenshot(adminPage.page, "01-lobby-light");
       return "默认 light，夜间切换与持久化正常";
+    });
+
+    await step("5c. 顶栏公告、收起侧栏与分区折叠", async () => {
+      const page = adminPage.page;
+      const main = page.getByRole("main");
+      const sidebar = page.getByRole("complementary", { name: "房间侧栏" });
+      await page.getByRole("button", { name: "查看服务器公告", exact: true }).click();
+      const announcement = page.getByRole("dialog", { name: "服务器公告" });
+      await announcement.getByText(/欢迎|E2E 自动化初始化/).waitFor({ timeout: 5000 });
+      await announcement.getByRole("button", { name: "关闭", exact: true }).click();
+      if (await main.getByRole("button", { name: "分区与房间管理", exact: true }).count()) {
+        throw new Error("大厅内容区仍有重复的管理入口");
+      }
+
+      await sidebar.getByRole("button", { name: "收起侧栏", exact: true }).click();
+      await sidebar.getByRole("link", { name: "口令房专区", exact: true }).click();
+      await main.getByRole("button", { name: /口令房专区/, pressed: true }).waitFor({ timeout: 5000 });
+      await page.reload({ waitUntil: "networkidle" });
+      await sidebar.getByRole("button", { name: "展开侧栏", exact: true }).waitFor({ timeout: 5000 });
+      await browser.screenshot(page, "01-lobby-compact-sidebar");
+
+      await sidebar.getByRole("button", { name: "分区与房间管理", exact: true }).click();
+      const manager = page.getByRole("dialog", { name: "分区与房间管理" });
+      const root = manager.getByRole("button", { name: "展开 默认频道", exact: true });
+      await root.waitFor({ timeout: 5000 });
+      const child = manager.getByRole("region", { name: "默认频道 / 开黑房间" });
+      if (await child.count()) throw new Error("默认应折叠子区");
+      await browser.screenshot(page, "01-directory-collapsed");
+      await root.click();
+      await child.getByRole("button", { name: "展开 开黑房间", exact: true }).click();
+      await child.getByText("开黑大厅", { exact: true }).waitFor({ timeout: 5000 });
+      await manager.getByRole("button", { name: "全部展开", exact: true }).click();
+      await manager.getByRole("button", { name: "全部折叠", exact: true }).click();
+      await child.waitFor({ state: "hidden", timeout: 5000 });
+      const search = manager.getByRole("textbox", { name: "搜索分区和房间" });
+      await search.fill("开黑大厅");
+      await child.getByText("开黑大厅", { exact: true }).waitFor({ timeout: 5000 });
+      await search.clear();
+      await child.waitFor({ state: "hidden", timeout: 5000 });
+      await manager.getByRole("button", { name: "关闭", exact: true }).click();
+
+      await sidebar.getByRole("link", { name: "大厅", exact: true }).click();
+      await sidebar.getByRole("button", { name: "展开侧栏", exact: true }).click();
+      await sidebar.getByRole("navigation", { name: "房间目录", exact: true }).waitFor({ timeout: 5000 });
+      await page.getByRole("navigation", { name: "子区筛选" }).getByRole("button", { name: "开黑房间", exact: true }).click();
+      await sidebar.getByRole("button", { name: "收起侧栏", exact: true }).click();
+      await sidebar.getByRole("link", { name: "默认频道", exact: true }).click();
+      await page.getByRole("button", { name: "全部子区", exact: true, pressed: true }).waitFor({ timeout: 5000 });
+      await sidebar.getByRole("link", { name: "大厅", exact: true }).click();
+      await sidebar.getByRole("button", { name: "展开侧栏", exact: true }).click();
+      return "公告可查看，频道图标可切换，分区及子区可折叠";
     });
 
     await step("6. 初始化后 /setup 返回大厅，默认选中游客入口", async () => {
@@ -357,6 +407,54 @@ async function main() {
       return "设置弹窗正常";
     });
 
+    await step("13b. 上麦席位申请、审批、下麦与 LiveKit 权限同步", async () => {
+      const created = await adminPage.page.evaluate(async () => {
+        const response = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "E2E 上麦房", voiceMode: "stage", stageSeats: 1, maxUsers: 20 }),
+        });
+        return { status: response.status, body: await response.json() };
+      });
+      if (created.status !== 200) throw new Error("创建上麦房失败：" + JSON.stringify(created.body));
+      const stageRoomId = created.body.room.id;
+      const admin = adminPage.page;
+      const guest = guestPage.page;
+
+      await Promise.all([
+        admin.goto(server.url + "/room/" + stageRoomId, { waitUntil: "networkidle" }),
+        guest.goto(server.url + "/room/" + stageRoomId, { waitUntil: "networkidle" }),
+      ]);
+      await admin.getByRole("heading", { name: "E2E 上麦房", exact: true }).waitFor();
+      await guest.getByRole("heading", { name: "E2E 上麦房", exact: true }).waitFor();
+      await admin.getByRole("region", { name: "上麦席位" }).getByRole("button", { name: "申请麦位 1" }).waitFor();
+      await guest.getByRole("button", { name: "申请上麦", exact: true }).first().click();
+      await admin.getByRole("button", { name: /批准 E2E 游客 上麦/ }).waitFor({ timeout: 5000 });
+
+      await admin.getByRole("button", { name: /批准 E2E 游客 上麦/ }).click();
+      const guestControls = guest.getByLabel("语音控制");
+      await guestControls.getByRole("button", { name: "下麦", exact: true }).first().waitFor({ timeout: 5000 });
+
+      const before = await readAudioConnection(admin);
+      const approvedAudio = await waitForAudioConnection(admin, 10_000, before.audioBytes);
+      await admin.getByRole("button", { name: "移出麦位 E2E 游客", exact: true }).click();
+      await guestControls.getByRole("button", { name: "申请上麦", exact: true }).first().waitFor({ timeout: 5000 });
+      await sleep(1600);
+      const afterRemoval = await readAudioConnection(admin);
+      await sleep(900);
+      const stable = await readAudioConnection(admin);
+      if (stable.audioBytes !== afterRemoval.audioBytes) {
+        throw new Error("撤下麦位后仍在接收音频（" + afterRemoval.audioBytes + " → " + stable.audioBytes + " 字节）");
+      }
+
+      await browser.screenshot(admin, "07-stage-room-seats");
+      await Promise.all([
+        admin.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" }),
+        guest.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" }),
+      ]);
+      return "审批后收到 " + (approvedAudio.audioBytes - before.audioBytes) + " 字节，撤麦后轨道停止";
+    });
+
     await step("14. 管理后台加载并显示语音中转状态", async () => {
       await adminPage.page.goto(server.url + "/admin", { waitUntil: "networkidle" });
       await adminPage.page.waitForTimeout(1200);
@@ -395,6 +493,27 @@ async function main() {
       }
       await browser.screenshot(adminPage.page, "09-admin-settings");
       return "设置页正常";
+    });
+
+    await step("14d. 后台内容滚动与侧栏独立", async () => {
+      const page = adminPage.page;
+      const sidebar = page.getByRole("complementary", { name: "后台功能" });
+      const nav = sidebar.getByRole("button", { name: "服务器设置", exact: true });
+      const main = page.getByRole("main");
+      const before = await nav.boundingBox();
+      const content = await main.boundingBox();
+      if (!before || !content) throw new Error("后台区域未显示");
+      await page.mouse.move(content.x + content.width / 2, content.y + content.height / 2);
+      await page.mouse.wheel(0, 520);
+      await page.waitForFunction(() => document.querySelector("main").scrollTop > 0, undefined, { timeout: 5000 });
+      const scrolled = await nav.boundingBox();
+      await sidebar.getByRole("button", { name: "登录会话", exact: true }).click();
+      const switched = await nav.boundingBox();
+      if (scrolled?.x !== before.x || scrolled.y !== before.y || switched?.x !== before.x || switched.y !== before.y) {
+        throw new Error("滚动或切换管理模块时侧栏位置改变");
+      }
+      if (await main.evaluate((element) => element.scrollTop) !== 0) throw new Error("切换模块后未从内容顶部开始");
+      return "内容区可滚动，侧栏位置保持";
     });
 
     await step("15. 离开房间返回大厅", async () => {

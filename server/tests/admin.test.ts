@@ -76,6 +76,10 @@ class FakeHub implements HubLike {
     return this.onlineUsers.some((entry) => entry.userId === userId);
   }
 
+  canPublishInRoom(_userId: number, _roomId: number): boolean {
+    return true;
+  }
+
   kick(userId: number, scope: "server" | "room", reason: string): boolean {
     this.record("kick", userId, scope, reason);
     return this.kickResult;
@@ -108,7 +112,7 @@ class FakeHub implements HubLike {
     this.record("broadcastRoomDirectoryChanged", userId);
   }
 
-  broadcastRoomUpdate(roomId: number): void {
+  async broadcastRoomUpdate(roomId: number): Promise<void> {
     this.record("broadcastRoomUpdate", roomId);
   }
 

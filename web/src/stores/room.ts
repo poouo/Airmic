@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ChatMessage, CodeRoomRequest, PeerInfo, PeerStatePatch, RoomSnapshot } from "@airmic/shared";
 import { socket } from "../lib/ws";
+import { useAuthStore } from "./auth";
 
 export interface NoticeLine {
   id: number;
@@ -12,6 +13,11 @@ export interface NoticeLine {
 interface JoinError {
   code: string;
   message: string;
+}
+
+export interface StageUserState {
+  onStage: boolean;
+  pending: boolean;
 }
 
 interface RoomState {
@@ -27,6 +33,8 @@ interface RoomState {
   lastJoin: { roomId: number; password?: string; code?: string } | null;
   pendingCode: CodeRoomRequest | null;
   codeRevealRoomId: number | null;
+  stageUsers: Record<number, StageUserState>;
+  stageRequests: number[];
   joinRoom: (roomId: number, password?: string, force?: boolean) => void;
   requestCodeRoom: (request: CodeRoomRequest) => void;
   retryJoin: (force?: boolean) => void;
@@ -37,6 +45,8 @@ interface RoomState {
   applyPeerLeft: (userId: number, reason?: string) => void;
   applyPeerUpdated: (peer: PeerInfo) => void;
   applyPeerState: (userId: number, patch: PeerStatePatch) => void;
+  applyStageUpdate: (userId: number, state: StageUserState) => void;
+  addStageRequest: (userId: number) => void;
   setLatency: (userId: number, rttMs: number | null) => void;
   applyMessage: (message: ChatMessage) => void;
   addNotice: (text: string, level?: NoticeLine["level"]) => void;
@@ -60,6 +70,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   lastJoin: null,
   pendingCode: null,
   codeRevealRoomId: null,
+  stageUsers: {},
+  stageRequests: [],
 
   joinRoom(roomId, password, force = false) {
     const current = get().snapshot;
@@ -98,6 +110,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       lastJoin: null,
       pendingCode: null,
       codeRevealRoomId: null,
+      stageUsers: {},
+      stageRequests: [],
     });
   },
 
@@ -121,6 +135,19 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         pendingCode: completingCode ? null : state.pendingCode,
         codeRevealRoomId: completingCode && request === "create_code_room" ? snapshot.room.id : state.codeRevealRoomId,
         screenSharerId: snapshot.screenSharerId,
+        stageUsers: {
+          ...Object.fromEntries(snapshot.peers.map((peer) => [peer.userId, {
+            onStage: peer.onStage,
+            pending: peer.stageRequested,
+          }])),
+          ...(useAuthStore.getState().user ? {
+            [useAuthStore.getState().user!.id]: {
+              onStage: snapshot.selfOnStage,
+              pending: snapshot.selfStageRequested,
+            },
+          } : {}),
+        },
+        stageRequests: snapshot.peers.filter((peer) => peer.stageRequested).map((peer) => peer.userId),
         notices: [],
         latency,
       };
@@ -131,7 +158,17 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set((state) => {
       const switching = state.joining && (state.pendingCode !== null ||
         (state.lastJoin !== null && state.lastJoin.roomId !== state.snapshot?.room.id));
-      return { snapshot: null, peers: [], messages: [], joining: switching, lastJoin: switching ? state.lastJoin : null, screenSharerId: null, latency: {} };
+      return {
+        snapshot: null,
+        peers: [],
+        messages: [],
+        joining: switching,
+        lastJoin: switching ? state.lastJoin : null,
+        screenSharerId: null,
+        latency: {},
+        stageUsers: {},
+        stageRequests: [],
+      };
     });
     if (reason) get().addNotice(reason, "warn");
   },
@@ -141,7 +178,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       if (state.peers.some((item) => item.userId === peer.userId)) return state;
       const latency =
         typeof peer.rttMs === "number" ? { ...state.latency, [peer.userId]: peer.rttMs } : state.latency;
-      return { peers: [...state.peers, peer], latency };
+      return {
+        peers: [...state.peers, peer],
+        latency,
+        stageUsers: { ...state.stageUsers, [peer.userId]: { onStage: peer.onStage, pending: peer.stageRequested } },
+        stageRequests: peer.stageRequested && !state.stageRequests.includes(peer.userId)
+          ? [...state.stageRequests, peer.userId]
+          : state.stageRequests,
+      };
     });
   },
 
@@ -153,6 +197,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         peers: state.peers.filter((peer) => peer.userId !== userId),
         screenSharerId: state.screenSharerId === userId ? null : state.screenSharerId,
         latency,
+        stageRequests: state.stageRequests.filter((id) => id !== userId),
+        stageUsers: Object.fromEntries(Object.entries(state.stageUsers).filter(([id]) => Number(id) !== userId)),
       };
     });
   },
@@ -162,6 +208,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       peers: state.peers.some((item) => item.userId === peer.userId)
         ? state.peers.map((item) => (item.userId === peer.userId ? { ...item, ...peer } : item))
         : [...state.peers, peer],
+      stageUsers: { ...state.stageUsers, [peer.userId]: { onStage: peer.onStage, pending: peer.stageRequested } },
     }));
   },
 
@@ -175,6 +222,25 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         screenSharerId,
       };
     });
+  },
+
+  applyStageUpdate(userId, stage) {
+    set((state) => {
+      const stageRequests = stage.pending
+        ? state.stageRequests.includes(userId) ? state.stageRequests : [...state.stageRequests, userId]
+        : state.stageRequests.filter((id) => id !== userId);
+      return {
+        stageUsers: { ...state.stageUsers, [userId]: stage },
+        stageRequests,
+        peers: state.peers.map((peer) => peer.userId === userId
+          ? { ...peer, onStage: stage.onStage, stageMuted: !stage.onStage, stageRequested: stage.pending }
+          : peer),
+      };
+    });
+  },
+
+  addStageRequest(userId) {
+    set((state) => state.stageRequests.includes(userId) ? state : { stageRequests: [...state.stageRequests, userId] });
   },
 
   applyMessage(message) {
@@ -215,6 +281,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       lastJoin: null,
       pendingCode: null,
       codeRevealRoomId: null,
+      stageUsers: {},
+      stageRequests: [],
       screenSharerId: null,
       latency: {},
     });

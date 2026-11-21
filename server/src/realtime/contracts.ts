@@ -7,6 +7,8 @@ import type { OnlineUser } from "@airmic/shared";
 export interface HubLike {
   getRoomCounts(): Map<number, number>;
   getRoomIdForUser(userId: number): number | null;
+  /** 当前用户在房间内是否拥有 LiveKit 麦克风发布权限 */
+  canPublishInRoom(userId: number, roomId: number): boolean;
   getOnlineUsers(): OnlineUser[];
   getOnlineCount(): number;
   /** 历史同时在线峰值 */
@@ -23,7 +25,7 @@ export interface HubLike {
   refreshUser(userId: number): void;
   broadcastRooms(): void;
   broadcastRoomDirectoryChanged(userId?: number): void;
-  broadcastRoomUpdate(roomId: number): void;
+  broadcastRoomUpdate(roomId: number): Promise<void>;
   broadcastRoomDeleted(roomId: number, reason?: string): void;
   broadcastOnlineUsers(): void;
   broadcastServerSettings(): void;

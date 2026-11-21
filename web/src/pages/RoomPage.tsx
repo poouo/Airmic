@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Volume2, WifiOff } from "lucide-react";
+import { Check, Mic2, MicOff, Volume2, WifiOff, X } from "lucide-react";
 import type { PeerInfo, PeerStatePatch, Role, UserSelf } from "@airmic/shared";
 import { canManageRoomScope } from "@airmic/shared";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -12,6 +12,7 @@ import { RoomHeader } from "@/components/room/RoomHeader";
 import RoomMembersModal from "@/components/room/RoomMembersModal";
 import RoomCodeShareModal from "@/components/room/RoomCodeShareModal";
 import { RoomStage } from "@/components/room/RoomStage";
+import { Avatar, Button } from "@/components/ui";
 import type { RoomMember } from "@/components/room/types";
 import { playJoinSound, playLeaveSound } from "@/components/room/sounds";
 import { useLocalSpeaking, usePeerStats, useScreenStreams, useVoiceState } from "@/components/room/useVoice";
@@ -42,6 +43,8 @@ export default function RoomPage() {
   const joinError = useRoomStore((state) => state.joinError);
   const screenSharerId = useRoomStore((state) => state.screenSharerId);
   const codeRevealRoomId = useRoomStore((state) => state.codeRevealRoomId);
+  const stageUsers = useRoomStore((state) => state.stageUsers);
+  const stageRequests = useRoomStore((state) => state.stageRequests);
   const me = useAuthStore((state) => state.user);
   const server = useAppStore((state) => state.server);
   const connection = useAppStore((state) => state.connection);
@@ -63,6 +66,11 @@ export default function RoomPage() {
 
   const room = snapshot !== null && snapshot.room.id === roomId ? snapshot.room : null;
   const inRoom = room !== null;
+  const stageMode = room?.voiceMode === "stage";
+  const selfStage = me ? stageUsers[me.id] ?? {
+    onStage: snapshot?.selfOnStage ?? false,
+    pending: snapshot?.selfStageRequested ?? false,
+  } : { onStage: false, pending: false };
   const roomName = room?.name ?? rooms.find((item) => item.id === roomId)?.name ?? null;
   const inviteCode = inRoom ? snapshot?.inviteCode : undefined;
 
@@ -134,8 +142,9 @@ export default function RoomPage() {
       !selfState.micEnabled ||
       !selfState.hasMicrophone ||
       selfState.forceMuted ||
+      (stageMode && !selfStage.onStage) ||
       (pttEnabled && !selfState.pttActive),
-    [selfState.micEnabled, selfState.hasMicrophone, selfState.forceMuted, selfState.pttActive, pttEnabled],
+    [selfState.micEnabled, selfState.hasMicrophone, selfState.forceMuted, selfState.pttActive, pttEnabled, stageMode, selfStage.onStage],
   );
 
   const reportedMuteRef = useRef<{ roomId: number; muted: boolean; deafened: boolean } | null>(null);
@@ -261,7 +270,7 @@ export default function RoomPage() {
       if (event.code !== pttKey || event.repeat) return;
       if (event.isComposing || isEditable(event.target)) return;
       const current = voice.getState();
-      if (current.forceMuted || !current.micEnabled || !current.hasMicrophone) return;
+      if (current.forceMuted || (stageMode && !selfStage.onStage) || !current.micEnabled || !current.hasMicrophone) return;
       event.preventDefault();
       voice.setPTTActive(true);
       sendState({ muted: false });
@@ -290,7 +299,7 @@ export default function RoomPage() {
       document.removeEventListener("visibilitychange", onVisibility);
       voice.setPTTActive(false);
     };
-  }, [pttEnabled, pttKey, inRoom, sendState]);
+  }, [pttEnabled, pttKey, inRoom, sendState, stageMode, selfStage.onStage]);
 
   // ============ 操作 ============
   const handleLeave = useCallback(() => {
@@ -305,13 +314,29 @@ export default function RoomPage() {
   }, [navigate, roomId]);
 
   const handleToggleMic = useCallback(() => {
+    if (stageMode && !selfStage.onStage) return;
     if (selfState.forceMuted) {
       useUiStore.getState().toast("已被管理员静音", "warning");
       return;
     }
     // 已关闭或没有可用麦克风时点击 = 开启/重试，否则 = 静音
     voice.setMicEnabled(selfState.micEnabled === false || selfState.hasMicrophone === false);
-  }, [selfState.forceMuted, selfState.micEnabled, selfState.hasMicrophone]);
+  }, [selfState.forceMuted, selfState.micEnabled, selfState.hasMicrophone, stageMode, selfStage.onStage]);
+
+  const handleToggleStage = useCallback(() => {
+    if (selfStage.onStage) {
+      voice.applyStageAccess(false);
+      socket.send({ t: "stage_leave" });
+    } else if (selfStage.pending) {
+      socket.send({ t: "stage_leave" });
+    } else if (socket.send({ t: "stage_request" })) {
+      useUiStore.getState().toast("已申请上麦", "success", undefined, 2500);
+    }
+  }, [selfStage.onStage, selfStage.pending]);
+
+  const handleStageApproval = useCallback((userId: number, approved: boolean) => {
+    socket.send({ t: "stage_approve", userId, approved });
+  }, []);
 
   const handleToggleDeafen = useCallback(() => {
     voice.setDeafened(!selfState.deafened);
@@ -362,13 +387,13 @@ export default function RoomPage() {
 
   // ============ 成员列表 ============
   const members = useMemo<RoomMember[]>(() => {
-    const selfMember = me ? buildSelfMember(me, selfState, localSpeaking) : null;
+    const selfMember = me ? buildSelfMember(me, selfState, localSpeaking, stageMode, selfStage.onStage, selfStage.pending) : null;
     const others = peers
       .filter((peer) => peer.userId !== me?.id)
       .map(peerToMember)
       .sort(compareMembers);
     return selfMember ? [selfMember, ...others] : others;
-  }, [me, peers, selfState, localSpeaking]);
+  }, [me, peers, selfState, localSpeaking, stageMode, selfStage.onStage, selfStage.pending]);
 
   // 服务端不会把自己的 screenSharing 广播回来，自己共享时以引擎状态为准
   const activeSharerId = selfState.screenSharing && me ? me.id : screenSharerId;
@@ -398,9 +423,11 @@ export default function RoomPage() {
 
   const canEdit = canEditRoom(me, server, directory, room);
   const canManageMembers = !!me && !!directory && canManageRoomScope(me, room, directory);
+  const canManageStage = canManageMembers || room.createdById === me?.id;
+  const pendingStageMembers = members.filter((member) => stageRequests.includes(member.userId));
 
   return (
-    <div className="app-canvas flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="room-workspace flex h-full min-h-0 flex-col overflow-hidden lg:gap-3">
       {connection !== "online" && (
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
           <WifiOff className="h-3.5 w-3.5" />
@@ -427,16 +454,41 @@ export default function RoomPage() {
         onViewCode={inviteCode ? () => setViewingCodeIn(roomId) : undefined}
         memberCount={members.length}
         capacity={capacity}
+        stageOnCount={stageMode ? members.filter((member) => member.onStage && !member.stageMuted).length : undefined}
         onBack={handleBack}
         onEdit={canEdit ? () => setEditingRoomId(room.id) : undefined}
         onManageMembers={canManageMembers ? () => setManagingMembersIn(room.id) : undefined}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {stageMode && <StageSeatsPanel
+        members={members}
+        seats={room.stageSeats}
+        selfUserId={me?.id ?? null}
+        canManage={canManageMembers || room.createdById === me?.id}
+        selfOnStage={selfStage.onStage}
+        selfPending={selfStage.pending}
+        onJoin={handleToggleStage}
+        onLeave={handleToggleStage}
+        onRemove={(userId) => handleStageApproval(userId, false)}
+      />}
+
+      {stageMode && canManageStage && pendingStageMembers.length > 0 && <section aria-label="上麦申请" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 sm:px-4">
+        <p className="mr-auto text-xs font-medium text-foreground">上麦申请 · {pendingStageMembers.length}</p>
+        {pendingStageMembers.map((member) => <div key={member.userId} className="flex min-w-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
+          <span className="max-w-28 truncate text-xs">{member.displayName}</span>
+          <Button size="sm" className="h-8 min-h-8 px-2" aria-label={`批准 ${member.displayName} 上麦`} icon={<Check className="h-3.5 w-3.5" />}
+            onClick={() => handleStageApproval(member.userId, true)}>批准</Button>
+          <Button size="sm" variant="outline" className="h-8 min-h-8 px-2" aria-label={`拒绝 ${member.displayName} 上麦`} icon={<X className="h-3.5 w-3.5" />}
+            onClick={() => handleStageApproval(member.userId, false)}>拒绝</Button>
+        </div>)}
+      </section>}
+
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-border lg:bg-card/45">
           <div className="app-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3 sm:p-4">
             <RoomStage
               members={members}
+              stageMode={stageMode}
               codeOnly={room.codeOnly}
               screenSharer={screenSharer}
               screenStream={screenStream}
@@ -452,11 +504,15 @@ export default function RoomPage() {
             selfState={selfState}
             pttEnabled={pttEnabled}
             pttKey={pttKey}
+            stageMode={stageMode}
+            onStage={selfStage.onStage}
+            stagePending={selfStage.pending}
             screenShareAllowed={canShare}
             shareBusy={shareBusy}
             peerStats={peerStatsList}
             chatOpen={chatOpen}
             onToggleMic={handleToggleMic}
+            onToggleStage={handleToggleStage}
             onToggleDeafen={handleToggleDeafen}
             onToggleScreenShare={() => void handleToggleScreenShare()}
             onToggleChat={handleToggleChat}
@@ -465,7 +521,7 @@ export default function RoomPage() {
           />
         </div>
         <aside aria-label="房间聊天" className={cn(
-          "min-h-0 lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:p-0 lg:py-3 lg:pr-3 xl:w-88",
+          "min-h-0 lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:p-0 xl:w-88",
           chatOpen ? "viewport-overlay z-40 flex justify-end" : "hidden",
         )}>
           <button type="button" aria-label="关闭聊天遮罩" onClick={handleToggleChat} className="absolute inset-0 bg-black/30 lg:hidden" />
@@ -494,15 +550,18 @@ function peerToMember(peer: PeerInfo): RoomMember {
     speaking: peer.speaking,
     screenSharing: peer.screenSharing,
     forceMuted: peer.forceMuted,
+    onStage: peer.onStage,
+    stageMuted: peer.stageMuted,
+    stageRequested: peer.stageRequested,
     joinedAt: peer.joinedAt,
     isSelf: false,
   };
 }
 
-function buildSelfMember(user: UserSelf, state: VoiceStateSnapshot, speaking: boolean): RoomMember {
+function buildSelfMember(user: UserSelf, state: VoiceStateSnapshot, speaking: boolean, stageMode: boolean, onStage: boolean, stageRequested: boolean): RoomMember {
   const settings = useSettingsStore.getState();
   const muted =
-    !state.micEnabled || !state.hasMicrophone || state.forceMuted || (settings.pttEnabled && !state.pttActive);
+    !state.micEnabled || !state.hasMicrophone || state.forceMuted || (stageMode && !onStage) || (settings.pttEnabled && !state.pttActive);
   return {
     userId: user.id,
     username: user.username,
@@ -517,9 +576,62 @@ function buildSelfMember(user: UserSelf, state: VoiceStateSnapshot, speaking: bo
     speaking,
     screenSharing: state.screenSharing,
     forceMuted: state.forceMuted,
+    onStage,
+    stageMuted: stageMode && !onStage,
+    stageRequested,
     joinedAt: user.createdAt,
     isSelf: true,
   };
+}
+
+function StageSeatsPanel({ members, seats, selfUserId, canManage, selfOnStage, selfPending, onJoin, onLeave, onRemove }: {
+  members: RoomMember[];
+  seats: number;
+  selfUserId: number | null;
+  canManage: boolean;
+  selfOnStage: boolean;
+  selfPending: boolean;
+  onJoin: () => void;
+  onLeave: () => void;
+  onRemove: (userId: number) => void;
+}) {
+  const active = members.filter((member) => member.onStage && !member.stageMuted);
+  const seatCount = Math.max(1, Math.min(50, seats));
+
+  return (
+    <section aria-label="上麦席位" className="shrink-0 border-b border-border bg-card/70 px-3 py-2 sm:px-4">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="mr-auto text-xs font-semibold">上麦席位</h2>
+        <span className="tabular text-xs text-muted-foreground">{active.length}/{seatCount}</span>
+        {selfOnStage
+          ? <Button size="sm" variant="outline" className="min-h-8" icon={<MicOff className="h-3.5 w-3.5" />} onClick={onLeave}>下麦</Button>
+          : <Button size="sm" variant={selfPending ? "outline" : "secondary"} className="min-h-8" disabled={selfPending}
+            icon={<Mic2 className="h-3.5 w-3.5" />} onClick={onJoin}>{selfPending ? "等待审批" : "申请上麦"}</Button>}
+      </div>
+      <div className="app-scroll flex gap-1.5 overflow-x-auto overscroll-x-contain pb-1">
+        {Array.from({ length: seatCount }, (_, index) => {
+          const member = active[index];
+          return member ? <div key={index} role="group" aria-label={`麦位 ${index + 1}：${member.displayName}`}
+            className="flex min-h-10 w-36 shrink-0 items-center gap-2 rounded-lg border border-brand/20 bg-brand/5 px-2 py-1.5">
+              <span className="relative shrink-0"><Avatar name={member.displayName} color={member.avatarColor} emoji={member.avatarEmoji} size="xs" speaking={member.speaking} />
+                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-card bg-success" /></span>
+              <span className="min-w-0 flex-1 truncate text-xs" title={member.displayName}>{member.displayName}</span>
+              {canManage && member.userId !== selfUserId && <button type="button" aria-label={`移出麦位 ${member.displayName}`}
+                title="移出麦位" onClick={() => onRemove(member.userId)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring">
+                <X className="h-3.5 w-3.5" />
+              </button>}
+            </div> : <button key={index} type="button" aria-label={`申请麦位 ${index + 1}`}
+            disabled={selfOnStage || selfPending} onClick={onJoin}
+            className={cn("flex min-h-10 w-36 shrink-0 items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-2 py-1.5 text-left text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60",
+              !selfOnStage && !selfPending && "cursor-pointer hover:border-brand/40 hover:bg-brand/5 hover:text-brand")}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted"><MicOff className="h-3.5 w-3.5" /></span>
+            <span className="text-xs">空位 {index + 1}</span>
+          </button>;
+        })}
+      </div>
+    </section>
+  );
 }
 
 function compareMembers(left: RoomMember, right: RoomMember): number {

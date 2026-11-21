@@ -92,7 +92,7 @@ export async function registerRoomDirectoryRoutes(app: FastifyInstance, services
       const areaIds = new Set([area.id, ...directory.list().filter((item) => item.parentId === area.id).map((item) => item.id)]);
       const counts = hub.getRoomCounts();
       for (const room of services.rooms.list(counts)) {
-        if (areaIds.has(room.areaId) && counts.has(room.id)) hub.broadcastRoomUpdate(room.id);
+        if (areaIds.has(room.areaId) && counts.has(room.id)) await hub.broadcastRoomUpdate(room.id);
       }
       hub.broadcastRooms();
     }

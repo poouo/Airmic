@@ -214,6 +214,10 @@ export interface CreateRoomRequest {
   chatHistoryDays?: number;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
+  /** 语音模式：open 为自由发言，stage 为上麦席位 */
+  voiceMode?: "open" | "stage";
+  /** 上麦模式的席位数，服务端会限制在支持范围内 */
+  stageSeats?: number;
 }
 
 export type UpdateRoomRequest = Partial<CreateRoomRequest>;

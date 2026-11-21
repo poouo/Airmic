@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyRequest } from "fastify";
+import { RoomServiceClient } from "livekit-server-sdk";
 import {
   canCreateCodeRoom,
   PROTOCOL_VERSION,
   WS_CLOSE_CODES,
   WS_HEARTBEAT_INTERVAL_MS,
+  livekitRoomName,
   type ClientMessage,
   type CodeRoomRequest,
   type LogCategory,
@@ -28,6 +30,8 @@ import type { RoomRow } from "../services/rooms.js";
 import type { Services } from "../types.js";
 import type { HubLike } from "./contracts.js";
 import { extractClientMessageType, parseClientMessage, type ParsedClientMessage } from "./schemas.js";
+
+type LivekitPermission = { canSubscribe: boolean; canPublish: boolean; canPublishData: boolean };
 
 /** 未认证 / 被新连接替换时使用的关闭码（协议文档约定 4001） */
 const CLOSE_CODE_UNAUTHORIZED = 4001;
@@ -64,6 +68,9 @@ interface PeerPresenceState {
   speaking: boolean;
   screenSharing: boolean;
   forceMuted: boolean;
+  stageMuted: boolean;
+  onStage: boolean;
+  stageRequested: boolean;
 }
 
 interface ClientConnection {
@@ -93,6 +100,11 @@ interface ClientConnection {
 export class Hub implements HubLike {
   private readonly connections = new Map<string, ClientConnection>();
   private readonly byUser = new Map<number, ClientConnection>();
+  private readonly roomVoiceModes = new Map<number, "open" | "stage">();
+  private livekitClient: RoomServiceClient | null = null;
+  private livekitClientKey: string | null = null;
+  private readonly livekitPermissionQueues = new Map<string, Promise<void>>();
+  private readonly stageRoomQueues = new Map<number, Promise<void>>();
   private readonly heartbeatIntervalMs: number;
   private readonly logger: HubLogger | undefined;
   private heartbeatTimer: NodeJS.Timeout | null;
@@ -195,7 +207,7 @@ export class Hub implements HubLike {
       ip,
       roomId: null,
       joinedAt: null,
-      state: { muted: false, deafened: false, speaking: false, screenSharing: false, forceMuted: false },
+      state: { muted: false, deafened: false, speaking: false, screenSharing: false, forceMuted: false, stageMuted: false, onStage: false, stageRequested: false },
       missedHeartbeats: 0,
       pingSentAt: null,
       rttMs: null,
@@ -226,7 +238,7 @@ export class Hub implements HubLike {
         this.broadcastToRoom(conn.roomId, message);
       }
     });
-    socket.on("message", (data: RawData, isBinary: boolean) => this.handleRawMessage(conn, data, isBinary));
+    socket.on("message", (data: RawData, isBinary: boolean) => void this.handleRawMessage(conn, data, isBinary));
     socket.on("close", (code: number, reason: Buffer) => this.handleSocketClose(conn, code, reason.toString()));
     socket.on("error", (error: Error) => {
       if (!conn.user.isGuest) this.logWarn("WebSocket 连接错误（用户 " + conn.userId + "）：" + describeError(error));
@@ -362,7 +374,7 @@ export class Hub implements HubLike {
   // 客户端消息处理
   // ============================================================
 
-  private handleRawMessage(conn: ClientConnection, data: RawData, isBinary: boolean): void {
+  private async handleRawMessage(conn: ClientConnection, data: RawData, isBinary: boolean): Promise<void> {
     if (conn.closed) return;
     if (isBinary) {
       this.sendError(conn, "bad_request", "仅支持文本消息");
@@ -382,14 +394,14 @@ export class Hub implements HubLike {
       return;
     }
     try {
-      this.routeMessage(conn, message);
+      await this.routeMessage(conn, message);
     } catch (error) {
       if (!conn.user.isGuest) this.logError("处理 WebSocket 消息失败（用户 " + conn.userId + "）", error);
       this.sendError(conn, "internal", "服务器处理消息时出错", requestType);
     }
   }
 
-  private routeMessage(conn: ClientConnection, message: ParsedClientMessage): void {
+  private async routeMessage(conn: ClientConnection, message: ParsedClientMessage): Promise<void> {
     switch (message.t) {
       case "join_room":
         this.handleJoinRoom(conn, message.roomId, message.password);
@@ -414,6 +426,15 @@ export class Hub implements HubLike {
         return;
       case "screen_share":
         this.handleScreenShare(conn, message.active);
+        return;
+      case "stage_request":
+        await this.runStageOperation(conn, () => this.handleStageRequest(conn));
+        return;
+      case "stage_leave":
+        await this.runStageOperation(conn, () => this.handleStageLeave(conn));
+        return;
+      case "stage_approve":
+        await this.runStageOperation(conn, () => this.handleStageApprove(conn, message.userId, message.approved));
         return;
       case "ping":
         this.send(conn, { t: "pong", ts: typeof message.ts === "number" ? message.ts : Date.now() });
@@ -567,10 +588,15 @@ export class Hub implements HubLike {
   }
 
   private attachToRoom(conn: ClientConnection, row: RoomRow, request?: CodeRoomRequest["t"]): void {
+    if (!this.roomVoiceModes.has(row.id)) this.roomVoiceModes.set(row.id, row.voice_mode);
     conn.roomId = row.id;
     conn.joinedAt = nowIso();
     conn.state.speaking = false;
     conn.state.screenSharing = false;
+    conn.state.stageRequested = false;
+    conn.state.onStage = row.voice_mode === "open";
+    conn.state.stageMuted = row.voice_mode === "stage" && !conn.state.onStage;
+    if (conn.state.stageMuted) conn.state.muted = true;
     this.log("info", "room", "加入房间", { userId: conn.userId, roomId: row.id, roomName: row.name }, conn);
     this.sendRoomJoined(conn, row, request);
 
@@ -594,6 +620,9 @@ export class Hub implements HubLike {
     conn.joinedAt = null;
     conn.state.speaking = false;
     conn.state.screenSharing = false;
+    conn.state.stageRequested = false;
+    conn.state.onStage = false;
+    conn.state.stageMuted = false;
     const peerLeft: Extract<ServerMessage, { t: "peer_left" }> = {
       t: "peer_left",
       roomId,
@@ -604,6 +633,7 @@ export class Hub implements HubLike {
     this.sendNoticeToRoom(roomId, "info", noticeText ?? conn.user.displayName + " 离开了房间", conn.id);
     if (this.services.rooms.codeForRoom(roomId) !== undefined && this.roomConnections(roomId).length === 0) {
       this.services.rooms.remove(roomId);
+      this.roomVoiceModes.delete(roomId);
     }
   }
 
@@ -624,6 +654,8 @@ export class Hub implements HubLike {
       peers,
       messages: this.services.rooms.listMessages(row, 50),
       screenSharerId: sharer ? sharer.userId : null,
+      selfOnStage: conn.state.onStage,
+      selfStageRequested: conn.state.stageRequested,
     };
   }
 
@@ -645,7 +677,8 @@ export class Hub implements HubLike {
       patch.speaking = requested.speaking;
     }
     // 被强制静音时不允许自行解除
-    if (conn.state.forceMuted && patch.muted === false) delete patch.muted;
+    if ((conn.state.forceMuted || conn.state.stageMuted) && patch.muted === false) delete patch.muted;
+    if (conn.state.stageMuted && patch.speaking === true) delete patch.speaking;
     if (typeof requested.screenSharing === "boolean" && requested.screenSharing !== conn.state.screenSharing) {
       if (requested.screenSharing) {
         const blocked = this.screenShareBlockReason(conn);
@@ -675,6 +708,192 @@ export class Hub implements HubLike {
     if (patch.speaking !== undefined) conn.state.speaking = patch.speaking;
     if (patch.screenSharing !== undefined) conn.state.screenSharing = patch.screenSharing;
     if (patch.forceMuted !== undefined) conn.state.forceMuted = patch.forceMuted;
+    if (patch.stageMuted !== undefined) conn.state.stageMuted = patch.stageMuted;
+  }
+
+  /**
+   * 同步已经连接到 LiveKit 的 participant 权限。令牌只在连接时生效，
+   * 上麦席位变化必须通过 RoomService 更新，撤销 canPublish 也会让 LiveKit 自动取消已发布轨道。
+   */
+  private async syncLivekitPublishPermission(conn: ClientConnection, publishOverride?: boolean): Promise<void> {
+    if (conn.roomId === null || conn.closed) return;
+    const credentials = this.services.settings.getLivekitCredentials();
+    if (!credentials.url || !credentials.apiKey || !credentials.apiSecret) return;
+    const key = credentials.url + "\n" + credentials.apiKey + "\n" + credentials.apiSecret;
+    if (this.livekitClientKey !== key) {
+      const host = credentials.url.replace(/^ws(s?):\/\//, "http$1://");
+      this.livekitClient = new RoomServiceClient(host, credentials.apiKey, credentials.apiSecret);
+      this.livekitClientKey = key;
+    }
+    const client = this.livekitClient;
+    if (!client) return;
+    const roomName = livekitRoomName(conn.roomId);
+    const queueKey = roomName + ":" + conn.userId;
+    const previous = this.livekitPermissionQueues.get(queueKey) ?? Promise.resolve();
+    const update = previous.catch(() => undefined).then(async () => {
+      if (conn.closed || conn.roomId === null || livekitRoomName(conn.roomId) !== roomName) return;
+      const canPublish = publishOverride ?? this.canPublishInRoom(conn.userId, conn.roomId);
+      const permission: LivekitPermission = { canSubscribe: true, canPublish, canPublishData: false };
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          await client.updateParticipant(roomName, String(conn.userId), { permission });
+          return;
+        } catch (error) {
+          const detail = describeError(error).toLowerCase();
+          const participantMissing = detail.includes("participant") &&
+            (detail.includes("not found") || detail.includes("does not exist"));
+          if (!participantMissing || attempt === 5) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
+    });
+    this.livekitPermissionQueues.set(queueKey, update);
+    try {
+      await update;
+    } catch (error) {
+      this.logWarn("同步 LiveKit 发言权限失败（用户 " + conn.userId + "）：「" + describeError(error) + "」");
+      throw error;
+    } finally {
+      if (this.livekitPermissionQueues.get(queueKey) === update) this.livekitPermissionQueues.delete(queueKey);
+    }
+  }
+
+  private async runStageOperation(conn: ClientConnection, operation: () => Promise<void>): Promise<void> {
+    const roomId = conn.roomId;
+    if (roomId === null) {
+      await operation();
+      return;
+    }
+    await this.withStageRoomLock(roomId, async () => {
+      if (conn.roomId === roomId) await operation();
+    });
+  }
+
+  private async withStageRoomLock(roomId: number, operation: () => Promise<void>): Promise<void> {
+    const previous = this.stageRoomQueues.get(roomId) ?? Promise.resolve();
+    let release = (): void => undefined;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.catch(() => undefined).then(() => current);
+    this.stageRoomQueues.set(roomId, queued);
+    await previous.catch(() => undefined);
+    try {
+      await operation();
+    } finally {
+      release();
+      if (this.stageRoomQueues.get(roomId) === queued) this.stageRoomQueues.delete(roomId);
+    }
+  }
+
+  private stageRoomFor(conn: ClientConnection): RoomRow | null {
+    if (conn.roomId === null) return null;
+    const row = this.services.rooms.findById(conn.roomId);
+    if (!row || row.voice_mode !== "stage") return null;
+    return row;
+  }
+
+  private isStageManager(conn: ClientConnection, row: RoomRow): boolean {
+    return this.services.rooms.ownerId(row) === conn.userId || this.services.roomDirectory.canManageRoom(conn.user, row);
+  }
+
+  private async handleStageRequest(conn: ClientConnection): Promise<void> {
+    const row = this.stageRoomFor(conn);
+    if (!row) {
+      this.sendError(conn, "stage_not_allowed", "当前房间是自由发言模式", "stage_request");
+      return;
+    }
+    if (conn.state.onStage) return;
+    if (conn.state.stageRequested) return;
+    conn.state.stageRequested = true;
+    this.broadcastToRoom(conn.roomId!, { t: "stage_update", roomId: row.id, userId: conn.userId, onStage: false, pending: true });
+    for (const member of this.roomConnections(row.id)) {
+      if (this.isStageManager(member, row)) this.send(member, { t: "stage_requested", roomId: row.id, userId: conn.userId });
+    }
+  }
+
+  private async handleStageLeave(conn: ClientConnection): Promise<void> {
+    const row = this.stageRoomFor(conn);
+    if (!row) {
+      this.sendError(conn, "stage_not_allowed", "当前房间是自由发言模式", "stage_leave");
+      return;
+    }
+    if (!conn.state.onStage && !conn.state.stageRequested) return;
+    const wasOnStage = conn.state.onStage;
+    if (wasOnStage) {
+      try {
+        await this.syncLivekitPublishPermission(conn, false);
+      } catch {
+        this.sendError(conn, "internal", "语音权限更新失败，暂时无法下麦，请重试", "stage_leave");
+        return;
+      }
+    }
+    if (conn.roomId !== row.id || this.services.rooms.findById(row.id)?.voice_mode !== "stage") return;
+    conn.state.onStage = false;
+    conn.state.stageRequested = false;
+    conn.state.stageMuted = true;
+    conn.state.muted = true;
+    conn.state.speaking = false;
+    this.broadcastToRoom(row.id, { t: "stage_update", roomId: row.id, userId: conn.userId, onStage: false, pending: false });
+    this.broadcastToRoom(row.id, { t: "peer_state", roomId: row.id, userId: conn.userId, state: { muted: true, speaking: false, stageMuted: true } });
+  }
+
+  private async handleStageApprove(conn: ClientConnection, userId: number, approved: boolean): Promise<void> {
+    const row = this.stageRoomFor(conn);
+    if (!row) {
+      this.sendError(conn, "stage_not_allowed", "当前房间是自由发言模式", "stage_approve");
+      return;
+    }
+    if (!this.isStageManager(conn, row)) {
+      this.sendError(conn, "forbidden", "只有房主或房管可以管理上麦席位", "stage_approve");
+      return;
+    }
+    const target = this.roomConnections(row.id).find((member) => member.userId === userId);
+    if (!target) {
+      this.sendError(conn, "peer_not_found", "该用户不在当前房间", "stage_approve");
+      return;
+    }
+    if (!approved) {
+      const wasOnStage = target.state.onStage;
+      if (wasOnStage) {
+        try {
+          await this.syncLivekitPublishPermission(target, false);
+        } catch {
+          this.sendError(conn, "internal", "语音权限更新失败，暂时无法移除麦位，请重试", "stage_approve");
+          return;
+        }
+      }
+      target.state.stageRequested = false;
+      target.state.onStage = false;
+      if (wasOnStage) {
+        target.state.stageMuted = true;
+        target.state.muted = true;
+        target.state.speaking = false;
+      }
+      this.broadcastToRoom(row.id, { t: "stage_update", roomId: row.id, userId, onStage: false, pending: false });
+      if (wasOnStage) this.broadcastToRoom(row.id, { t: "peer_state", roomId: row.id, userId, state: { muted: true, speaking: false, stageMuted: true } });
+      return;
+    }
+    if (target.state.onStage) return;
+    if (!target.state.stageRequested) {
+      this.sendError(conn, "stage_not_requested", "该用户尚未申请上麦", "stage_approve");
+      return;
+    }
+    const currentSeats = this.roomConnections(row.id).filter((member) => member.state.onStage && member.userId !== userId).length;
+    if (currentSeats >= row.stage_seats) {
+      this.sendError(conn, "stage_full", "上麦席位已满", "stage_approve");
+      return;
+    }
+    try {
+      await this.syncLivekitPublishPermission(target, !target.state.forceMuted);
+    } catch {
+      this.sendError(conn, "internal", "语音权限更新失败，暂时无法安排上麦，请重试", "stage_approve");
+      return;
+    }
+    if (target.roomId !== row.id || this.services.rooms.findById(row.id)?.voice_mode !== "stage") return;
+    target.state.onStage = true;
+    target.state.stageRequested = false;
+    target.state.stageMuted = false;
+    this.broadcastToRoom(row.id, { t: "stage_update", roomId: row.id, userId, onStage: true, pending: false });
+    this.broadcastToRoom(row.id, { t: "peer_state", roomId: row.id, userId, state: { stageMuted: false } });
   }
 
   private screenShareBlockReason(conn: ClientConnection): { code: WsErrorCode; message: string } | null {
@@ -816,6 +1035,14 @@ export class Hub implements HubLike {
     return this.byUser.get(userId)?.roomId ?? null;
   }
 
+  canPublishInRoom(userId: number, roomId: number): boolean {
+    const conn = this.byUser.get(userId);
+    if (!conn || conn.closed || conn.roomId !== roomId) return false;
+    const row = this.services.rooms.findById(roomId);
+    if (!row || conn.state.forceMuted) return false;
+    return row.voice_mode !== "stage" || (conn.state.onStage && !conn.state.stageMuted);
+  }
+
   getOnlineUsers(): OnlineUser[] {
     const users: OnlineUser[] = [];
     for (const conn of this.connections.values()) {
@@ -912,6 +1139,9 @@ export class Hub implements HubLike {
     );
     conn.state.forceMuted = muted;
     conn.state.muted = muted;
+    void this.syncLivekitPublishPermission(conn).catch((error: unknown) => {
+      this.logWarn("同步 LiveKit 强制静音权限失败（用户 " + conn.userId + "）：「" + describeError(error) + "」");
+    });
     const patch: PeerStatePatch = { muted, forceMuted: muted };
     if (conn.roomId !== null) {
       this.broadcastToRoom(conn.roomId, { t: "peer_state", roomId: conn.roomId, userId, state: patch });
@@ -1006,14 +1236,62 @@ export class Hub implements HubLike {
     }
   }
 
-  broadcastRoomUpdate(roomId: number): void {
+  async broadcastRoomUpdate(roomId: number): Promise<void> {
     const row = this.services.rooms.findById(roomId);
     if (!row) return;
+    await this.withStageRoomLock(roomId, () => this.broadcastRoomUpdateAsync(row));
+  }
+
+  private async broadcastRoomUpdateAsync(row: RoomRow): Promise<void> {
+    const roomId = row.id;
+    const previousMode = this.roomVoiceModes.get(roomId) ?? row.voice_mode;
+    this.roomVoiceModes.set(roomId, row.voice_mode);
+    const members = this.roomConnections(roomId);
+    if (previousMode !== row.voice_mode) {
+      for (const member of members) {
+        member.state.stageRequested = false;
+        member.state.onStage = row.voice_mode === "open";
+        member.state.stageMuted = row.voice_mode === "stage" && !member.state.onStage;
+        if (row.voice_mode === "stage") {
+          member.state.muted = true;
+          member.state.speaking = false;
+        }
+        await this.syncLivekitPublishPermission(
+          member,
+          !member.state.forceMuted && (row.voice_mode === "open" || member.state.onStage),
+        );
+        this.broadcastToRoom(roomId, {
+          t: "stage_update",
+          roomId,
+          userId: member.userId,
+          onStage: member.state.onStage,
+          pending: false,
+        });
+        this.broadcastToRoom(roomId, {
+          t: "peer_state",
+          roomId,
+          userId: member.userId,
+          state: { muted: member.state.muted, speaking: member.state.speaking, stageMuted: member.state.stageMuted },
+        });
+      }
+    } else if (row.voice_mode === "stage") {
+      const onStage = members.filter((member) => member.state.onStage).sort((a, b) => (a.joinedAt ?? "").localeCompare(b.joinedAt ?? ""));
+      for (const member of onStage.slice(row.stage_seats)) {
+        member.state.onStage = false;
+        member.state.stageMuted = true;
+        member.state.muted = true;
+        member.state.speaking = false;
+        await this.syncLivekitPublishPermission(member, false);
+        this.broadcastToRoom(roomId, { t: "stage_update", roomId, userId: member.userId, onStage: false, pending: false });
+        this.broadcastToRoom(roomId, { t: "peer_state", roomId, userId: member.userId, state: { muted: true, speaking: false, stageMuted: true } });
+      }
+    }
     const room = this.services.rooms.toDetail(row, this.getRoomCounts().get(roomId) ?? 0);
     this.broadcastToRoom(roomId, { t: "room_updated", room });
   }
 
   broadcastRoomDeleted(roomId: number, reason?: string): void {
+    this.roomVoiceModes.delete(roomId);
     const affected = this.roomConnections(roomId);
     if (affected.length === 0) {
       this.broadcastRooms();
@@ -1208,6 +1486,9 @@ export class Hub implements HubLike {
       speaking: conn.state.speaking,
       screenSharing: conn.state.screenSharing,
       forceMuted: conn.state.forceMuted,
+      stageMuted: conn.state.stageMuted,
+      onStage: conn.state.onStage,
+      stageRequested: conn.state.stageRequested,
       rttMs: conn.rttMs,
       joinedAt: conn.joinedAt ?? nowIso(),
     };

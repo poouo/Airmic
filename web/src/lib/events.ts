@@ -116,6 +116,28 @@ export function initRealtime(): void {
     useRoomStore.getState().applyPeerState(message.userId, message.state);
   });
 
+  socket.on("stage_requested", (message) => {
+    useRoomStore.getState().addStageRequest(message.userId);
+  });
+
+  socket.on("stage_update", (message) => {
+    useRoomStore.getState().applyStageUpdate(message.userId, {
+      onStage: message.onStage,
+      pending: message.pending === true,
+    });
+    if (message.userId === useAuthStore.getState().user?.id) {
+      voice.applyStageAccess(message.onStage);
+    }
+    const peer = useRoomStore.getState().peers.find((item) => item.userId === message.userId);
+    if (message.pending) {
+      toast((peer?.displayName ?? "成员") + "申请上麦", "info", undefined, 3500);
+    } else if (message.onStage) {
+      toast((peer?.displayName ?? "成员") + "已上麦", "success", undefined, 2500);
+    } else {
+      toast((peer?.displayName ?? "成员") + "已下麦", "info", undefined, 2500);
+    }
+  });
+
   socket.on("peer_latency", (message) => {
     useRoomStore.getState().setLatency(message.userId, message.rttMs);
   });
@@ -143,6 +165,7 @@ export function initRealtime(): void {
         snapshot: { ...roomState.snapshot, room: message.room },
       });
       voice.applyAudioSettings(message.room.audioSettings);
+      voice.applyStageAccess(message.room.voiceMode !== "stage" || roomState.stageUsers[useAuthStore.getState().user?.id ?? -1]?.onStage === true);
     }
   });
 
@@ -229,6 +252,9 @@ export function onlineUserToPeer(user: OnlineUser): PeerInfo | null {
     speaking: user.speaking,
     screenSharing: false,
     forceMuted: false,
+    stageMuted: false,
+    onStage: true,
+    stageRequested: false,
     joinedAt: new Date().toISOString(),
   };
 }

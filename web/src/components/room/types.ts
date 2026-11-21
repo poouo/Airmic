@@ -15,6 +15,9 @@ export interface RoomMember {
   speaking: boolean;
   screenSharing: boolean;
   forceMuted: boolean;
+  onStage: boolean;
+  stageMuted: boolean;
+  stageRequested: boolean;
   joinedAt: string;
   isSelf: boolean;
 }

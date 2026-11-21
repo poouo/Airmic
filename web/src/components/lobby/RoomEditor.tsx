@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_AUDIO_SETTINGS } from "@airmic/shared";
-import type { RoomDetail } from "@airmic/shared";
+import type { RoomDetail, RoomSummary } from "@airmic/shared";
 import { Alert, Modal, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
@@ -9,7 +9,7 @@ import { createRoomInitial, detailRoomInitial } from "./roomForm";
 
 export type RoomEditorTarget = { kind: "create"; areaId: number } | { kind: "edit"; roomId: number };
 
-export default function RoomEditor({ target, onClose }: { target: RoomEditorTarget; onClose: () => void }) {
+export default function RoomEditor({ target, onClose, onSaved }: { target: RoomEditorTarget; onClose: () => void; onSaved?: (room: RoomSummary) => void }) {
   const audioBase = useAppStore((state) => state.server?.defaultAudioSettings) ?? DEFAULT_AUDIO_SETTINGS;
   const roomId = target.kind === "edit" ? target.roomId : null;
   const [detail, setDetail] = useState<RoomDetail | null>(null);
@@ -38,7 +38,10 @@ export default function RoomEditor({ target, onClose }: { target: RoomEditorTarg
     audioBase={audioBase}
     canDelete={target.kind === "edit"}
     onClose={onClose}
-    onSaved={(room) => useAppStore.getState().upsertRoom(room)}
+    onSaved={(room) => {
+      useAppStore.getState().upsertRoom(room);
+      onSaved?.(room);
+    }}
     onDeleted={(id) => {
       const app = useAppStore.getState();
       app.removeRoom(id);

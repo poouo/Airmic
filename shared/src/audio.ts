@@ -1,7 +1,7 @@
 import type { AudioOverride, AudioPresetId, AudioSettings, RoomAudioBitrateLimit } from "./types.js";
 
 export const APP_NAME = "AirMic";
-export const APP_VERSION = "1.3.301";
+export const APP_VERSION = "1.3.302";
 export const PROTOCOL_VERSION = 1;
 
 export const AUDIO_LIMITS = {

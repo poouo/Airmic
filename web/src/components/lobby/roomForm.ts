@@ -17,6 +17,10 @@ export interface RoomFormInitial {
   textChatEnabled: boolean;
   chatHistoryDays: number;
   screenShareEnabled: boolean;
+  /** 语音模式：open 自由发言，stage 上麦席位 */
+  voiceMode: "open" | "stage";
+  /** 上麦席位数，仅 stage 模式生效 */
+  stageSeats: number;
   /** 房间音质覆盖；null 表示跟随服务器默认 */
   audioOverride: import("@airmic/shared").AudioOverride | null;
   /** 生效音质（用于编辑器初值） */
@@ -38,6 +42,8 @@ export function createRoomInitial(base: AudioSettings, areaId: number): RoomForm
     textChatEnabled: true,
     chatHistoryDays: 30,
     screenShareEnabled: true,
+    voiceMode: "open",
+    stageSeats: 4,
     audioOverride: null,
     audioSettings: base,
   };
@@ -59,6 +65,8 @@ export function detailRoomInitial(room: RoomDetail): RoomFormInitial {
     textChatEnabled: room.textChatEnabled !== false,
     chatHistoryDays: room.chatHistoryDays ?? 30,
     screenShareEnabled: room.screenShareEnabled,
+    voiceMode: room.voiceMode ?? "open",
+    stageSeats: room.stageSeats ?? 4,
     audioOverride: room.audioOverride,
     audioSettings: room.audioSettings,
   };

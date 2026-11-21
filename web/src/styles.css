@@ -56,7 +56,7 @@
 
 /* ---------------- 浅色主题（默认） ---------------- */
 :root {
-  --background: oklch(0.974 0.007 272);
+  --background: oklch(0.976 0.005 274);
   --foreground: oklch(0.235 0.006 285);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.235 0.006 285);
@@ -80,10 +80,10 @@
   --input: oklch(0.925 0.004 265);
   --ring: oklch(0.58 0.16 275);
 
-  --sidebar: oklch(0.96 0.011 272);
+  --sidebar: oklch(0.985 0.005 274);
   --sidebar-foreground: oklch(0.32 0.008 285);
   --sidebar-accent: oklch(0.922 0.035 276);
-  --sidebar-border: oklch(0.915 0.004 265);
+  --sidebar-border: oklch(0.925 0.008 275);
 
   --success: oklch(0.585 0.135 160);
   --warning: oklch(0.68 0.15 70);
@@ -101,9 +101,9 @@
 
 /* ---------------- 深色主题 ---------------- */
 html[data-theme="dark"] {
-  --background: oklch(0.165 0.006 285);
+  --background: oklch(0.179 0.015 279);
   --foreground: oklch(0.96 0.003 285);
-  --card: oklch(0.208 0.006 285);
+  --card: oklch(0.218 0.015 280);
   --card-foreground: oklch(0.96 0.003 285);
   --popover: oklch(0.225 0.007 285);
   --popover-foreground: oklch(0.96 0.003 285);
@@ -125,7 +125,7 @@ html[data-theme="dark"] {
   --input: oklch(0.325 0.008 285);
   --ring: oklch(0.72 0.12 281);
 
-  --sidebar: oklch(0.185 0.006 285);
+  --sidebar: oklch(0.204 0.015 282);
   --sidebar-foreground: oklch(0.9 0.004 285);
   --sidebar-accent: oklch(0.286 0.041 278);
   --sidebar-border: oklch(0.285 0.008 285);
@@ -157,6 +157,98 @@ html[data-theme="dark"] {
 
   .app-frame { height: var(--visible-height, var(--viewport-height)); }
   .page-frame { min-height: var(--viewport-height); }
+
+  .workspace-frame {
+    --workspace-nav-width: 16rem;
+    --workspace-bar-height: 3.5rem;
+    --workspace-ease: cubic-bezier(.22, 1, .36, 1);
+    background: var(--background);
+  }
+
+  .workspace-sidebar {
+    width: var(--workspace-nav-width);
+    background: var(--sidebar);
+    border-right: 1px solid var(--sidebar-border);
+    transition: width 240ms var(--workspace-ease);
+  }
+
+  .workspace-sidebar[data-collapsed="true"] { width: 4.25rem; }
+  .workspace-sidebar-content { width: calc(var(--workspace-nav-width) - 1px); }
+  .workspace-sidebar[data-collapsed="true"] .workspace-sidebar-content { visibility: hidden; }
+
+  .workspace-rail-header,
+  .workspace-topbar { height: var(--workspace-bar-height); }
+
+  .workspace-rail-header { border-bottom: 1px solid var(--sidebar-border); }
+
+  .workspace-topbar {
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklch, var(--card) 96%, var(--background));
+  }
+
+  .rail-link {
+    display: inline-flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: .75rem;
+    color: var(--muted-foreground);
+    transition: background-color 150ms ease, color 150ms ease, box-shadow 180ms ease;
+  }
+
+  .rail-link:hover,
+  .rail-link[aria-current] {
+    background: var(--sidebar-accent);
+    color: var(--brand);
+  }
+
+  .rail-link:focus-visible { outline: 2px solid var(--ring); }
+  .rail-link:hover { box-shadow: inset 0 0 0 1px var(--sidebar-border); }
+
+  .admin-nav-indicator {
+    background: var(--sidebar-accent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 14%, transparent);
+    transition: transform 270ms var(--workspace-ease);
+  }
+
+  .workspace-drawer { animation: airmic-drawer-in 240ms var(--workspace-ease) backwards; }
+
+  .workspace-panel {
+    background-color: var(--card);
+    background-image: linear-gradient(150deg, color-mix(in oklch, var(--card) 97%, var(--brand)), transparent 65%);
+  }
+
+  .workspace-enter { animation: airmic-workspace-in 200ms cubic-bezier(.22, 1, .36, 1) backwards; }
+
+  .directory-disclosure {
+    display: flex;
+    width: 100%;
+    min-height: 2.5rem;
+    align-items: center;
+    gap: .375rem;
+    border-radius: .625rem;
+    padding-inline: .375rem;
+    text-align: left;
+    transition: background-color 150ms ease;
+  }
+
+  .directory-disclosure:hover:not(:disabled) { background: var(--accent); }
+  .directory-disclosure:focus-visible { outline: 2px solid var(--ring); }
+  .directory-chevron { transition: transform 180ms var(--workspace-ease, ease-out); }
+  .directory-disclosure[aria-expanded="true"] .directory-chevron { transform: rotate(90deg); }
+
+  .dialog-enter { animation: airmic-fade-in 150ms ease-out backwards; }
+
+  @media (min-width: 40rem) {
+    .dialog-enter { animation: airmic-scale-in 210ms cubic-bezier(.22, 1, .36, 1) backwards; }
+  }
+
+  @media (min-width: 64rem) {
+    .workspace-frame { --workspace-bar-height: 4rem; }
+    .room-workspace { padding: .875rem 1rem 1rem; }
+  }
 
   .viewport-overlay {
     position: fixed;
@@ -314,6 +406,16 @@ html[data-theme="dark"] {
   }
 }
 
+@keyframes airmic-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes airmic-workspace-in {
+  from { opacity: .76; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes airmic-pulse-soft {
   0%,
   100% {
@@ -353,6 +455,15 @@ html[data-theme="dark"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar,
+  .admin-nav-indicator,
+  .directory-chevron {
+    transition: none;
+  }
+
+  .workspace-enter,
+  .workspace-drawer,
+  .dialog-enter,
   .animate-fade-in,
   .animate-rise-in,
   .animate-scale-in,

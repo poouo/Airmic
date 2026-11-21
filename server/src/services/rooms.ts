@@ -4,7 +4,7 @@ import {
   mergeAudioSettings,
   normalizeAudioSettings,
 } from "@airmic/shared";
-import type { AudioOverride, AudioSettings, ChatMessage, RoomArea, RoomDetail, RoomSummary, Role } from "@airmic/shared";
+import type { AudioOverride, AudioSettings, ChatMessage, RoomArea, RoomDetail, RoomSummary, RoomVoiceMode, Role } from "@airmic/shared";
 import type { Database } from "../db.js";
 import { hashRoomPassword, verifyRoomPassword } from "../lib/password.js";
 import { nowIso } from "../lib/time.js";
@@ -29,6 +29,8 @@ export interface RoomRow {
   chat_history_days: number;
   screen_share_enabled: number;
   audio_override: string | null;
+  voice_mode: RoomVoiceMode;
+  stage_seats: number;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -64,6 +66,8 @@ export interface RoomInput {
   chatHistoryDays?: number;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
+  voiceMode?: RoomVoiceMode;
+  stageSeats?: number;
 }
 
 export interface CreateRoomInput extends RoomInput {
@@ -163,6 +167,8 @@ export class RoomsService {
       chatHistoryDays: row.chat_history_days,
       sortOrder: row.sort_order,
       screenShareEnabled: row.screen_share_enabled === 1,
+      voiceMode: row.voice_mode ?? "open",
+      stageSeats: row.stage_seats ?? 4,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -264,8 +270,8 @@ export class RoomsService {
       ) + 10);
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, allow_guests, text_chat_enabled, chat_history_days, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, allow_guests, text_chat_enabled, chat_history_days, screen_share_enabled, audio_override, voice_mode, stage_seats, created_by, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.name.trim(),
       (input.description ?? "").trim(),
       area.id,
@@ -279,6 +285,8 @@ export class RoomsService {
       input.chatHistoryDays ?? 30,
       input.screenShareEnabled === false ? 0 : 1,
       this.normalizeOverride(input.audioOverride),
+      input.voiceMode === "stage" ? "stage" : "open",
+      clampStageSeats(input.stageSeats),
       guestOwner ? null : actorId,
       timestamp,
       timestamp,
@@ -348,6 +356,14 @@ export class RoomsService {
     if (input.audioOverride !== undefined) {
       fields.push("audio_override = ?");
       params.push(this.normalizeOverride(input.audioOverride));
+    }
+    if (input.voiceMode !== undefined) {
+      fields.push("voice_mode = ?");
+      params.push(input.voiceMode === "stage" ? "stage" : "open");
+    }
+    if (input.stageSeats !== undefined) {
+      fields.push("stage_seats = ?");
+      params.push(clampStageSeats(input.stageSeats));
     }
     if (fields.length === 0) return current;
     fields.push("updated_at = ?");
@@ -471,4 +487,10 @@ function clampRoomMaxUsers(value: unknown): number {
   const num = Number(value);
   if (!Number.isFinite(num)) return 0;
   return Math.min(500, Math.max(0, Math.trunc(num)));
+}
+
+function clampStageSeats(value: unknown): number {
+  const num = Number(value ?? 4);
+  if (!Number.isFinite(num)) return 4;
+  return Math.min(50, Math.max(1, Math.trunc(num)));
 }

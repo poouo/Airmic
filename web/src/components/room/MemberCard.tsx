@@ -11,6 +11,7 @@ import type { RoomMember } from "./types";
 
 export interface MemberCardProps {
   member: RoomMember;
+  stageMode?: boolean;
   stats?: PeerNetworkStats;
   /** 该成员到语音服务器的往返延迟（毫秒）；未知为 null/undefined */
   latency?: number | null;
@@ -22,7 +23,7 @@ export interface MemberCardProps {
 }
 
 /** 成员卡片：头像/说话高亮/角色徽章/状态标识/连接质量 + 本地音量面板 */
-export function MemberCard({ member, stats, latency, volume, onVolumeChange, onLocalMute, compact = false }: MemberCardProps) {
+export function MemberCard({ member, stageMode = false, stats, latency, volume, onVolumeChange, onLocalMute, compact = false }: MemberCardProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const canOpenPanel = !member.isSelf;
 
@@ -48,7 +49,7 @@ export function MemberCard({ member, stats, latency, volume, onVolumeChange, onL
         }
       }}
       className={cn(
-        "group relative flex select-none flex-col items-center gap-2 rounded-2xl border border-border bg-card text-center shadow-card transition-[border-color,box-shadow,background-color]",
+        "workspace-panel group relative flex select-none flex-col items-center gap-2 rounded-2xl border border-border text-center shadow-card transition-[border-color,box-shadow,background-color]",
         compact ? "p-2.5" : "p-3 pt-4",
         canOpenPanel && "cursor-pointer outline-none hover:border-ring/40 focus-visible:ring-2 focus-visible:ring-ring",
       )}
@@ -102,10 +103,13 @@ export function MemberCard({ member, stats, latency, volume, onVolumeChange, onL
           )}
         </div>
 
-        {(showRoleBadge(member.role) || member.forceMuted) && (
+        {(showRoleBadge(member.role) || member.forceMuted || (stageMode && (member.stageMuted || member.stageRequested || member.onStage))) && (
           <div className="flex flex-wrap items-center justify-center gap-1">
             {showRoleBadge(member.role) && <Badge tone={ROLE_TONE[member.role]}>{ROLE_LABEL[member.role]}</Badge>}
             {member.forceMuted && <Badge tone="bad">强制静音</Badge>}
+            {stageMode && member.stageRequested && <Badge tone="warn">申请上麦</Badge>}
+            {stageMode && member.onStage && <Badge tone="good">麦上</Badge>}
+            {stageMode && member.stageMuted && !member.stageRequested && <Badge tone="neutral">听众</Badge>}
           </div>
         )}
 
@@ -126,7 +130,7 @@ export function MemberCard({ member, stats, latency, volume, onVolumeChange, onL
         ) : (
           <>
             <p className="text-[10px] text-muted-foreground">
-              {member.muted ? "已静音" : member.deafened ? "已关闭收听" : "在房间中"}
+              {stageMode && member.stageRequested ? "等待上麦" : stageMode && member.stageMuted ? "听众" : member.muted ? "已静音" : member.deafened ? "已关闭收听" : "在房间中"}
               {member.joinedAt ? " · " + formatRelative(member.joinedAt) + "加入" : ""}
             </p>
             <div

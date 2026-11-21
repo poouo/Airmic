@@ -10,6 +10,7 @@ import type { RoomMember } from "./types";
 
 export interface RoomStageProps {
   members: RoomMember[];
+  stageMode: boolean;
   codeOnly: boolean;
   screenSharer: RoomMember | null;
   screenStream: MediaStream | null;
@@ -24,6 +25,7 @@ export interface RoomStageProps {
 /** 房间舞台：成员网格；有人共享屏幕时切换为大画面 + 成员条 */
 export function RoomStage({
   members,
+  stageMode,
   codeOnly,
   screenSharer,
   screenStream,
@@ -60,6 +62,7 @@ export function RoomStage({
             <div key={member.userId} className="w-36 shrink-0 sm:w-40">
               <MemberCard
                 member={member}
+                stageMode={stageMode}
                 stats={peerStats[member.userId]}
                 latency={latency[member.userId] ?? null}
                 volume={volumes[String(member.userId)] ?? 100}
@@ -89,6 +92,7 @@ export function RoomStage({
           <MemberCard
             key={member.userId}
             member={member}
+            stageMode={stageMode}
             stats={peerStats[member.userId]}
                 latency={latency[member.userId] ?? null}
             volume={volumes[String(member.userId)] ?? 100}

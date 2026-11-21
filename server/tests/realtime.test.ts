@@ -646,6 +646,107 @@ test("state 广播：A 静音后同房间 B 收到 peer_state", TEST_OPTIONS, ()
   }),
 );
 
+test("上麦席位：有空席时申请者等待房主批准", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const roomId = await session.createRoom({ name: "空位申请房", voiceMode: "stage", stageSeats: 2 });
+    const adminWs = await session.connectWithHello(session.admin);
+
+    const joined = await joinRoom(adminWs.ws, roomId);
+    assert.equal(joined.snapshot.room.voiceMode, "stage");
+    assert.equal(joined.snapshot.room.stageSeats, 2);
+    assert.equal(joined.snapshot.selfOnStage, false);
+    assert.equal(joined.snapshot.selfStageRequested, false);
+    assert.equal(joined.snapshot.peers.length, 0);
+
+    const requester = await session.registerUser("stage_available");
+    const requesterWs = await session.connectWithHello(requester.client);
+    const requesterJoined = await joinRoom(requesterWs.ws, roomId);
+    assert.equal(requesterJoined.snapshot.selfOnStage, false);
+    assert.equal(requesterJoined.snapshot.selfStageRequested, false);
+    assert.equal(session.hub.canPublishInRoom(requester.userId, roomId), false);
+
+    requesterWs.ws.send({ t: "stage_request" });
+    await adminWs.ws.waitFor("stage_requested", (message) => message.userId === requester.userId);
+    const pending = await requesterWs.ws.waitFor("stage_update", (message) => message.userId === requester.userId && message.pending === true);
+    assert.equal(pending.onStage, false);
+    assert.equal(session.hub.canPublishInRoom(requester.userId, roomId), false);
+
+    adminWs.ws.send({ t: "stage_approve", userId: requester.userId, approved: true });
+    const approved = await requesterWs.ws.waitFor("stage_update", (message) => message.userId === requester.userId && message.onStage === true);
+    assert.equal(approved.pending, false);
+    assert.equal(session.hub.canPublishInRoom(requester.userId, roomId), true);
+  }),
+);
+
+test("上麦席位：席位已满时进入申请队列，释放后房主可审批上麦", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const roomId = await session.createRoom({ name: "申请上麦房", voiceMode: "stage", stageSeats: 1 });
+    const alice = await session.registerUser("stage_requester");
+    const adminWs = await session.connectWithHello(session.admin);
+    const aliceWs = await session.connectWithHello(alice.client);
+    const adminJoined = await joinRoom(adminWs.ws, roomId);
+    assert.equal(adminJoined.snapshot.selfOnStage, false);
+    adminWs.ws.send({ t: "stage_request" });
+    await adminWs.ws.waitFor("stage_requested", (message) => message.userId === adminWs.hello.user.id);
+    await adminWs.ws.waitFor("stage_update", (message) => message.userId === adminWs.hello.user.id && message.pending === true);
+    adminWs.ws.send({ t: "stage_approve", userId: adminWs.hello.user.id, approved: true });
+    await adminWs.ws.waitFor("stage_update", (message) => message.userId === adminWs.hello.user.id && message.onStage === true);
+    const aliceJoined = await joinRoom(aliceWs.ws, roomId);
+    assert.equal(aliceJoined.snapshot.selfOnStage, false);
+    assert.equal(aliceJoined.snapshot.peers[0]?.onStage, true);
+    assert.equal(aliceJoined.snapshot.peers[0]?.stageMuted, false);
+    assert.equal(session.hub.canPublishInRoom(alice.userId, roomId), false);
+
+    aliceWs.ws.send({ t: "stage_request" });
+    await adminWs.ws.waitFor("stage_requested", (message) => message.userId === alice.userId);
+    const pending = await aliceWs.ws.waitFor("stage_update", (message) => message.userId === alice.userId && message.pending === true);
+    assert.equal(pending.onStage, false);
+    assert.equal((await session.hub.getOnlineUsers()).find((user) => user.userId === alice.userId)?.muted, true);
+
+    adminWs.ws.send({ t: "stage_approve", userId: alice.userId, approved: true });
+    const full = await adminWs.ws.waitFor("error", (message) => message.request === "stage_approve");
+    assert.equal(full.code, "stage_full");
+
+    adminWs.ws.send({ t: "stage_leave" });
+    await adminWs.ws.waitFor("stage_update", (message) => message.userId === adminWs.hello.user.id && message.onStage === false);
+    adminWs.ws.send({ t: "stage_approve", userId: alice.userId, approved: true });
+    const approved = await aliceWs.ws.waitFor("stage_update", (message) => message.userId === alice.userId && message.onStage === true);
+    assert.equal(approved.pending, false);
+    await aliceWs.ws.waitFor("peer_state", (message) => message.userId === alice.userId && message.state.stageMuted === false);
+    assert.equal(session.hub.canPublishInRoom(alice.userId, roomId), true);
+  }),
+);
+
+test("上麦席位：房主可以撤下已上麦成员并恢复听众状态", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const roomId = await session.createRoom({ name: "撤麦房", voiceMode: "stage", stageSeats: 2 });
+    const moderator = await session.registerUser("stage_moderator");
+    const alice = await session.registerUser("stage_remove");
+    assert.equal((await session.admin.patch("/api/admin/users/" + moderator.userId, { role: "moderator" })).status, 200);
+    const adminWs = await session.connectWithHello(session.admin);
+    const moderatorWs = await session.connectWithHello(moderator.client);
+    const aliceWs = await session.connectWithHello(alice.client);
+    await joinRoom(adminWs.ws, roomId);
+    await joinRoom(moderatorWs.ws, roomId);
+    await joinRoom(aliceWs.ws, roomId);
+    assert.equal(session.hub.canPublishInRoom(alice.userId, roomId), false);
+
+    aliceWs.ws.send({ t: "stage_request" });
+    await adminWs.ws.waitFor("stage_requested", (message) => message.userId === alice.userId);
+    await aliceWs.ws.waitFor("stage_update", (message) => message.userId === alice.userId && message.pending === true);
+    moderatorWs.ws.send({ t: "stage_approve", userId: alice.userId, approved: true });
+    await aliceWs.ws.waitFor("stage_update", (message) => message.userId === alice.userId && message.onStage === true);
+    await aliceWs.ws.waitFor("peer_state", (message) => message.userId === alice.userId && message.state.stageMuted === false);
+    assert.equal(session.hub.canPublishInRoom(alice.userId, roomId), true);
+
+    moderatorWs.ws.send({ t: "stage_approve", userId: alice.userId, approved: false });
+    const removed = await aliceWs.ws.waitFor("stage_update", (message) => message.userId === alice.userId && message.onStage === false);
+    assert.equal(removed.pending, false);
+    await aliceWs.ws.waitFor("peer_state", (message) => message.userId === alice.userId && message.state.stageMuted === true);
+    assert.equal(session.hub.canPublishInRoom(alice.userId, roomId), false);
+  }),
+);
+
 test("屏幕共享互斥：第二人开启返回 screen_share_busy，快照包含共享者", TEST_OPTIONS, () =>
   withSession(async (session) => {
     const roomId = await session.createRoom({ name: "共享房" });

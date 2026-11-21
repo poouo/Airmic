@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { canManageArea } from "@airmic/shared";
 import type { RoomArea, RoomManagementScope } from "@airmic/shared";
-import { Folder, KeyRound, Lock, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, KeyRound, Lock, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Input, PageHeader, Spinner } from "@/components/ui";
 import { RoomIcon } from "@/components/room/roomIcons";
 import { api, errorMessage } from "@/lib/api";
+import { cn } from "@/lib/format";
 import { groupRoomDirectory, useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
@@ -24,6 +25,8 @@ export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: 
   const [roomEditor, setRoomEditor] = useState<RoomEditorTarget | null>(null);
   const [managers, setManagers] = useState<ManagersTarget | null>(null);
   const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const treeId = useId();
 
   if (!user) return null;
   if (!directory) return directoryError
@@ -44,6 +47,18 @@ export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: 
     })).filter((child) => (child.canManage && matches(`${root.area.name} / ${child.area.name}`)) || child.rooms.length > 0),
   })).filter((root) => (root.canManage && matches(root.area.name)) || root.children.length > 0);
 
+  const toggleArea = (id: number) => {
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const allExpanded = tree.length > 0 && tree.every((root) =>
+    expanded.has(root.area.id) && root.children.every((child) => expanded.has(child.area.id)),
+  );
+
   const openManagers = (scope: RoomManagementScope, path: string, inheritance?: string) => setManagers({ scope, path, inheritance });
   const removeArea = async (area: RoomArea) => {
     const ui = useUiStore.getState();
@@ -62,87 +77,125 @@ export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: 
     }
   };
 
-  const actions = <>
+  return (
+    <div className="space-y-3">
+      {!inDialog && <PageHeader title="分区与房间管理" />}
+      <div className={cn("flex flex-wrap items-center gap-2", inDialog && "sticky top-0 z-10 bg-popover pb-1")}>
+        <div className="min-w-36 flex-1">
+          <Input aria-label="搜索分区和房间" placeholder="搜索分区、子区或房间" leftIcon={<Search className="h-4 w-4" />} value={search} onChange={(event) => setSearch(event.target.value)} />
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <IconButton label={allExpanded ? "全部折叠" : "全部展开"} disabled={Boolean(keyword) || tree.length === 0}
+            onClick={() => setExpanded(allExpanded ? new Set() : new Set(tree.flatMap((root) => [root.area.id, ...root.children.map((child) => child.area.id)])))}>
+            {allExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
+          </IconButton>
           <IconButton label="刷新分区和房间" onClick={() => {
             const app = useAppStore.getState();
             void app.refreshDirectory();
             void app.refreshRooms();
           }}><RefreshCw className="h-4 w-4" /></IconButton>
           {isAdmin && <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setAreaEditor({ parent: null })}>添加一级分区</Button>}
-  </>;
-  const searchInput = <Input aria-label="搜索分区和房间" placeholder="搜索分区、子区或房间" leftIcon={<Search className="h-4 w-4" />} value={search} onChange={(event) => setSearch(event.target.value)} />;
-
-  return (
-    <div className="space-y-5">
-      {inDialog ? <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-40 flex-1">{searchInput}</div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>
-      </div> : <>
-        <PageHeader title="分区与房间管理" actions={actions} />
-        {searchInput}
-      </>}
+        </div>
+      </div>
       {directoryError && <Alert tone="error">{directoryError}</Alert>}
       {tree.length === 0 && <EmptyState icon={<Folder className="h-6 w-6" />} title={keyword ? "没有匹配的分区或房间" : isAdmin ? "还没有分区" : "暂无可管理的分区或房间"} />}
-      {tree.map((root) => (
-        <Card key={root.area.id} className="overflow-hidden">
-          <section aria-label={root.area.name}>
-            <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-3 sm:px-4">
-              <AreaIcon icon={root.area.icon} isRoot className="h-5 w-5 shrink-0 text-brand" />
-              <h2 className="mr-auto min-w-0 truncate text-base font-semibold">{root.area.name}</h2>
-              <div className="flex items-center gap-1">
-                {root.canManage && root.area.kind !== "code" && <>
-                  <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setAreaEditor({ parent: root.area })}>添加子区</Button>
-                  <IconButton label={`编辑一级分区 ${root.area.name}`} onClick={() => setAreaEditor({ area: root.area })}><Pencil className="h-4 w-4" /></IconButton>
-                </>}
-                {isAdmin && root.area.kind !== "code" && <>
-                  <IconButton label={`管理 ${root.area.name} 的授权`} onClick={() => openManagers({ kind: "area", id: root.area.id }, root.area.name, "权限覆盖此分区、下面所有子区和房间，也会应用到以后添加的房间。") }><KeyRound className="h-4 w-4" /></IconButton>
-                  <IconButton label={`删除一级分区 ${root.area.name}`} onClick={() => void removeArea(root.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>
-                </>}
+      {tree.map((root) => {
+        const rootOpen = Boolean(keyword) || expanded.has(root.area.id);
+        const rootSectionId = `${treeId}-area-${root.area.id}`;
+        return (
+          <Card key={root.area.id} className="overflow-hidden">
+            <section aria-label={root.area.name}>
+              <div className="flex flex-wrap items-center gap-1.5 bg-muted/35 px-2.5 py-2 sm:px-3">
+                <h2 className="mr-auto min-w-0 flex-1 text-[15px] font-semibold">
+                  <AreaDisclosure area={root.area} count={root.children.length} open={rootOpen} controls={rootSectionId}
+                    disabled={Boolean(keyword)} onToggle={() => toggleArea(root.area.id)} />
+                </h2>
+                <div className="flex items-center gap-1">
+                  {root.canManage && root.area.kind !== "code" && <>
+                    <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => {
+                      setExpanded((previous) => new Set(previous).add(root.area.id));
+                      setAreaEditor({ parent: root.area });
+                    }}>添加子区</Button>
+                    <IconButton label={`编辑一级分区 ${root.area.name}`} onClick={() => setAreaEditor({ area: root.area })}><Pencil className="h-4 w-4" /></IconButton>
+                  </>}
+                  {isAdmin && root.area.kind !== "code" && <>
+                    <IconButton label={`管理 ${root.area.name} 的授权`} onClick={() => openManagers({ kind: "area", id: root.area.id }, root.area.name, "权限覆盖此分区、下面所有子区和房间，也会应用到以后添加的房间。") }><KeyRound className="h-4 w-4" /></IconButton>
+                    <IconButton label={`删除一级分区 ${root.area.name}`} onClick={() => void removeArea(root.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>
+                  </>}
+                </div>
               </div>
-            </div>
-            {root.children.length === 0 && <p className="px-4 py-4 text-sm text-muted-foreground">还没有子区</p>}
-            <div className="divide-y divide-border">
-              {root.children.map((child) => {
-                const path = `${root.area.name} / ${child.area.name}`;
-                return (
-                  <section key={child.area.id} aria-label={path} className="px-3 py-3 sm:px-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <AreaIcon icon={child.area.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <h3 className="mr-auto min-w-0 truncate text-sm font-semibold">{child.area.name}</h3>
-                      <div className="flex items-center gap-1">
-                        {child.canManage && child.area.kind !== "code" && <>
-                          <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setRoomEditor({ kind: "create", areaId: child.area.id })}>创建房间</Button>
-                          <IconButton label={`编辑子区 ${path}`} onClick={() => setAreaEditor({ area: child.area })}><Pencil className="h-4 w-4" /></IconButton>
-                        </>}
-                        {isAdmin && child.area.kind !== "code" && <IconButton label={`管理 ${path} 的授权`} onClick={() => openManagers({ kind: "area", id: child.area.id }, path, "权限覆盖此子区及其现有和未来的房间。") }><KeyRound className="h-4 w-4" /></IconButton>}
-                        {root.canManage && child.area.kind !== "code" && <IconButton label={`删除子区 ${path}`} onClick={() => void removeArea(child.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>}
+              <div id={rootSectionId} hidden={!rootOpen} className="divide-y divide-border border-t border-border">
+                {rootOpen && root.children.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">还没有子区</p>}
+                {rootOpen && root.children.map((child) => {
+                  const path = `${root.area.name} / ${child.area.name}`;
+                  const childOpen = Boolean(keyword) || expanded.has(child.area.id);
+                  const childSectionId = `${treeId}-area-${child.area.id}`;
+                  return (
+                    <section key={child.area.id} aria-label={path} className="px-2.5 py-2 sm:px-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="mr-auto min-w-0 flex-1 text-sm font-semibold">
+                          <AreaDisclosure area={child.area} count={child.rooms.length} open={childOpen} controls={childSectionId}
+                            disabled={Boolean(keyword)} onToggle={() => toggleArea(child.area.id)} />
+                        </h3>
+                        <div className="flex items-center gap-1">
+                          {child.canManage && child.area.kind !== "code" && <>
+                            <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setRoomEditor({ kind: "create", areaId: child.area.id })}>创建房间</Button>
+                            <IconButton label={`编辑子区 ${path}`} onClick={() => setAreaEditor({ area: child.area })}><Pencil className="h-4 w-4" /></IconButton>
+                          </>}
+                          {isAdmin && child.area.kind !== "code" && <IconButton label={`管理 ${path} 的授权`} onClick={() => openManagers({ kind: "area", id: child.area.id }, path, "权限覆盖此子区及其现有和未来的房间。") }><KeyRound className="h-4 w-4" /></IconButton>}
+                          {root.canManage && child.area.kind !== "code" && <IconButton label={`删除子区 ${path}`} onClick={() => void removeArea(child.area)}><Trash2 className="h-4 w-4 text-destructive" /></IconButton>}
+                        </div>
                       </div>
-                    </div>
-                    {child.rooms.length === 0 ? <p className="py-2 pl-6 text-sm text-muted-foreground">还没有房间</p> : (
-                      <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
-                        {child.rooms.map((room) => (
-                          <li key={room.id} className="flex items-center gap-2 px-2 py-1 sm:px-3">
-                            <RoomIcon icon={room.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            <span className="mr-auto min-w-0 truncate text-sm">{room.name}</span>
-                            {room.locked && <Badge tone="warn">已锁定</Badge>}
-                            {room.hasPassword && <span title="加密房" className="text-warning"><Lock className="h-3.5 w-3.5" /></span>}
-                            <span className="shrink-0 text-xs text-muted-foreground">{room.userCount}/{room.maxUsers}</span>
-                            <IconButton label={`编辑房间 ${room.name}`} onClick={() => setRoomEditor({ kind: "edit", roomId: room.id })}><Pencil className="h-4 w-4" /></IconButton>
-                            {isAdmin && <IconButton label={`管理 ${room.name} 的授权`} onClick={() => openManagers({ kind: "room", id: room.id }, `${path} / ${room.name}`)}><KeyRound className="h-4 w-4" /></IconButton>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          </section>
-        </Card>
-      ))}
+                      <div id={childSectionId} hidden={!childOpen}>
+                        {childOpen && (child.rooms.length === 0 ? <p className="py-2 pl-7 text-sm text-muted-foreground">还没有房间</p> : (
+                          <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+                            {child.rooms.map((room) => (
+                              <li key={room.id} className="flex items-center gap-2 px-2 py-1 sm:px-3">
+                                <RoomIcon icon={room.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="mr-auto min-w-0 truncate text-sm">{room.name}</span>
+                                {room.locked && <Badge tone="warn">已锁定</Badge>}
+                                {room.hasPassword && <span title="加密房" className="text-warning"><Lock className="h-3.5 w-3.5" /></span>}
+                                <span className="shrink-0 text-xs text-muted-foreground">{room.userCount}/{room.maxUsers}</span>
+                                <IconButton label={`编辑房间 ${room.name}`} onClick={() => setRoomEditor({ kind: "edit", roomId: room.id })}><Pencil className="h-4 w-4" /></IconButton>
+                                {isAdmin && <IconButton label={`管理 ${room.name} 的授权`} onClick={() => openManagers({ kind: "room", id: room.id }, `${path} / ${room.name}`)}><KeyRound className="h-4 w-4" /></IconButton>}
+                              </li>
+                            ))}
+                        </ul>
+                      ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </section>
+          </Card>
+        );
+      })}
       {areaEditor && <AreaEditor target={areaEditor} onClose={() => setAreaEditor(null)} />}
-      {roomEditor && <RoomEditor target={roomEditor} onClose={() => setRoomEditor(null)} />}
+      {roomEditor && <RoomEditor target={roomEditor} onClose={() => setRoomEditor(null)} onSaved={(room) => {
+        const parentId = directory.areas.find((area) => area.id === room.areaId)?.parentId;
+        if (parentId != null) setExpanded((previous) => new Set(previous).add(parentId).add(room.areaId));
+      }} />}
       {managers && <RoomManagersModal target={managers} onClose={() => setManagers(null)} />}
     </div>
+  );
+}
+
+function AreaDisclosure({ area, count, open, controls, disabled, onToggle }: {
+  area: RoomArea;
+  count: number;
+  open: boolean;
+  controls: string;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button type="button" disabled={disabled} aria-expanded={open} aria-controls={controls}
+      aria-label={(open ? "折叠 " : "展开 ") + area.name} className="directory-disclosure" onClick={onToggle}>
+      <ChevronRight className="directory-chevron h-4 w-4 shrink-0 text-muted-foreground" />
+      <AreaIcon icon={area.icon} isRoot={area.parentId === null} expanded={open} className="h-4 w-4 shrink-0 text-brand" />
+      <span className="truncate" title={area.name}>{area.name}</span>
+      <Badge>{count}</Badge>
+    </button>
   );
 }

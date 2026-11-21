@@ -100,6 +100,7 @@ class VoiceEngine {
   private localIdentity: string | null = null;
   private roomAudioSettings: AudioSettings | null = null;
   private activeRoomBitrateCap: number | null = null;
+  private stageAllowed = true;
   /** 发布时协商的音质，人数变化只调整 sender 的码率上限。 */
   private audioSettings: AudioSettings | null = null;
 
@@ -201,6 +202,7 @@ class VoiceEngine {
     const preferences = useSettingsStore.getState();
     this.roomAudioSettings = snapshot.room.audioSettings;
     this.activeRoomBitrateCap = this.readRoomBitrateCap() ?? null;
+    this.stageAllowed = snapshot.room.voiceMode !== "stage" || snapshot.selfOnStage;
     this.audioSettings = mergeAudioSettings(snapshot.room.audioSettings, preferences.localAudioOverride);
     this.setState({
       audioSettings: capAudioBitrate(this.audioSettings, this.activeRoomBitrateCap),
@@ -311,6 +313,7 @@ class VoiceEngine {
     this.roomAudioSettings = null;
     this.activeRoomBitrateCap = null;
     this.audioSettings = null;
+    this.stageAllowed = true;
     this.setState({
       micEnabled: true,
       deafened: false,
@@ -334,6 +337,13 @@ class VoiceEngine {
 
   setMicEnabled(enabled: boolean): void {
     if (this.state.micEnabled !== enabled) this.setState({ micEnabled: enabled });
+    this.queueMicUpdate();
+  }
+
+  /** 上麦席位变化时动态允许/停止发布本地麦克风，保持 LiveKit 连接不变。 */
+  applyStageAccess(allowed: boolean): void {
+    if (this.stageAllowed === allowed) return;
+    this.stageAllowed = allowed;
     this.queueMicUpdate();
   }
 
@@ -895,7 +905,7 @@ class VoiceEngine {
   private computeMicDesired(): boolean {
     if (!this.entered || !this.room) return false;
     const preferences = useSettingsStore.getState();
-    return this.state.micEnabled && !this.state.forceMuted && (!preferences.pttEnabled || this.state.pttActive);
+    return this.stageAllowed && this.state.micEnabled && !this.state.forceMuted && (!preferences.pttEnabled || this.state.pttActive);
   }
 
   private queueMicUpdate(restart = false): Promise<void> {

@@ -485,7 +485,7 @@ function MicOffMini() {
 // ============ 布局 / 容器 ============
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("rounded-2xl border border-border bg-card shadow-card", className)}>{children}</div>;
+  return <div className={cn("workspace-panel rounded-2xl border border-border shadow-card", className)}>{children}</div>;
 }
 
 export function CardHeader({ title, description, action, className }: { title: ReactNode; description?: ReactNode; action?: ReactNode; className?: string }) {
@@ -749,7 +749,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
       <div className="absolute inset-0 touch-none bg-black/35 animate-fade-in" onClick={onClose} aria-hidden />
       <div
         className={cn(
-          "relative flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-popover text-popover-foreground shadow-popover outline-none sm:rounded-2xl",
+          "dialog-enter relative flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-popover text-popover-foreground shadow-popover outline-none sm:rounded-[1.375rem]",
           modalSizes[size],
         )}
         role="dialog"

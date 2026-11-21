@@ -48,6 +48,9 @@ export type WsErrorCode =
   | "chat_too_long"
   | "screen_share_disabled"
   | "screen_share_busy"
+  | "stage_full"
+  | "stage_not_allowed"
+  | "stage_not_requested"
   | "forbidden"
   | "internal";
 
@@ -64,6 +67,9 @@ export type ClientMessage =
   | { t: "state"; state: PeerStatePatch }
   | { t: "signal"; to: number; payload: SignalPayload }
   | { t: "screen_share"; active: boolean }
+  | { t: "stage_request" }
+  | { t: "stage_leave" }
+  | { t: "stage_approve"; userId: number; approved: boolean }
   | { t: "ping"; ts?: number }
   | { t: "request_rooms" }
   | { t: "request_online_users" };
@@ -88,6 +94,8 @@ export type ServerMessage =
   | { t: "peer_left"; roomId: number; userId: number; reason?: string }
   | { t: "peer_updated"; roomId: number; peer: PeerInfo }
   | { t: "peer_state"; roomId: number; userId: number; state: PeerStatePatch }
+  | { t: "stage_requested"; roomId: number; userId: number }
+  | { t: "stage_update"; roomId: number; userId: number; onStage: boolean; pending?: boolean }
   | { t: "peer_latency"; roomId: number; userId: number; rttMs: number | null }
   | { t: "chat_message"; roomId: number; message: ChatMessage }
   | { t: "notice"; roomId: number | null; level: "info" | "warn" | "error"; text: string; createdAt: string }

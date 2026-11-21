@@ -40,6 +40,8 @@ const createRoomSchema = z.object({
   chatHistoryDays: z.number().int().min(1).max(30).optional(),
   screenShareEnabled: z.boolean().optional(),
   audioOverride: audioOverrideSchema.nullable().optional(),
+  voiceMode: z.enum(["open", "stage"]).optional(),
+  stageSeats: z.number().int().min(1).max(50).optional(),
 });
 
 const updateRoomSchema = createRoomSchema.partial();
@@ -79,6 +81,8 @@ function toRoomInput(body: z.infer<typeof createRoomSchema> | z.infer<typeof upd
     chatHistoryDays: body.chatHistoryDays,
     screenShareEnabled: body.screenShareEnabled,
     audioOverride: body.audioOverride as AudioOverride | null | undefined,
+    voiceMode: body.voiceMode,
+    stageSeats: body.stageSeats,
   };
 }
 
@@ -151,7 +155,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
       details: JSON.stringify(Object.keys(body)),
       ip: getClientIp(request),
     });
-    getHub()?.broadcastRoomUpdate(row.id);
+    await getHub()?.broadcastRoomUpdate(row.id);
     getHub()?.broadcastRooms();
     return { room: services.rooms.toDetail(updated, counts().get(row.id) ?? 0) };
   });

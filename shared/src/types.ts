@@ -158,6 +158,9 @@ export interface RoomManager {
   displayName: string;
 }
 
+/** 房间发言模式：open 为自由发言，stage 为上麦席位模式 */
+export type RoomVoiceMode = "open" | "stage";
+
 export interface RoomSummary {
   id: number;
   areaId: number;
@@ -179,6 +182,10 @@ export interface RoomSummary {
   locked: boolean;
   sortOrder: number;
   screenShareEnabled: boolean;
+  /** 语音模式，旧房间迁移后默认为 open */
+  voiceMode: RoomVoiceMode;
+  /** 上麦席位数，仅 stage 模式生效 */
+  stageSeats: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -205,6 +212,10 @@ export interface PeerInfo {
   speaking: boolean;
   screenSharing: boolean;
   forceMuted: boolean;
+  /** 上麦模式下未获席位时由服务端强制静音 */
+  stageMuted: boolean;
+  onStage: boolean;
+  stageRequested: boolean;
   /** 服务端用 WebSocket 心跳测得的往返延迟（毫秒）；还没测到时为 null */
   rttMs?: number | null;
   joinedAt: string;
@@ -229,6 +240,8 @@ export interface RoomSnapshot {
   peers: PeerInfo[];
   messages: ChatMessage[];
   screenSharerId: number | null;
+  selfOnStage: boolean;
+  selfStageRequested: boolean;
 }
 
 /** 用户在线实时状态补丁 */
@@ -238,6 +251,7 @@ export interface PeerStatePatch {
   speaking?: boolean;
   screenSharing?: boolean;
   forceMuted?: boolean;
+  stageMuted?: boolean;
 }
 
 export interface IceCandidatePayload {

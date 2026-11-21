@@ -47,6 +47,7 @@ export async function registerMediaRoutes(app: FastifyInstance, services: Servic
 
     const room = livekitRoomName(roomId);
     const identity = String(auth.user.id);
+    const canPublish = getHub()?.canPublishInRoom(auth.user.id, roomId) ?? true;
     const accessToken = new AccessToken(apiKey, apiSecret, {
       identity,
       name: auth.user.displayName,
@@ -62,7 +63,7 @@ export async function registerMediaRoutes(app: FastifyInstance, services: Servic
     accessToken.addGrant({
       roomJoin: true,
       room,
-      canPublish: true,
+      canPublish,
       canSubscribe: true,
       canPublishData: false,
     });

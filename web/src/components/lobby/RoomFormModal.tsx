@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AudioSettings, CreateRoomRequest, RoomSummary, UpdateRoomRequest } from "@airmic/shared";
 import { canManageArea, diffAudioSettings } from "@airmic/shared";
-import { Eye, EyeOff, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Mic2, Trash2, UsersRound } from "lucide-react";
 import {
   Alert,
   Button,
@@ -54,6 +54,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
   const [textChatEnabled, setTextChatEnabled] = useState(initial.textChatEnabled);
   const [chatHistoryDays, setChatHistoryDays] = useState(String(initial.chatHistoryDays));
   const [screenShareEnabled, setScreenShareEnabled] = useState(initial.screenShareEnabled);
+  const [voiceMode, setVoiceMode] = useState<"open" | "stage">(initial.voiceMode);
+  const [stageSeats, setStageSeats] = useState(String(initial.stageSeats));
   const [requirePassword, setRequirePassword] = useState(initial.hasPassword);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -90,6 +92,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     if (!Number.isInteger(limit) || limit < 0 || limit > 500) return "人数上限需为 0 到 500 的整数";
     const days = Number(chatHistoryDays);
     if (!Number.isInteger(days) || days < 1 || days > 30) return "聊天记录保留天数需为 1 到 30";
+    const seats = Number(stageSeats);
+    if (!Number.isInteger(seats) || seats < 1 || seats > 50) return "上麦席位需为 1 到 50";
     if (sortOrder && (!Number.isInteger(Number(sortOrder)) || Math.abs(Number(sortOrder)) > 100000)) return "排序值需为 -100000 到 100000 的整数";
     return null;
   };
@@ -108,6 +112,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
       icon,
       locked,
       screenShareEnabled,
+      voiceMode,
+      stageSeats: Number(stageSeats),
     };
     if (!isEdit || areaId !== initial.areaId) payload.areaId = areaId;
     if (!isEdit || allowGuests !== initial.allowGuests) payload.allowGuests = allowGuests;
@@ -275,6 +281,28 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                   onChange={setScreenShareEnabled}
                 />
                 <Switch label="允许文字聊天" checked={textChatEnabled} onChange={setTextChatEnabled} />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+                <FieldShell label="语音模式">
+                  <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="语音模式">
+                    <button type="button" aria-pressed={voiceMode === "open"} onClick={() => setVoiceMode("open")}
+                      className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                        voiceMode === "open" ? "border-brand/50 bg-brand/10 text-brand" : "border-border bg-card hover:bg-accent")}>
+                      <Mic2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span><span className="block text-sm font-medium">自由发言</span><span className="mt-0.5 block text-[11px] text-muted-foreground">房间成员可直接打开麦克风</span></span>
+                    </button>
+                    <button type="button" aria-pressed={voiceMode === "stage"} onClick={() => setVoiceMode("stage")}
+                      className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                        voiceMode === "stage" ? "border-brand/50 bg-brand/10 text-brand" : "border-border bg-card hover:bg-accent")}>
+                      <UsersRound className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span><span className="block text-sm font-medium">上麦席位</span><span className="mt-0.5 block text-[11px] text-muted-foreground">申请后由房主或房管批准，空位可安排上麦</span></span>
+                    </button>
+                  </div>
+                </FieldShell>
+                {voiceMode === "stage" && <Input label="上麦席位数" type="number" min={1} max={50} value={stageSeats}
+                  hint="最多 50 个席位，其他成员默认静音" leftIcon={<UsersRound className="h-4 w-4" />}
+                  onChange={(event) => setStageSeats(event.target.value)} />}
               </div>
 
               {!initial.codeOnly && <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">

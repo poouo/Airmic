@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { canCreateCodeRoom, type RoomSummary } from "@airmic/shared";
-import { ArrowRight, KeyRound, Plus, RefreshCw, Settings2 } from "lucide-react";
+import { ArrowRight, KeyRound, Plus, RefreshCw } from "lucide-react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Alert, Button, IconButton, PageHeader, Spinner } from "@/components/ui";
+import { Alert, Button, IconButton, Spinner } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useRoomStore } from "@/stores/room";
 import { useUiStore } from "@/stores/ui";
-import { canEditRoom, canOpenRoomManagement, needsRoomPassword, roomCreationAreas } from "@/components/lobby/access";
+import { canEditRoom, needsRoomPassword, roomCreationAreas } from "@/components/lobby/access";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
 import CodeRoomModal, { type CodeRoomTarget } from "@/components/lobby/CodeRoomModal";
 import LobbyRoomGrid from "@/components/lobby/LobbyRoomGrid";
@@ -50,20 +50,13 @@ export default function LobbyPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-5">
       {user && connection !== "online" && <Alert tone="warning">{connection === "reconnecting" ? "正在重连…" : "语音未连接"}</Alert>}
-      <div className="rounded-2xl border border-border bg-linear-to-br from-card via-card to-secondary p-4 shadow-raised sm:p-6">
-        <PageHeader title={server?.name ?? "AirMic 语音服务器"} description={server?.motd && <span className="whitespace-pre-line break-words">{server.motd}</span>}
-          actions={<>
-            {currentRoom && <Button variant="outline" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate(`/room/${currentRoom.id}`)}>返回「{currentRoom.name}」</Button>}
-            {canOpenRoomManagement(user, server, directory, rooms) && <Button className="min-h-10" aria-haspopup="dialog" icon={<Settings2 className="h-4 w-4" />} onClick={() => useUiStore.getState().openModal("room-directory")}>分区与房间管理</Button>}
-          </>}
-        />
-      </div>
       {user ? <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-          <h2 className="text-base font-semibold text-foreground">语音房间</h2>
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">语音房间</h1>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {currentRoom && <Button variant="outline" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate(`/room/${currentRoom.id}`)}>返回房间</Button>}
             {server && canCreateCodeRoom(user, server) && <Button size="sm" variant="outline" icon={<Plus className="h-4 w-4" />} onClick={() => setCodeTarget({ mode: "create" })}>新建口令房</Button>}
             <Button size="sm" icon={<KeyRound className="h-4 w-4" />} onClick={() => setCodeTarget({ mode: "join" })}>加入口令房</Button>
             <IconButton label="刷新分区和房间" onClick={() => {
