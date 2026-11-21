@@ -27,19 +27,18 @@ export default function SettingsModal() {
       open={modal === "settings"}
       onClose={closeModal}
       title="语音设置"
-      subtitle="设备、音量与音质偏好保存在本机，修改立即生效"
       size="xl"
       footer={
         <>
-          <span className="mr-auto hidden text-xs text-muted-foreground sm:block">设置会自动保存</span>
+          <span className="mr-auto text-xs text-muted-foreground">自动保存</span>
           <Button variant="secondary" onClick={closeModal}>
             完成
           </Button>
         </>
       }
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:gap-5">
-        <nav aria-label="设置分类" className="flex shrink-0 gap-1 overflow-x-auto no-scrollbar sm:w-40 sm:flex-col">
+      <div className="space-y-4">
+        <nav aria-label="设置分类" className="sticky top-0 z-10 grid grid-cols-4 gap-0.5 rounded-xl border border-border bg-card p-1 shadow-card sm:gap-1">
           {TABS.map((item) => {
             const Icon = item.icon;
             const active = item.id === tab;
@@ -47,29 +46,28 @@ export default function SettingsModal() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setTab(item.id)}
+                onClick={(event) => {
+                  setTab(item.id);
+                  event.currentTarget.closest("[data-dialog-body]")?.scrollTo({ top: 0 });
+                }}
                 aria-pressed={active}
                 className={cn(
-                  "flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm outline-none transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-ring",
-                  "sm:w-full",
-                  active ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                  "flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring sm:text-sm",
+                  active ? "bg-accent font-semibold text-brand" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                 )}
               >
-                {Icon && <Icon className="h-4 w-4 shrink-0" />}
+                {Icon && <Icon className="hidden h-4 w-4 shrink-0 sm:block" />}
                 {item.label}
               </button>
             );
           })}
         </nav>
 
-        <div className="min-w-0 flex-1 sm:border-l sm:border-border sm:pl-5">
-          <div className="max-h-[56vh] overflow-y-auto app-scroll pr-1">
+        <div className="min-w-0">
             {tab === "microphone" && <MicrophoneTab />}
             {tab === "speaker" && <SpeakerTab />}
             {tab === "network" && <NetworkTab />}
             {tab === "other" && <OtherTab />}
-          </div>
         </div>
       </div>
     </Modal>

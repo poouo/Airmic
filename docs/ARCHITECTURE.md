@@ -21,7 +21,7 @@ AirMic 是一个 **纯 Web 的语音开黑平台**：用户打开网页即可进
 AirMic/
 ├─ shared/                 # 前后端共享的契约（类型/协议/音质预设/媒体常量）
 │  └─ src/
-│     ├─ types.ts          # 领域类型（含 ServerSettingsPublic.livekitUrl/voiceAvailable/mediaTransport）
+│     ├─ types.ts          # 领域类型（含 ServerSettingsPublic.voiceAvailable/mediaTransport）
 │     ├─ protocol.ts       # WebSocket 消息类型（ClientMessage / ServerMessage）
 │     ├─ api.ts            # REST 请求/响应 DTO（含 Setup* 与 LivekitTokenResponse）
 │     ├─ media.ts          # SFU 媒体常量：MEDIA_TRANSPORT、airmic-r 房间名前缀、令牌 TTL、推荐人数
@@ -90,7 +90,7 @@ npm start                   # 生产启动（需先 build）
 {
   "setupRequired": true,
   "requiresToken": true,
-  "server": { "name": "...", "registrationMode": "open", "livekitUrl": null, "voiceAvailable": false, "mediaTransport": "sfu" }
+  "server": { "name": "...", "registrationMode": "open", "voiceAvailable": false, "mediaTransport": "sfu" }
 }
 ```
 
@@ -138,7 +138,7 @@ npm start                   # 生产启动（需先 build）
 - 设置项：`livekitUrl`、`livekitApiKey`、`livekitApiSecret`（仅管理员可见 Secret）。
 - 优先级：**数据库中保存的值** > `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` 环境变量（仅作为从未配置时的默认值）。
   管理后台显式清空某项会写入空值，覆盖环境变量。
-- `voiceAvailable = Boolean(livekitUrl && livekitApiKey && livekitApiSecret)`；公开接口（`/api/server`、`hello`、`server_settings`）只下发 `livekitUrl` 与 `voiceAvailable`，**不下发 Secret**。
+- `voiceAvailable = Boolean(livekitUrl && livekitApiKey && livekitApiSecret)`；公开接口（`/api/server`、`hello`、`server_settings`）只下发 `voiceAvailable` 与 `mediaTransport`，**不下发 SFU 地址与 Secret**（地址仅在入房后由 `/api/rooms/:id/livekit-token` 返回，管理后台仅管理员可见）。
 - `mediaTransport` 固定为 `"sfu"`（`shared/src/media.ts` 的 `MEDIA_TRANSPORT`），含义是"全部媒体经服务端 SFU 中转，无 P2P"。
 - 房间名为 `airmic-r{roomId}`（`livekitRoomName()`），与 AirMic 房间一一对应；房间销毁/重建不会复用令牌。
 
@@ -154,7 +154,7 @@ npm start                   # 生产启动（需先 build）
 | 方法 | 路径 | 认证 | 说明 |
 | --- | --- | --- | --- |
 | POST | /api/rooms/:id/livekit-token | 认证 + 已加入房间 | 签发 LiveKit 访问令牌，返回 `{ url, token, room, identity }` |
-| GET | /api/server | - | 公开信息：含 `livekitUrl`、`voiceAvailable`、`mediaTransport` |
+| GET | /api/server | - | 公开信息：含 `voiceAvailable`、`mediaTransport`（不含 SFU 地址） |
 | GET | /api/admin/settings | manage_server | 管理员可见完整 LiveKit 配置（含 API Secret） |
 | PATCH | /api/admin/settings | manage_server | 修改 LiveKit 配置（URL/Key/Secret），保存后广播 `server_settings` |
 
@@ -192,9 +192,14 @@ npm start                   # 生产启动（需先 build）
 | PATCH | /api/users/me | 认证 | 修改昵称/头像色/表情/状态 |
 | POST | /api/users/me/password | 认证 | 修改密码（注销其他会话） |
 | GET | /api/rooms | 认证 | 房间列表（含实时人数） |
+| GET | /api/room-directory | 认证 | 读取完整分区目录与当前用户的直接授权 |
+| POST / PATCH / DELETE | /api/room-directory/areas[/:id] | 管理目标或上级分区 | 创建、编辑、删除分区；一级分区由服务器管理员创建、删除 |
+| GET / POST / DELETE | /api/room-directory/:kind/:id/managers[/:userId] | 服务器管理员 | 查看、新增、撤销房间或分区的直接授权 |
 | POST | /api/rooms | 认证+权限 | 创建房间 |
-| PATCH | /api/rooms/:id | 认证+权限 | 修改房间（管理房间权限或房间创建者） |
+| GET | /api/rooms/:id/settings | 房间编辑权限 | 读取编辑所需的房间设置 |
+| PATCH | /api/rooms/:id | 房间编辑权限 | 修改房间；移动时还需管理目标子区 |
 | DELETE | /api/rooms/:id | 认证+权限 | 删除房间（会通知房间内用户） |
+| POST | /api/rooms/:id/members/:userId/kick | 目标房间管理权限 | 将仍在该房间的成员移出房间 |
 | GET | /api/rooms/:id/messages | 认证 | 历史消息（limit/beforeId） |
 | POST | /api/rooms/:id/check-password | 认证 | 校验房间密码 |
 | POST | /api/rooms/:id/livekit-token | 认证+已加入房间 | 获取 LiveKit 语音访问令牌 |
@@ -238,7 +243,7 @@ npm start                   # 生产启动（需先 build）
 
 | t | 说明 |
 | --- | --- |
-| `hello` | 连接初始化数据（含 livekitUrl / voiceAvailable / mediaTransport） |
+| `hello` | 连接初始化数据（含 voiceAvailable / mediaTransport） |
 | `rooms` / `online_users` | 房间列表/在线用户变化 |
 | `room_joined` {snapshot} | 加入成功：房间详情 + 成员 + 最近 50 条消息 + 当前共享者 |
 | `room_left` | 已离开房间 |

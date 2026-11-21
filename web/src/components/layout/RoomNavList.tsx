@@ -1,25 +1,27 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
-import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus } from "lucide-react";
+import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
-import { groupRoomsByChannel, useAppStore } from "@/stores/app";
+import { groupRoomDirectory, useAppStore } from "@/stores/app";
 
 export interface RoomNavListProps {
   currentRoomId: number | null;
   canCreateRooms: boolean;
+  canManage: boolean;
   onSelect: (room: RoomSummary) => void;
   onCreate: () => void;
 }
 
-export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, onCreate }: RoomNavListProps) {
+export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, onSelect, onCreate }: RoomNavListProps) {
   const rooms = useAppStore((state) => state.rooms);
-  const groups = groupRoomsByChannel(rooms);
-  // 记录被折叠的分组键（频道名 / 频道名 + "/" + 游戏名），默认全部展开
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set<string>());
+  const directory = useAppStore((state) => state.directory);
+  const groups = groupRoomDirectory(directory?.areas ?? [], rooms);
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 
-  const toggleGroup = (key: string) => {
+  const toggleGroup = (key: number) => {
     setCollapsed((previous) => {
       const next = new Set(previous);
       if (next.has(key)) next.delete(key);
@@ -30,19 +32,22 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, o
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between px-3 pb-1 pt-3.5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">语音房间</p>
-        {canCreateRooms && (
-          <IconButton label="创建房间" size="sm" onClick={onCreate} className="h-6 w-6">
-            <Plus className="h-3.5 w-3.5" />
-          </IconButton>
-        )}
+      <div className="flex shrink-0 items-center justify-between px-3 py-2">
+        <p className="text-xs font-semibold text-foreground">语音房间</p>
+        <div className="flex items-center gap-1">
+          {canManage && <Link to="/rooms/manage" aria-label="分区与房间管理" title="分区与房间管理" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-brand focus-visible:ring-2 focus-visible:ring-ring">
+            <Settings2 className="h-4 w-4" />
+          </Link>}
+          {canCreateRooms && (
+            <IconButton label="创建房间" onClick={onCreate}><Plus className="h-4 w-4" /></IconButton>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto app-scroll px-2 pb-2">
         {groups.length === 0 ? (
           <div className="px-2 py-6 text-center">
-            <p className="text-xs text-muted-foreground">还没有可用房间</p>
+            <p className="text-xs text-muted-foreground">{directory ? "还没有分区" : "正在加载分区…"}</p>
             {canCreateRooms && (
               <button
                 type="button"
@@ -55,25 +60,25 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, o
           </div>
         ) : (
           groups.map((group) => {
-            const channelKey = group.channel;
+            const channelKey = group.area.id;
             const channelCollapsed = collapsed.has(channelKey);
-            const channelRoomCount = group.games.reduce((sum, game) => sum + game.rooms.length, 0);
+            const channelRoomCount = group.children.reduce((sum, child) => sum + child.rooms.length, 0);
             return (
               <div key={channelKey} className="mb-2.5">
                 <button
                   type="button"
                   onClick={() => toggleGroup(channelKey)}
                   aria-expanded={!channelCollapsed}
-                  title={channelCollapsed ? "展开频道「" + group.channel + "」" : "折叠频道「" + group.channel + "」"}
-                  className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+                  title={group.area.name}
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8"
                 >
                   {channelCollapsed ? (
                     <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
                   ) : (
                     <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {group.channel}
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {group.area.name}
                   </span>
                   <span className="tabular shrink-0 rounded bg-sidebar-accent/70 px-1 py-px font-mono text-[10px] leading-4 text-muted-foreground/80">
                     {channelRoomCount}
@@ -82,8 +87,8 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, o
 
                 {!channelCollapsed && (
                   <div className="mt-0.5 space-y-0.5">
-                    {group.games.map((game) => {
-                      const gameKey = channelKey + "/" + game.category;
+                    {group.children.map((game) => {
+                      const gameKey = game.area.id;
                       const gameCollapsed = collapsed.has(gameKey);
                       return (
                         <div key={gameKey}>
@@ -91,12 +96,12 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, o
                             type="button"
                             onClick={() => toggleGroup(gameKey)}
                             aria-expanded={!gameCollapsed}
-                            title={gameCollapsed ? "展开「" + game.category + "」" : "折叠「" + game.category + "」"}
-                            className="flex w-full items-center gap-1.5 rounded-lg py-1 pl-5 pr-2 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+                            title={game.area.name}
+                            className="flex min-h-9 w-full items-center gap-1.5 rounded-lg py-1 pl-5 pr-2 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-7"
                           >
                             <Layers className="h-3 w-3 shrink-0 text-muted-foreground/60" />
                             <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground/80">
-                              {game.category}
+                              {game.area.name}
                             </span>
                             <span className="tabular shrink-0 rounded px-1 py-px font-mono text-[10px] leading-4 text-muted-foreground/60">
                               {game.rooms.length}
@@ -115,7 +120,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, onSelect, o
                                     onClick={() => onSelect(room)}
                                     title={room.locked ? "房间已锁定" : "加入「" + room.name + "」"}
                                     className={cn(
-                                      "flex w-full items-center gap-2 rounded-lg py-1.5 pl-7 pr-2 text-left outline-none transition-colors",
+                                      "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-7 pr-2 text-left outline-none transition-colors lg:min-h-8",
                                       "focus-visible:ring-2 focus-visible:ring-ring",
                                       active
                                         ? "bg-sidebar-accent text-foreground"

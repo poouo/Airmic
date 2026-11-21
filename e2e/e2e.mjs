@@ -173,11 +173,9 @@ async function main() {
       await guestPage.page.goto(server.url + "/room/" + roomId, { waitUntil: "networkidle" });
       await adminPage.page.waitForTimeout(2500);
       await guestPage.page.waitForTimeout(1500);
-      const adminBody = await adminPage.page.innerText("body");
-      const guestBody = await guestPage.page.innerText("body");
-      if (!adminBody.includes("E2E 语音房")) throw new Error("管理员房间页未加载");
-      if (!guestBody.includes("E2E 游客")) throw new Error("游客未出现在成员列表");
-      if (!/SFU|中转/.test(adminBody + guestBody)) throw new Error("房间页未显示 SFU 中转模式");
+      await adminPage.page.getByRole("heading", { name: "E2E 语音房", exact: true }).waitFor();
+      await guestPage.page.getByRole("heading", { name: "E2E 语音房", exact: true }).waitFor();
+      await adminPage.page.getByRole("main").getByText("E2E 游客", { exact: true }).waitFor();
       await browser.screenshot(adminPage.page, "02-room-admin");
       await browser.screenshot(guestPage.page, "03-room-guest");
       return "双方已进房";
@@ -193,7 +191,7 @@ async function main() {
 
     await step("11. 房间聊天实时互通", async () => {
       const message = "E2E SFU 消息 " + Date.now();
-      const input = guestPage.page.getByPlaceholder(/发送消息/);
+      const input = guestPage.page.getByRole("textbox", { name: "消息内容" });
       await input.fill(message);
       await input.press("Enter");
       await adminPage.page.getByText(message).first().waitFor({ timeout: 10_000 });

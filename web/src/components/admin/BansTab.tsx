@@ -101,7 +101,7 @@ export default function BansTab() {
           </div>
         ) : (
           <>
-            <TableShell>
+            <TableShell stickyActions>
               <THead>
                 <Th>封禁对象</Th>
                 <Th>类型</Th>

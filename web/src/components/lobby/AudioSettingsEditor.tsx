@@ -51,12 +51,8 @@ export default function AudioSettingsEditor({
   return (
     <div className="space-y-4">
       {onFollowDefaultChange && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-3.5 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">跟随服务器默认音质</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">关闭后可单独调整该房间的编码与音频处理参数</p>
-          </div>
-          <Switch checked={follow} onChange={onFollowDefaultChange} disabled={disabled} />
+        <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-2.5">
+          <Switch label="跟随服务器默认" checked={follow} onChange={onFollowDefaultChange} disabled={disabled} />
         </div>
       )}
 
@@ -64,7 +60,7 @@ export default function AudioSettingsEditor({
         <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
           <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Headphones className="h-3.5 w-3.5 text-brand" />
-            当前跟随服务器默认音质
+            当前音质
           </p>
           <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted-foreground">{summarize(base)}</p>
         </div>
@@ -80,6 +76,7 @@ export default function AudioSettingsEditor({
                     key={preset.id}
                     type="button"
                     onClick={() => applyPreset(preset.id)}
+                    aria-pressed={active}
                     disabled={locked}
                     className={cn(
                       "rounded-xl border px-3 py-2.5 text-left outline-none transition-colors",
@@ -91,7 +88,6 @@ export default function AudioSettingsEditor({
                       <span className="text-xs font-medium text-foreground">{preset.label}</span>
                       {active && <Check className="h-3.5 w-3.5 text-foreground" />}
                     </span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{preset.description}</span>
                     <span className="mt-1.5 block font-mono text-[10px] text-muted-foreground/80">
                       {formatBitrate(preset.settings.bitrate)} · {preset.settings.sampleRate / 1000} kHz ·{" "}
                       {preset.settings.channels === 2 ? "立体声" : "单声道"}
@@ -102,48 +98,47 @@ export default function AudioSettingsEditor({
             </div>
           </div>
 
-          <div className={cn("space-y-4 rounded-xl border border-border bg-muted/20 p-4", locked && "pointer-events-none opacity-60")}>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-medium text-foreground/80">自定义参数</p>
-              <span className="font-mono text-[10px] text-muted-foreground">{activePreset === "custom" ? "自定义" : "基于预设微调"}</span>
-            </div>
-            <Slider
-              label="目标码率"
-              value={value.bitrate}
-              min={AUDIO_LIMITS.minBitrate}
-              max={AUDIO_LIMITS.maxBitrate}
-              step={AUDIO_LIMITS.bitrateStep}
-              disabled={locked}
-              formatValue={(bitrate) => Math.round(bitrate / 1000) + " kbps"}
-              onChange={(bitrate) => update({ bitrate })}
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Select
-                label="采样率"
-                options={sampleRateOptions}
-                value={String(value.sampleRate)}
+          <details className={cn("rounded-xl border border-border bg-muted/20 px-3", locked && "pointer-events-none opacity-60")}>
+            <summary className="cursor-pointer py-3 text-sm font-medium">高级音质参数</summary>
+            <div className="space-y-4 pb-3">
+              <Slider
+                label="目标码率"
+                value={value.bitrate}
+                min={AUDIO_LIMITS.minBitrate}
+                max={AUDIO_LIMITS.maxBitrate}
+                step={AUDIO_LIMITS.bitrateStep}
                 disabled={locked}
-                onChange={(event) => update({ sampleRate: Number(event.target.value) })}
+                formatValue={(bitrate) => Math.round(bitrate / 1000) + " kbps"}
+                onChange={(bitrate) => update({ bitrate })}
               />
-              <Select
-                label="声道"
-                options={channelOptions}
-                value={String(value.channels)}
-                disabled={locked}
-                onChange={(event) => update({ channels: event.target.value === "2" ? 2 : 1 })}
-              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Select
+                  label="采样率"
+                  options={sampleRateOptions}
+                  value={String(value.sampleRate)}
+                  disabled={locked}
+                  onChange={(event) => update({ sampleRate: Number(event.target.value) })}
+                />
+                <Select
+                  label="声道"
+                  options={channelOptions}
+                  value={String(value.channels)}
+                  disabled={locked}
+                  onChange={(event) => update({ channels: event.target.value === "2" ? 2 : 1 })}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Switch label="DTX 静音省流" description="不讲话时不发送音频包" checked={value.dtx} disabled={locked} onChange={(dtx) => update({ dtx })} />
+                <Switch label="FEC 前向纠错" description="丢包时提升可听性" checked={value.fec} disabled={locked} onChange={(fec) => update({ fec })} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Switch label="回声消除" description="外放时抑制回声" checked={value.echoCancellation} disabled={locked} onChange={(echoCancellation) => update({ echoCancellation })} />
+                <Switch label="噪声抑制" description="过滤键盘/风扇等底噪" checked={value.noiseSuppression} disabled={locked} onChange={(noiseSuppression) => update({ noiseSuppression })} />
+                <Switch label="自动增益" description="自动稳定麦克风音量" checked={value.autoGainControl} disabled={locked} onChange={(autoGainControl) => update({ autoGainControl })} />
+              </div>
+              <p className="border-t border-border pt-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">{summarize(value)}</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Switch label="DTX 静音省流" description="不讲话时不发送音频包" checked={value.dtx} disabled={locked} onChange={(dtx) => update({ dtx })} />
-              <Switch label="FEC 前向纠错" description="丢包时提升可听性" checked={value.fec} disabled={locked} onChange={(fec) => update({ fec })} />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Switch label="回声消除" description="外放时抑制回声" checked={value.echoCancellation} disabled={locked} onChange={(echoCancellation) => update({ echoCancellation })} />
-              <Switch label="噪声抑制" description="过滤键盘/风扇等底噪" checked={value.noiseSuppression} disabled={locked} onChange={(noiseSuppression) => update({ noiseSuppression })} />
-              <Switch label="自动增益" description="自动稳定麦克风音量" checked={value.autoGainControl} disabled={locked} onChange={(autoGainControl) => update({ autoGainControl })} />
-            </div>
-            <p className="border-t border-border pt-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">{summarize(value)}</p>
-          </div>
+          </details>
         </>
       )}
     </div>

@@ -22,6 +22,7 @@ export interface HubLike {
   /** 用户资料/角色变化后刷新其在房间/在线列表中的展示 */
   refreshUser(userId: number): void;
   broadcastRooms(): void;
+  broadcastRoomDirectoryChanged(userId?: number): void;
   broadcastRoomUpdate(roomId: number): void;
   broadcastRoomDeleted(roomId: number, reason?: string): void;
   broadcastOnlineUsers(): void;

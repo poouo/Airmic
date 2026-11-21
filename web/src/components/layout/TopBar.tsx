@@ -1,5 +1,6 @@
-import { Menu, Mic, Users } from "lucide-react";
+import { Menu, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+import AirMicMark from "@/components/brand/AirMicMark";
 import { IconButton } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
 import ConnectionStatus from "./ConnectionStatus";
@@ -17,7 +18,7 @@ export default function TopBar({ onOpenSidebar }: TopBarProps) {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-2 sm:gap-3 sm:px-4">
-      <IconButton label="打开侧栏" className="lg:hidden" onClick={onOpenSidebar}>
+      <IconButton label="打开侧栏" className="h-10 w-10 lg:hidden" onClick={onOpenSidebar}>
         <Menu className="h-5 w-5" />
       </IconButton>
 
@@ -25,13 +26,10 @@ export default function TopBar({ onOpenSidebar }: TopBarProps) {
         to="/"
         className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 py-1 outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Mic className="h-4 w-4" />
-        </span>
+        <AirMicMark />
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold leading-tight tracking-tight">
             AirMic
-            <span className="ml-1.5 hidden text-xs font-normal text-muted-foreground sm:inline">网页语音开黑</span>
           </span>
           <span className="block max-w-[7rem] truncate text-[11px] leading-tight text-muted-foreground sm:max-w-[12rem]">
             {server?.name ?? "语音服务器"}

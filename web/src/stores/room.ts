@@ -92,20 +92,24 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     for (const peer of snapshot.peers) {
       if (typeof peer.rttMs === "number") latency[peer.userId] = peer.rttMs;
     }
-    set({
+    set((state) => ({
       snapshot,
       peers: snapshot.peers,
       messages: snapshot.messages,
-      joining: false,
+      joining: state.joining && state.lastJoin?.roomId !== snapshot.room.id,
       joinError: null,
+      lastJoin: state.joining || state.lastJoin?.roomId === snapshot.room.id ? state.lastJoin : { roomId: snapshot.room.id },
       screenSharerId: snapshot.screenSharerId,
       notices: [],
       latency,
-    });
+    }));
   },
 
   applyLeft(reason) {
-    set({ snapshot: null, peers: [], messages: [], joining: false, lastJoin: null, screenSharerId: null, latency: {} });
+    set((state) => {
+      const switching = state.joining && state.lastJoin !== null && state.lastJoin.roomId !== state.snapshot?.room.id;
+      return { snapshot: null, peers: [], messages: [], joining: switching, lastJoin: switching ? state.lastJoin : null, screenSharerId: null, latency: {} };
+    });
     if (reason) get().addNotice(reason, "warn");
   },
 

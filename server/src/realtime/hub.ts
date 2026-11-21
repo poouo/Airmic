@@ -320,6 +320,7 @@ export class Hub implements HubLike {
       user,
       server: this.services.settings.getPublic(),
       rooms: this.roomSummaries(),
+      directory: this.services.roomDirectory.forUser(user.id),
       onlineUsers: this.getOnlineUsers(),
       protocolVersion: PROTOCOL_VERSION,
     });
@@ -928,6 +929,15 @@ export class Hub implements HubLike {
 
   broadcastRooms(): void {
     this.broadcast({ t: "rooms", rooms: this.roomSummaries() });
+  }
+
+  broadcastRoomDirectoryChanged(userId?: number): void {
+    const message = { t: "room_directory_changed" } as const;
+    if (userId === undefined) this.broadcast(message);
+    else {
+      const conn = this.byUser.get(userId);
+      if (conn) this.send(conn, message);
+    }
   }
 
   broadcastRoomUpdate(roomId: number): void {

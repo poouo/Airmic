@@ -1,13 +1,15 @@
-import { EarOff, MicOff } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, EarOff, MicOff } from "lucide-react";
 import { Avatar } from "@/components/ui";
 import { ROLE_LABELS } from "@airmic/shared";
 import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 
-export default function OnlineUsersList() {
+export default function OnlineUsersList({ initiallyOpen }: { initiallyOpen: boolean }) {
   const onlineUsers = useAppStore((state) => state.onlineUsers);
   const selfId = useAuthStore((state) => state.user?.id ?? null);
+  const [open, setOpen] = useState(initiallyOpen);
 
   const sorted = [...onlineUsers].sort((a, b) => {
     const roomA = a.roomName ?? "~大厅";
@@ -18,11 +20,12 @@ export default function OnlineUsersList() {
 
   return (
     <div className="shrink-0 border-t border-sidebar-border">
-      <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">在线用户</p>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((previous) => !previous)} className="flex min-h-10 w-full items-center gap-2 px-3 text-xs font-semibold text-muted-foreground hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-ring">
+        <ChevronDown className={cn("h-3.5 w-3.5", !open && "-rotate-90")} />
+        <span className="mr-auto">在线用户</span>
         <span className="tabular rounded bg-sidebar-accent px-1.5 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground">{onlineUsers.length}</span>
-      </div>
-      <div className="max-h-48 overflow-y-auto app-scroll px-2 pb-2">
+      </button>
+      {open && <div className="app-scroll max-h-[min(10rem,22dvh)] overflow-y-auto px-2 pb-2">
         {sorted.length === 0 ? (
           <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">暂无其他在线用户</p>
         ) : (
@@ -46,7 +49,7 @@ export default function OnlineUsersList() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

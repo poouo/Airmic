@@ -16,6 +16,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerLogRoutes } from "./routes/logs.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerRoomRoutes } from "./routes/rooms.js";
+import { registerRoomDirectoryRoutes } from "./routes/room-directory.js";
 import { registerServerRoutes } from "./routes/server.js";
 import { registerSetupRoutes } from "./routes/setup.js";
 import { registerSystemRoutes } from "./routes/system.js";
@@ -148,6 +149,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerAuthRoutes(app, services);
   await registerUserRoutes(app, services);
   await registerRoomRoutes(app, services);
+  await registerRoomDirectoryRoutes(app, services);
   await registerMediaRoutes(app, services);
   await registerSetupRoutes(app, services);
   await registerLogRoutes(app, services);

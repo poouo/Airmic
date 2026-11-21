@@ -16,7 +16,7 @@ export default function SidebarUserCard() {
   const handleLogout = async () => {
     const confirmed = await useUiStore.getState().confirm({
       title: "退出登录",
-      message: "确定要退出当前账号吗？退出后将断开实时语音连接。",
+      message: "退出后会离开语音房间。",
       confirmText: "退出登录",
     });
     if (!confirmed) return;

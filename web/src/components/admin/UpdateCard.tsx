@@ -40,7 +40,7 @@ export default function UpdateCard() {
   const startUpgrade = useCallback(async () => {
     const ok = await useUiStore.getState().confirm({
       title: "确认升级到最新版本？",
-      message: "会下载预构建包、备份数据库并重启服务，页面在新版本就绪后自动刷新；失败会自动回滚。",
+      message: "升级会备份数据库并重启服务，失败时自动回滚。",
       confirmText: "开始升级",
     });
     if (!ok) return;
@@ -93,7 +93,6 @@ export default function UpdateCard() {
   return (
     <SectionCard
       title="系统更新"
-      description="根据 GitHub 仓库的 Release / Tag 检查新版本。检查只读，实际升级请在部署服务器运行 airmic 部署脚本。"
       action={
         <Button variant="outline" size="sm" loading={loading} icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => void check(true)}>
           检查更新
@@ -126,7 +125,7 @@ export default function UpdateCard() {
 
           {info.latestSource === "branch" && (
             <Alert tone="warning">
-              仓库尚未发布版本 Tag/Release，升级将使用默认分支（{info.latestRef}）最新代码。建议在 GitHub 打版本标签（如 v1.1.0）后重新检查。
+              暂无正式版本，升级将使用 {info.latestRef} 分支。
             </Alert>
           )}
 
@@ -149,15 +148,14 @@ export default function UpdateCard() {
                 <div className="mt-2 space-y-1.5">
                   <p className="flex items-center gap-2 text-xs text-foreground">
                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    升级已开始，正在下载并重启服务；就绪后本页面会自动刷新（约 1-2 分钟）。
+                    正在升级，完成后自动刷新。
                   </p>
                   {upgradeLog && <p className="break-all text-[11px] text-muted-foreground">升级日志：{upgradeLog}</p>}
                 </div>
               ) : (
                 <>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    点下方按钮即可在本页升级：自动下载预构建包、备份数据库并重启服务，失败会自动回滚。
-                    Docker 部署请改在宿主机执行 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">airmic upgrade</code> 重建镜像。
+                    Docker 部署请在宿主机运行 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">airmic upgrade</code>。
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Button size="sm" loading={starting} onClick={() => void startUpgrade()}>

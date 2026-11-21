@@ -1,7 +1,6 @@
 import {
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -143,7 +142,7 @@ export function FieldShell({ label, hint, error, required, htmlFor, children, cl
       {label && (
         <label htmlFor={htmlFor} className="flex items-center gap-1 text-xs font-medium text-foreground/80">
           {label}
-          {required && <span className="text-destructive">*</span>}
+          {required && <span aria-hidden className="text-destructive">*</span>}
         </label>
       )}
       {children}
@@ -226,181 +225,28 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
   onChange?: (event: SelectChangeEvent) => void;
 }
 
-/** 自定义下拉选择（不使用浏览器原生 select），浮层跟随触发器定位 */
-export function Select({ label, hint, error, options, className, id, value, onChange, disabled, name }: SelectProps) {
+export function Select({ label, hint, error, options, className, id, value, onChange, required, ...rest }: SelectProps) {
   const generatedId = useId();
   const selectId = id ?? generatedId;
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number }>({
-    left: 0,
-    width: 0,
-    maxHeight: 288,
-  });
-
-  const selectableIndexes = useMemo(
-    () => options.map((option, index) => (option.disabled ? -1 : index)).filter((index) => index >= 0),
-    [options],
-  );
-  const selectedIndex = options.findIndex((option) => option.value === (value ?? ""));
-  const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
-
-  const updatePosition = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const gap = 6;
-    const spaceBelow = window.innerHeight - rect.bottom - gap - 8;
-    const spaceAbove = rect.top - gap - 8;
-    const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
-    setPosition({
-      left: rect.left,
-      width: rect.width,
-      maxHeight: Math.min(288, Math.max(120, openUp ? spaceAbove : spaceBelow)),
-      ...(openUp ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
-    });
-  };
-
-  const openMenu = () => {
-    if (disabled) return;
-    updatePosition();
-    setActiveIndex(selectedIndex >= 0 ? selectedIndex : (selectableIndexes[0] ?? -1));
-    setOpen(true);
-  };
-
-  const closeMenu = (focusButton = true) => {
-    setOpen(false);
-    if (focusButton) buttonRef.current?.focus();
-  };
-
-  const choose = (option: { value: string; label: string; disabled?: boolean }) => {
-    if (option.disabled) return;
-    onChange?.({ target: { value: option.value }, currentTarget: { value: option.value } });
-    closeMenu();
-  };
-
-  const moveActive = (direction: 1 | -1 | "first" | "last") => {
-    if (selectableIndexes.length === 0) return;
-    if (direction === "first") {
-      setActiveIndex(selectableIndexes[0] ?? -1);
-      return;
-    }
-    if (direction === "last") {
-      setActiveIndex(selectableIndexes[selectableIndexes.length - 1] ?? -1);
-      return;
-    }
-    const current = selectableIndexes.indexOf(activeIndex);
-    const next = current < 0 ? (direction === 1 ? 0 : selectableIndexes.length - 1) : (current + direction + selectableIndexes.length) % selectableIndexes.length;
-    setActiveIndex(selectableIndexes[next] ?? -1);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      closeMenu(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeMenu();
-      }
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeIndex, options, selectedIndex]);
+  const current = value ?? "";
+  const hasSelection = options.some((option) => option.value === current);
 
   return (
-    <FieldShell label={label} hint={hint} error={error} htmlFor={selectId}>
-      <button
-        ref={buttonRef}
-        id={selectId}
-        name={name}
-        type="button"
-        role="combobox"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? selectId + "-listbox" : undefined}
-        aria-activedescendant={open && activeIndex >= 0 ? selectId + "-option-" + activeIndex : undefined}
-        disabled={disabled}
-        onClick={() => (open ? closeMenu(false) : openMenu())}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            if (!open) openMenu();
-            else moveActive(event.key === "ArrowDown" ? 1 : -1);
-          } else if (event.key === "Enter" || event.key === " ") {
-            if (open && activeIndex >= 0) {
-              event.preventDefault();
-              const option = options[activeIndex];
-              if (option) choose(option);
-            }
-          } else if (event.key === "Escape" && open) {
-            event.preventDefault();
-            closeMenu();
-          }
-        }}
-        className={cn(
-          "flex h-9 w-full items-center justify-between gap-2 rounded-field border border-input bg-card px-3 text-left text-sm text-foreground",
-          "outline-none transition-[border-color,box-shadow] focus:border-ring focus:ring-2 focus:ring-ring/15",
-          "disabled:cursor-not-allowed disabled:bg-muted/60 disabled:opacity-70",
-          error && "border-destructive",
-          className,
-        )}
-      >
-        <span className={cn("truncate", !selected && "text-muted-foreground/70")}>{selected?.label ?? "请选择"}</span>
-        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150", open && "rotate-180")} />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={menuRef}
-            id={selectId + "-listbox"}
-            role="listbox"
-            aria-label={typeof label === "string" ? label : "选项"}
-            className="fixed z-[80] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-popover app-scroll animate-scale-in"
-            style={{ left: position.left, width: position.width, top: position.top, bottom: position.bottom, maxHeight: position.maxHeight }}
-          >
-            {options.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">暂无可选项</p>}
-            {options.map((option, index) => {
-              const active = index === activeIndex;
-              const isSelected = option.value === (value ?? "");
-              return (
-                <button
-                  key={option.value + "-" + index}
-                  id={selectId + "-option-" + index}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  disabled={option.disabled}
-                  onMouseEnter={() => !option.disabled && setActiveIndex(index)}
-                  onClick={() => choose(option)}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
-                    option.disabled && "cursor-not-allowed opacity-40",
-                    active ? "bg-accent text-accent-foreground" : "text-foreground/90",
-                    isSelected && "font-medium",
-                  )}
-                >
-                  <span className="truncate">{option.label}</span>
-                  {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />}
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )}
+    <FieldShell label={label} hint={hint} error={error} required={required} htmlFor={selectId}>
+      <div className="relative">
+        <select
+          {...rest}
+          id={selectId}
+          value={hasSelection ? current : ""}
+          required={required}
+          onChange={onChange}
+          className={cn(fieldBase, "h-10 appearance-none px-3 pr-9 sm:h-9", error && "border-destructive", className)}
+        >
+          {!hasSelection && !options.some((option) => option.value === "") && <option value="" disabled>请选择</option>}
+          {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
+        </select>
+        <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      </div>
     </FieldShell>
   );
 }
@@ -425,6 +271,7 @@ export function Switch({ checked, onChange, label, description, disabled }: Swit
       <button
         type="button"
         role="switch"
+        aria-label={typeof label === "string" ? label : undefined}
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
@@ -656,7 +503,7 @@ export function Skeleton({ className }: { className?: string }) {
 
 export function FullScreenLoader({ text = "正在加载…" }: { text?: string }) {
   return (
-    <div className="flex h-full min-h-screen flex-col items-center justify-center gap-3 bg-background">
+    <div className="page-frame flex flex-col items-center justify-center gap-3 bg-background">
       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       <p className="text-sm text-muted-foreground">{text}</p>
     </div>
@@ -752,10 +599,44 @@ const modalSizes: Record<string, string> = {
 };
 
 export function Modal({ open, onClose, title, subtitle, children, footer, size = "md", hideClose }: ModalProps) {
+  const titleId = useId();
+  const subtitleId = useId();
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel || panel.contains(document.activeElement)) return;
+    const previous = document.activeElement;
+    panel.focus({ preventScroll: true });
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      const panel = panelRef.current;
+      if (event.defaultPrevented || !panel || Array.from(document.querySelectorAll("[data-airmic-dialog]")).at(-1) !== panel) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+      if (event.key !== "Tab") return;
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+      )).filter((element) => element.getClientRects().length > 0);
+      const first = items[0];
+      const last = items.at(-1);
+      const active = document.activeElement;
+      if (!first || !last) {
+        event.preventDefault();
+        return;
+      }
+      if (active === panel || !panel.contains(active) || active === (event.shiftKey ? first : last)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -764,27 +645,32 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px] animate-fade-in dark:bg-black/50" onClick={onClose} />
+    <div className="viewport-overlay dialog-viewport z-50 flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0 touch-none bg-black/35 animate-fade-in" onClick={onClose} aria-hidden />
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-popover animate-scale-in",
+          "relative flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-popover text-popover-foreground shadow-popover outline-none sm:rounded-2xl",
           modalSizes[size],
         )}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={subtitle ? subtitleId : undefined}
+        data-airmic-dialog
+        tabIndex={-1}
+        ref={panelRef}
       >
         {(title || !hideClose) && (
-          <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-2.5 sm:px-5 sm:py-3.5">
             <div className="min-w-0">
-              {title && <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>}
-              {subtitle && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{subtitle}</p>}
+              {title && <h2 id={titleId} className="text-base font-semibold tracking-tight text-foreground">{title}</h2>}
+              {subtitle && <p id={subtitleId} className="mt-0.5 break-words text-xs text-muted-foreground">{subtitle}</p>}
             </div>
             {!hideClose && (
               <button
                 type="button"
                 onClick={onClose}
-                className="-mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="-my-1 -mr-2 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label="关闭"
               >
                 <X className="h-4 w-4" />
@@ -792,8 +678,8 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             )}
           </div>
         )}
-        <div className="max-h-[70vh] overflow-y-auto app-scroll px-5 py-4">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-5 py-3">{footer}</div>}
+        <div className="app-scroll min-h-0 overflow-y-auto scroll-py-4 px-4 py-3 sm:px-5 sm:py-4" data-dialog-body>{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-4 py-2 [&_button]:min-h-11 sm:px-5 sm:py-3 sm:[&_button]:min-h-8" data-dialog-footer>{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -811,31 +697,22 @@ const toastStyles: Record<ToastType, { icon: LucideIcon; className: string }> = 
 
 export function ToastHost() {
   const toasts = useUiStore((state) => state.toasts);
-  const dismiss = useUiStore((state) => state.dismissToast);
   if (toasts.length === 0) return null;
   return createPortal(
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-[min(92vw,380px)] flex-col gap-2">
-      {toasts.map((toast) => {
+    <div className="pointer-events-none fixed inset-x-3 top-[calc(var(--visible-top,0px)+var(--safe-top)+3.75rem)] z-[70] ml-auto flex max-w-sm flex-col gap-2" aria-live="polite" aria-atomic="false">
+      {toasts.slice(-2).map((toast) => {
         const style = toastStyles[toast.type];
         const Icon = style.icon;
         return (
           <div
             key={toast.id}
-            className="pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-popover px-3.5 py-3 text-popover-foreground shadow-popover animate-rise-in"
+            className="flex items-start gap-2.5 rounded-xl border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-popover animate-fade-in"
           >
             <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", style.className)} />
             <div className="min-w-0 flex-1">
               {toast.title && <p className="text-sm font-medium text-foreground">{toast.title}</p>}
               <p className="text-xs leading-relaxed text-muted-foreground">{toast.message}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => dismiss(toast.id)}
-              className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="关闭提示"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
           </div>
         );
       })}

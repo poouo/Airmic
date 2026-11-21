@@ -97,7 +97,6 @@ export default function OverviewTab() {
 
       <SectionCard
         title="在线用户"
-        description="实时在线用户与所在房间，可直接执行管理操作"
         action={
           <Button variant="outline" size="sm" onClick={reload} loading={loading}>
             刷新
@@ -110,7 +109,7 @@ export default function OverviewTab() {
             <EmptyState icon={<Wifi className="h-5 w-5" />} title="当前没有在线用户" description="用户连接后会自动出现在这里" />
           </div>
         ) : (
-          <TableShell>
+          <TableShell stickyActions>
             <THead>
               <Th>用户</Th>
               <Th>角色</Th>
@@ -179,7 +178,7 @@ export default function OverviewTab() {
         )}
       </SectionCard>
 
-      <SectionCard title="最近审计" description="服务器最近 8 条管理操作记录" bodyClassName="p-0">
+      <SectionCard title="最近审计" bodyClassName="p-0">
         {recentAudit.length === 0 ? (
           <div className="px-5 py-5">
             <EmptyState icon={<LifeBuoy className="h-5 w-5" />} title="暂无审计记录" description="管理操作会自动记录在这里" />

@@ -20,6 +20,7 @@ test("初始化状态：全新部署需要初始化", async () => {
     const info = await client.get<{ setupRequired: boolean; server: { voiceAvailable: boolean } }>("/api/server");
     assert.equal(info.body.setupRequired, true);
     assert.equal(info.body.server.voiceAvailable, false);
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
   } finally {
     await ctx.close();
   }
@@ -69,9 +70,10 @@ test("初始化：创建管理员、应用服务器设置并创建默认房间",
     // 初始化完成状态
     const status = await client.get<SetupStatus>("/api/setup/status");
     assert.equal(status.body.setupRequired, false);
-    const info = await client.get<{ server: { voiceAvailable: boolean; livekitUrl: string | null } }>("/api/server");
+    const info = await client.get<{ server: { voiceAvailable: boolean } }>("/api/server");
     assert.equal(info.body.server.voiceAvailable, true);
-    assert.equal(info.body.server.livekitUrl, "ws://127.0.0.1:7880");
+    // 公开信息不暴露 SFU 连接地址，只有管理员后台可见
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
 
     // 重复初始化被拒绝
     const again = await ctx.newClient().post("/api/setup/initialize", {

@@ -39,7 +39,7 @@ export function shouldAutoGuest(): boolean {
   }
 }
 
-function blockAutoGuest(): void {
+export function blockAutoGuest(): void {
   try {
     window.sessionStorage.setItem(NO_AUTO_GUEST_KEY, "1");
   } catch {

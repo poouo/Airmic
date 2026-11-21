@@ -114,6 +114,8 @@ class VoiceEngine {
   private micChain: Promise<void> = Promise.resolve();
   private micActive = false;
   private micOptionsDirty = false;
+  /** 同一次麦克风故障会被 LiveKit 事件与本地 catch 重复上报，短窗口内去重 */
+  private lastMicError: { code: string; at: number } | null = null;
 
   private levelTimer: number | null = null;
   private statsTimer: number | null = null;
@@ -205,10 +207,10 @@ class VoiceEngine {
     });
 
     const server = useAppStore.getState().server;
-    if (!server || server.voiceAvailable === false || !server.livekitUrl) {
+    if (!server || !server.voiceAvailable) {
       this.emit("error", {
         code: "voice_unavailable",
-        message: "语音中转服务未配置，请联系管理员在后台或环境变量中配置 LiveKit。",
+        message: "语音中转服务未配置，请联系服务器管理员。",
       });
       return;
     }
@@ -233,7 +235,7 @@ class VoiceEngine {
     this.registerRoomListeners(room);
 
     try {
-      await room.connect(tokenInfo.url || server.livekitUrl, tokenInfo.token, { autoSubscribe: true });
+      await room.connect(tokenInfo.url, tokenInfo.token, { autoSubscribe: true });
     } catch (error) {
       console.warn("[voice] 连接 LiveKit 失败", error);
       if (generation !== this.generation || this.room !== room) {
@@ -680,8 +682,18 @@ class VoiceEngine {
   };
 
   private handleMediaDevicesError = (error: Error): void => {
-    this.emit("error", describeMicrophoneError(error));
+    this.reportMicrophoneError(error);
   };
+
+  /** 上报麦克风错误：同一次故障可能被多个事件/路径重复触发，短窗口内只提示一次 */
+  private reportMicrophoneError(error: unknown): void {
+    const payload = describeMicrophoneError(error);
+    const now = Date.now();
+    const previous = this.lastMicError;
+    if (previous && previous.code === payload.code && now - previous.at < 3000) return;
+    this.lastMicError = { code: payload.code, at: now };
+    this.emit("error", payload);
+  }
 
   // ============ 内部：参与者/轨道 ============
 
@@ -913,7 +925,7 @@ class VoiceEngine {
       if (recovered) return;
       this.micActive = false;
       this.setState({ hasMicrophone: false });
-      this.emit("error", describeMicrophoneError(error));
+      this.reportMicrophoneError(error);
     }
   }
 

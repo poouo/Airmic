@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AUDIO_PRESET_LIST, formatBitrate, SFU_RECOMMENDED_ROOM_USERS } from "@airmic/shared";
 import { Eye, EyeOff } from "lucide-react";
-import { Alert, IconButton, Input, Switch } from "@/components/ui";
+import { IconButton, Input, Switch } from "@/components/ui";
 import { cn } from "@/lib/format";
 import type { SetupPresetId, SetupStepProps } from "./types";
 
@@ -13,7 +13,6 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
 
   return (
     <div className="space-y-4">
-      <Alert tone="info">AirMic 的语音全部经你自己的 LiveKit 服务器中转，不做客户端 P2P，房间人数可支持 50-100+。</Alert>
 
       <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4">
         <div className="flex items-center justify-between gap-3">
@@ -25,7 +24,7 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
           value={form.livekitUrl}
           maxLength={300}
           placeholder="ws://localhost:7880"
-          hint="ws:// 或 wss:// 地址；客户端将通过该地址连接语音中转服务"
+          hint="留空则沿用部署配置"
           disabled={disabled}
           onChange={(event) => update({ livekitUrl: event.target.value })}
         />
@@ -35,7 +34,6 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
             value={form.livekitApiKey}
             maxLength={200}
             placeholder="例如：devkey"
-            hint="LiveKit 配置中的 API Key"
             disabled={disabled}
             onChange={(event) => update({ livekitApiKey: event.target.value })}
           />
@@ -46,7 +44,6 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
             value={form.livekitApiSecret}
             maxLength={300}
             placeholder="LiveKit API Secret"
-            hint="仅保存在服务器，用于签发访问令牌"
             disabled={disabled}
             rightSlot={
               <IconButton
@@ -60,7 +57,7 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
             onChange={(event) => update({ livekitApiSecret: event.target.value })}
           />
         </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">需要自行部署 LiveKit，详见部署文档；也可稍后在管理后台配置。三项配置齐全后房间内语音才可用。</p>
+        <p className="text-xs text-muted-foreground">地址和密钥可稍后在后台配置；填齐后才能通话。</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -71,14 +68,14 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
           max={500}
           value={form.maxUsersPerRoom}
           placeholder={String(SFU_RECOMMENDED_ROOM_USERS)}
-          hint="SFU 中转模式推荐 50 - 100+ 人，范围 1 - 500"
+          hint="1–500 人"
           disabled={disabled}
           onChange={(event) => update({ maxUsersPerRoom: event.target.value })}
         />
         <div className="flex flex-col justify-center rounded-xl border border-border bg-muted/40 px-4 py-3">
           <Switch
             label="创建默认房间"
-            description="初始化后自动创建「开黑大厅」与「休息室」两个默认房间"
+            description="开黑大厅和休息室"
             checked={form.createDefaultRooms}
             disabled={disabled}
             onChange={(createDefaultRooms) => update({ createDefaultRooms })}
@@ -107,7 +104,6 @@ export default function SetupVoiceStep({ form, update, disabled }: SetupStepProp
                   <span className="text-xs font-medium text-foreground">{preset.label}</span>
                   <span className={cn("h-2 w-2 rounded-full", active ? "bg-primary" : "bg-border")} />
                 </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{preset.description}</span>
                 <span className="mt-1.5 block font-mono text-[10px] text-muted-foreground">
                   {formatBitrate(preset.settings.bitrate)} · {preset.settings.sampleRate / 1000} kHz · {preset.settings.channels === 2 ? "立体声" : "单声道"}
                 </span>

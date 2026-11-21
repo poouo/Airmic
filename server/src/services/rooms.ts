@@ -3,14 +3,16 @@ import {
   mergeAudioSettings,
   normalizeAudioSettings,
 } from "@airmic/shared";
-import type { AudioOverride, AudioSettings, ChatMessage, RoomDetail, RoomSummary, Role } from "@airmic/shared";
+import type { AudioOverride, AudioSettings, ChatMessage, RoomArea, RoomDetail, RoomSummary, Role } from "@airmic/shared";
 import type { Database } from "../db.js";
 import { hashRoomPassword, verifyRoomPassword } from "../lib/password.js";
 import { nowIso } from "../lib/time.js";
 import type { SettingsService } from "./settings.js";
+import type { RoomDirectoryService } from "./room-directory.js";
 
 export interface RoomRow {
   id: number;
+  area_id: number;
   name: string;
   description: string;
   category: string;
@@ -38,13 +40,13 @@ export interface MessageRow {
   created_at: string;
 }
 
-const ROOM_COLUMNS =
-  "id, name, description, category, channel, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, " +
-  "audio_override, created_by, created_at, updated_at";
+const ROOM_SELECT = `SELECT r.*, child.name AS category, root.name AS channel FROM rooms r
+  JOIN room_areas child ON child.id = r.area_id JOIN room_areas root ON root.id = child.parent_id`;
 
 export interface RoomInput {
   name?: string;
   description?: string;
+  areaId?: number;
   category?: string;
   channel?: string;
   icon?: string;
@@ -64,6 +66,7 @@ export class RoomsService {
   constructor(
     private readonly db: Database,
     private readonly settings: SettingsService,
+    private readonly directory: RoomDirectoryService,
   ) {}
 
   private get defaults(): AudioSettings {
@@ -72,17 +75,40 @@ export class RoomsService {
 
   list(counts: Map<number, number>): RoomSummary[] {
     const rows = this.db.all<RoomRow>(
-      "SELECT " + ROOM_COLUMNS + " FROM rooms ORDER BY channel ASC, category ASC, sort_order ASC, id ASC",
+      `${ROOM_SELECT} ORDER BY root.sort_order, root.id, child.sort_order, child.id, r.sort_order, r.id`,
     );
     return rows.map((row) => this.toSummary(row, counts.get(row.id) ?? 0));
   }
 
   findById(id: number): RoomRow | undefined {
-    return this.db.get<RoomRow>("SELECT " + ROOM_COLUMNS + " FROM rooms WHERE id = ?", id);
+    return this.db.get<RoomRow>(`${ROOM_SELECT} WHERE r.id = ?`, id);
   }
 
-  findByName(name: string): RoomRow | undefined {
-    return this.db.get<RoomRow>("SELECT " + ROOM_COLUMNS + " FROM rooms WHERE name = ? COLLATE NOCASE", name);
+  findByName(areaId: number, name: string): RoomRow | undefined {
+    return this.db.get<RoomRow>(`${ROOM_SELECT} WHERE r.area_id = ? AND r.name = ?`, areaId, name);
+  }
+
+  resolveArea(input: Pick<RoomInput, "areaId" | "channel" | "category">, current?: RoomRow): RoomArea | undefined {
+    if (input.areaId !== undefined) {
+      const area = this.directory.find(input.areaId);
+      return area?.parentId != null ? area : undefined;
+    }
+    if (current && input.channel === undefined && input.category === undefined) return this.directory.find(current.area_id);
+    const areas = this.directory.list();
+    const channel = input.channel?.trim() || current?.channel;
+    const category = input.category?.trim();
+    const root = channel ? this.directory.findByName(null, channel) : undefined;
+    if (channel && !root) return undefined;
+    if (root && category) return this.directory.findByName(root.id, category);
+    if (category) {
+      for (const area of areas) {
+        if (area.parentId !== null) continue;
+        const match = this.directory.findByName(area.id, category);
+        if (match) return match;
+      }
+      return undefined;
+    }
+    return areas.find((area) => area.parentId !== null && (!root || area.parentId === root.id));
   }
 
   countRooms(): number {
@@ -98,6 +124,8 @@ export class RoomsService {
   toSummary(row: RoomRow, userCount: number): RoomSummary {
     return {
       id: row.id,
+      areaId: row.area_id,
+      createdById: row.created_by,
       name: row.name,
       description: row.description,
       category: row.category,
@@ -161,28 +189,25 @@ export class RoomsService {
   }
 
   create(input: CreateRoomInput, actorId: number | null): RoomRow {
-    const defaults = this.settings.get();
-    const channel = (input.channel ?? "默认频道").trim() || "默认频道";
-    const category = (input.category ?? defaults.roomCategories[0] ?? "开黑房间").trim() || "开黑房间";
+    const area = this.resolveArea(input);
+    if (!area) throw new Error("创建房间需要有效的子区");
     const icon = (input.icon ?? "gamepad").trim() || "gamepad";
     const passwordHash = input.password ? hashRoomPassword(input.password) : null;
     const nextSort =
       input.sortOrder ??
       (Number(
         this.db.get<{ max: number | null }>(
-          "SELECT MAX(sort_order) AS max FROM rooms WHERE channel = ? AND category = ?",
-          channel,
-          category,
+          "SELECT MAX(sort_order) AS max FROM rooms WHERE area_id = ?",
+          area.id,
         )?.max ?? 0,
       ) + 10);
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO rooms (name, description, category, channel, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.name.trim(),
       (input.description ?? "").trim(),
-      category,
-      channel,
+      area.id,
       icon,
       passwordHash,
       clampRoomMaxUsers(input.maxUsers),
@@ -213,13 +238,11 @@ export class RoomsService {
       fields.push("description = ?");
       params.push(input.description.trim());
     }
-    if (input.category !== undefined) {
-      fields.push("category = ?");
-      params.push(input.category.trim() || "开黑房间");
-    }
-    if (input.channel !== undefined) {
-      fields.push("channel = ?");
-      params.push(input.channel.trim() || "默认频道");
+    if (input.areaId !== undefined || input.channel !== undefined || input.category !== undefined) {
+      const area = this.resolveArea(input, current);
+      if (!area) throw new Error("移动房间需要有效的子区");
+      fields.push("area_id = ?");
+      params.push(area.id);
     }
     if (input.icon !== undefined) {
       fields.push("icon = ?");

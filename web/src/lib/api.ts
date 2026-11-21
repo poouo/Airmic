@@ -22,6 +22,10 @@ import type {
   RegisterRequest,
   UpgradeGuestRequest,
   RoomDetail,
+  RoomArea,
+  RoomDirectory,
+  RoomManagementScope,
+  RoomManager,
   RoomMessagesResponse,
   RoomSummary,
   ServerInfoResponse,
@@ -93,6 +97,10 @@ function query(params: Record<string, string | number | boolean | undefined | nu
   return text ? "?" + text : "";
 }
 
+function managersPath(scope: RoomManagementScope): string {
+  return `/api/room-directory/${scope.kind}/${scope.id}/managers`;
+}
+
 export const api = {
   serverInfo: (signal?: AbortSignal) => request<ServerInfoResponse>("GET", "/api/server", undefined, signal),
   iceConfig: (signal?: AbortSignal) => request<{ iceServers: unknown[]; forceRelay: boolean }>("GET", "/api/rtc/ice", undefined, signal),
@@ -125,12 +133,24 @@ export const api = {
   rooms: {
     list: (signal?: AbortSignal) => request<{ rooms: RoomSummary[] }>("GET", "/api/rooms", undefined, signal),
     create: (body: CreateRoomRequest) => request<{ room: RoomSummary }>("POST", "/api/rooms", body),
+    settings: (id: number, signal?: AbortSignal) => request<{ room: RoomDetail }>("GET", `/api/rooms/${id}/settings`, undefined, signal),
     update: (id: number, body: UpdateRoomRequest) => request<{ room: RoomDetail }>("PATCH", "/api/rooms/" + id, body),
     remove: (id: number) => request<{ ok: boolean }>("DELETE", "/api/rooms/" + id),
     messages: (id: number, beforeId?: number, limit = 50) =>
       request<RoomMessagesResponse>("GET", "/api/rooms/" + id + "/messages" + query({ beforeId, limit })),
     checkPassword: (id: number, password?: string) =>
       request<{ ok: boolean; required: boolean }>("POST", "/api/rooms/" + id + "/check-password", { password }),
+    kick: (roomId: number, userId: number) => request<{ ok: boolean }>("POST", `/api/rooms/${roomId}/members/${userId}/kick`),
+  },
+
+  roomDirectory: {
+    get: () => request<RoomDirectory>("GET", "/api/room-directory"),
+    create: (parentId: number | null, name: string) => request<{ area: RoomArea }>("POST", "/api/room-directory/areas", { parentId, name }),
+    update: (id: number, name: string, sortOrder: number) => request<{ area: RoomArea }>("PATCH", `/api/room-directory/areas/${id}`, { name, sortOrder }),
+    remove: (id: number) => request<{ ok: boolean }>("DELETE", `/api/room-directory/areas/${id}`),
+    managers: (scope: RoomManagementScope, signal?: AbortSignal) => request<{ managers: RoomManager[] }>("GET", managersPath(scope), undefined, signal),
+    grant: (scope: RoomManagementScope, username: string) => request<{ managers: RoomManager[] }>("POST", managersPath(scope), { username }),
+    revoke: (scope: RoomManagementScope, userId: number) => request<{ managers: RoomManager[] }>("DELETE", `${managersPath(scope)}/${userId}`),
   },
 
   admin: {

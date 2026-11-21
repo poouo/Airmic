@@ -43,13 +43,13 @@ async function joinVoiceRoom(ctx: TestContext, client: TestClient, roomId: numbe
 // 配置与服务端公开信息
 // ============================================================
 
-test("默认未配置 LiveKit：voiceAvailable=false、livekitUrl=null，房间人数继承 SFU 推荐值 100", TEST_OPTIONS, async () => {
+test("默认未配置 LiveKit：voiceAvailable=false 且公开信息不含 SFU 地址，房间人数继承 SFU 推荐值 100", TEST_OPTIONS, async () => {
   const ctx = await createTestContext({ livekitUrl: null, livekitApiKey: null, livekitApiSecret: null });
   try {
     const info = await ctx.newClient().get<ServerInfoBody>("/api/server");
     assert.equal(info.status, 200);
     assert.equal(info.body.server.voiceAvailable, false);
-    assert.equal(info.body.server.livekitUrl, null);
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
     assert.equal(info.body.server.mediaTransport, MEDIA_TRANSPORT);
     assert.equal(info.body.server.mediaTransport, "sfu");
     assert.equal(info.body.server.maxUsersPerRoom, 100);
@@ -68,17 +68,17 @@ test("默认未配置 LiveKit：voiceAvailable=false、livekitUrl=null，房间�
   }
 });
 
-test("LiveKit 环境配置生效：/api/server 暴露连接地址且 voiceAvailable=true（不泄露密钥）", TEST_OPTIONS, async () => {
+test("LiveKit 环境配置生效：voiceAvailable=true 且公开信息不暴露连接地址与密钥", TEST_OPTIONS, async () => {
   const ctx = await createTestContext(LIVEKIT);
   try {
     const info = await ctx.newClient().get<ServerInfoBody>("/api/server");
     assert.equal(info.status, 200);
     assert.equal(info.body.server.voiceAvailable, true);
-    assert.equal(info.body.server.livekitUrl, LIVEKIT.livekitUrl);
     assert.equal(info.body.server.mediaTransport, "sfu");
 
-    // 公开设置绝不能包含 API Key/Secret
+    // 公开设置绝不能包含 SFU 地址与 API Key/Secret（地址只通过令牌接口下发）
     const raw = info.body.server as unknown as Record<string, unknown>;
+    assert.equal(raw.livekitUrl, undefined);
     assert.equal(raw.livekitApiKey, undefined);
     assert.equal(raw.livekitApiSecret, undefined);
 
@@ -101,7 +101,6 @@ test("管理员 PATCH 设置可修改/清空 LiveKit 配置，显式清空优先
     // 初始来自环境变量兜底
     let info = await admin.get<ServerInfoBody>("/api/server");
     assert.equal(info.body.server.voiceAvailable, true);
-    assert.equal(info.body.server.livekitUrl, LIVEKIT.livekitUrl);
 
     // 修改三项配置
     const patched = await admin.patch<{ settings: ServerSettings }>("/api/admin/settings", {
@@ -122,8 +121,8 @@ test("管理员 PATCH 设置可修改/清空 LiveKit 配置，显式清空优先
     });
 
     info = await admin.get<ServerInfoBody>("/api/server");
-    assert.equal(info.body.server.livekitUrl, "ws://127.0.0.1:7881");
     assert.equal(info.body.server.voiceAvailable, true);
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
 
     // 显式清空：即使环境变量里仍有配置，也应该保持"未配置"
     const cleared = await admin.patch<{ settings: ServerSettings }>("/api/admin/settings", {
@@ -139,7 +138,7 @@ test("管理员 PATCH 设置可修改/清空 LiveKit 配置，显式清空优先
 
     info = await admin.get<ServerInfoBody>("/api/server");
     assert.equal(info.body.server.voiceAvailable, false);
-    assert.equal(info.body.server.livekitUrl, null);
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
     assert.equal(ctx.services.settings.isVoiceAvailable(), false);
   } finally {
     await ctx.close();
@@ -279,7 +278,7 @@ test("LiveKit 配置不完整时视为未配置：房间内也无法换取令牌
   try {
     const info = await ctx.newClient().get<ServerInfoBody>("/api/server");
     assert.equal(info.body.server.voiceAvailable, false);
-    assert.equal(info.body.server.livekitUrl, "ws://127.0.0.1:7880");
+    assert.equal((info.body.server as unknown as Record<string, unknown>).livekitUrl, undefined);
     assert.equal(ctx.services.settings.isVoiceAvailable(), false);
 
     const admin = await ctx.registerUser("admin");

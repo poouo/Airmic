@@ -7,6 +7,7 @@ import { AuditService } from "./audit.js";
 import { AuthService } from "./auth.js";
 import { BansService } from "./bans.js";
 import { RoomsService } from "./rooms.js";
+import { RoomDirectoryService } from "./room-directory.js";
 import { SettingsService } from "./settings.js";
 import { UpdateService } from "./update.js";
 import { LogsService } from "./logs.js";
@@ -16,7 +17,8 @@ export function createServices(config: AppConfig): Services {
   const db = new Database(config.databasePath);
   const settings = new SettingsService(db, config);
   const users = new UsersService(db);
-  const rooms = new RoomsService(db, settings);
+  const roomDirectory = new RoomDirectoryService(db);
+  const rooms = new RoomsService(db, settings, roomDirectory);
   const bans = new BansService(db, users);
   const audit = new AuditService(db);
   const auth = new AuthService(db, users, settings, config);
@@ -29,6 +31,7 @@ export function createServices(config: AppConfig): Services {
     settings,
     users,
     rooms,
+    roomDirectory,
     bans,
     audit,
     auth,

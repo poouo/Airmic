@@ -48,6 +48,9 @@ const guestBodySchema = z.object({
   displayName: z.string().trim().min(1, "昵称不能为空").max(24, "昵称最多 24 个字符"),
 });
 
+/** 游客身份创建限流窗口：与 GUEST_RATE_LIMIT（默认 30 次）配合，按 IP 计算 */
+const GUEST_RATE_WINDOW_MS = 10 * 60_000;
+
 /** 游客升级为正式账号：与注册同一套用户名/密码规则，但不需要邀请码 */
 const upgradeBodySchema = registerBodySchema.omit({ inviteCode: true });
 
@@ -156,7 +159,11 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
 
   app.post("/api/auth/guest", async (request: FastifyRequest, reply: FastifyReply): Promise<AuthResponse> => {
     const ip = getClientIp(request);
-    if (!globalRateLimiter.hit("guest:" + ip, 10, 10 * 60_000)) throw tooManyRequests("创建游客身份太频繁，请稍后再试");
+    const guestKey = "guest:" + ip;
+    if (!globalRateLimiter.hit(guestKey, services.config.guestRateLimit, GUEST_RATE_WINDOW_MS)) {
+      const waitSeconds = Math.max(1, Math.ceil(globalRateLimiter.retryAfterMs(guestKey) / 1000));
+      throw tooManyRequests("创建游客身份太频繁，请 " + waitSeconds + " 秒后再试");
+    }
     const settings = services.settings.get();
     if (!settings.guestEnabled) throw forbidden("服务器未开放游客模式");
     const body = parseWith(guestBodySchema, request.body) as GuestLoginRequest;

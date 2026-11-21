@@ -7,19 +7,19 @@ import {
   DoorOpen,
   KeyRound,
   LayoutDashboard,
-  Mic,
   ScrollText,
   Settings,
   Users,
   type LucideIcon,
 } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
-import { Avatar, Badge, Button, Divider } from "@/components/ui";
+import { Avatar, Badge, Button, Divider, Select } from "@/components/ui";
+import AirMicMark from "@/components/brand/AirMicMark";
 import AuditTab from "@/components/admin/AuditTab";
 import BansTab from "@/components/admin/BansTab";
 import LogsTab from "@/components/admin/LogsTab";
 import OverviewTab from "@/components/admin/OverviewTab";
-import RoomsTab from "@/components/admin/RoomsTab";
+import RoomDirectoryManager from "@/components/lobby/RoomDirectoryManager";
 import SettingsTab from "@/components/admin/SettingsTab";
 import SessionsTab from "@/components/admin/SessionsTab";
 import UsersTab from "@/components/admin/UsersTab";
@@ -61,16 +61,14 @@ export default function AdminPage() {
   const active = allowed.find((section) => section.id === activeId) ?? allowed[0];
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-frame flex flex-col overflow-hidden bg-card text-foreground">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-2 sm:gap-3 sm:px-4">
         <Link
           to="/"
           aria-label="返回大厅"
           className="flex items-center rounded-lg px-1 py-1 outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Mic className="h-4 w-4" />
-          </span>
+          <AirMicMark />
         </Link>
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">管理后台 · {active.label}</h1>
@@ -90,28 +88,12 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <div className="app-canvas min-h-0 flex-1 overflow-y-auto app-scroll">
+      <div className="app-canvas app-scroll min-h-0 flex-1 overflow-y-auto scroll-pb-20">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-5 sm:py-6">
           {/* 移动端二级导航 */}
-          <nav className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 shadow-card lg:hidden">
-            {allowed.map((section) => {
-              const Icon = section.icon;
-              const isActive = section.id === active.id;
-              return (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => setActiveId(section.id)}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors",
-                    isActive ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {section.label}
-                </button>
-              );
-            })}
+          <nav aria-label="后台功能" className="lg:hidden">
+            <Select label="管理模块" options={allowed.map((section) => ({ value: section.id, label: section.label }))}
+              value={active.id} onChange={(event) => setActiveId(event.target.value as AdminSection["id"])} />
           </nav>
 
           <div className="flex items-start gap-6">
@@ -129,7 +111,7 @@ export default function AdminPage() {
                       onClick={() => setActiveId(section.id)}
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
-                        isActive ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                        isActive ? "bg-accent font-semibold text-brand" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
                       )}
                     >
                       <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-foreground" : "text-muted-foreground")} />
@@ -159,7 +141,7 @@ export default function AdminPage() {
 
             <main className="min-w-0 flex-1">
               {active.id === "overview" && <OverviewTab />}
-              {active.id === "rooms" && <RoomsTab />}
+              {active.id === "rooms" && <RoomDirectoryManager />}
               {active.id === "users" && <UsersTab />}
               {active.id === "bans" && <BansTab />}
               {active.id === "audit" && <AuditTab />}

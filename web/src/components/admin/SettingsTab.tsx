@@ -8,7 +8,6 @@ import { api, errorMessage } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
 import { useUiStore } from "@/stores/ui";
 import { useAsyncData } from "./useAsyncData";
-import CategoriesEditor from "./CategoriesEditor";
 import UpdateCard from "./UpdateCard";
 import { AdminErrorPanel, AdminLoading, SectionCard } from "./shared";
 
@@ -17,7 +16,6 @@ function cloneSettings(settings: ServerSettings): ServerSettings {
     ...settings,
     defaultAudioSettings: { ...settings.defaultAudioSettings },
     iceServers: settings.iceServers.map((server) => ({ ...server })),
-    roomCategories: [...settings.roomCategories],
   };
 }
 
@@ -36,7 +34,6 @@ function randomInviteCode(): string {
 export default function SettingsTab() {
   const { data, loading, error, reload } = useAsyncData(() => api.admin.settings(), []);
   const [draft, setDraft] = useState<ServerSettings | null>(null);
-  const [categories, setCategories] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [livekitDirty, setLivekitDirty] = useState(false);
@@ -45,7 +42,6 @@ export default function SettingsTab() {
   useEffect(() => {
     if (!data) return;
     setDraft(cloneSettings(data.settings));
-    setCategories([...data.settings.roomCategories]);
     setLivekitDirty(false);
     setFormError(null);
   }, [data]);
@@ -76,7 +72,6 @@ export default function SettingsTab() {
     if (livekitUrl.length > 300) return "LiveKit URL 最多 300 个字符";
     if ((current.livekitApiKey ?? "").trim().length > 200) return "LiveKit API Key 最多 200 个字符";
     if ((current.livekitApiSecret ?? "").trim().length > 300) return "LiveKit API Secret 最多 300 个字符";
-    if (categories.length === 0) return "至少保留一个房间分类";
     return null;
   };
 
@@ -106,7 +101,6 @@ export default function SettingsTab() {
       maxChatLength: draft.maxChatLength,
       maxMessagesPerRoom: draft.maxMessagesPerRoom,
       defaultAudioSettings: draft.defaultAudioSettings,
-      roomCategories: categories,
     };
     if (livekitDirty) {
       // 空字符串表示清除对应配置（服务端会归一化为 null）
@@ -117,7 +111,6 @@ export default function SettingsTab() {
     try {
       const result = await api.admin.updateSettings(payload);
       setDraft(cloneSettings(result.settings));
-      setCategories([...result.settings.roomCategories]);
       setLivekitDirty(false);
       useAppStore.getState().setServer(result.settings);
       useUiStore.getState().toast("服务器设置已保存并实时生效", "success");
@@ -150,7 +143,7 @@ export default function SettingsTab() {
     <div className="space-y-4">
       {formError && <Alert tone="error">{formError}</Alert>}
 
-      <SectionCard title="基本信息" description="服务器名称与公告会展示在登录页和客户端顶栏">
+      <SectionCard title="基本信息">
         <div className="grid gap-3 sm:grid-cols-2">
           <Input label="服务器名称" required value={draft.name} maxLength={60} onChange={(event) => update({ name: event.target.value })} />
           <div className="flex items-end pb-1">
@@ -163,13 +156,13 @@ export default function SettingsTab() {
             rows={3}
             maxLength={500}
             value={draft.motd}
-            hint="支持换行，最多 500 个字符；展示在登录页与大厅欢迎区"
+            hint="最多 500 字，显示在登录页和大厅"
             onChange={(event) => update({ motd: event.target.value })}
           />
         </div>
       </SectionCard>
 
-      <SectionCard title="注册与游客" description="控制新用户如何加入服务器">
+      <SectionCard title="注册与游客">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-3">
             <Select
@@ -202,19 +195,18 @@ export default function SettingsTab() {
             )}
           </div>
           <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-3.5">
-            <Switch label="允许游客登录" description="关闭后游客入口不可用" checked={draft.guestEnabled} onChange={(guestEnabled) => update({ guestEnabled })} />
+            <Switch label="允许游客登录" checked={draft.guestEnabled} onChange={(guestEnabled) => update({ guestEnabled })} />
             <Switch
               label="允许游客创建房间"
-              description="仅对游客角色生效"
               checked={draft.allowGuestRoomCreation}
               onChange={(allowGuestRoomCreation) => update({ allowGuestRoomCreation })}
             />
-            <Switch label="允许游客发送聊天" description="关闭后游客只能收听" checked={draft.allowGuestChat} onChange={(allowGuestChat) => update({ allowGuestChat })} />
+            <Switch label="游客可发消息" checked={draft.allowGuestChat} onChange={(allowGuestChat) => update({ allowGuestChat })} />
           </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="容量与限制" description="服务器总人数、房间数量与消息保留策略">
+      <SectionCard title="容量与限制">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <NumberField label="服务器人数上限" value={draft.maxUsers} min={1} max={10000} hint="1 - 10000" onChange={(maxUsers) => update({ maxUsers })} />
           <NumberField
@@ -222,7 +214,7 @@ export default function SettingsTab() {
             value={draft.maxUsersPerRoom}
             min={1}
             max={500}
-            hint="SFU 中转模式推荐 50 - 100+ 人，最大 500"
+            hint="最多 500 人"
             onChange={(maxUsersPerRoom) => update({ maxUsersPerRoom })}
           />
           <NumberField label="房间数量上限" value={draft.maxRooms} min={0} max={1000} hint="0 表示不限制" onChange={(maxRooms) => update({ maxRooms })} />
@@ -238,20 +230,19 @@ export default function SettingsTab() {
         </div>
       </SectionCard>
 
-      <SectionCard title="功能开关" description="全局开启或关闭创建房间、屏幕共享与文字聊天">
+      <SectionCard title="房间功能">
         <div className="grid gap-3 sm:grid-cols-2">
           <Switch
             label="允许普通用户创建房间"
-            description="管理员/版主始终可以创建"
             checked={draft.allowRoomCreation}
             onChange={(allowRoomCreation) => update({ allowRoomCreation })}
           />
-          <Switch label="允许屏幕共享" description="关闭后房间内无法开启共享" checked={draft.allowScreenShare} onChange={(allowScreenShare) => update({ allowScreenShare })} />
-          <Switch label="允许文字聊天" description="关闭后所有房间禁用聊天" checked={draft.allowTextChat} onChange={(allowTextChat) => update({ allowTextChat })} />
+          <Switch label="允许屏幕共享" checked={draft.allowScreenShare} onChange={(allowScreenShare) => update({ allowScreenShare })} />
+          <Switch label="允许文字聊天" checked={draft.allowTextChat} onChange={(allowTextChat) => update({ allowTextChat })} />
         </div>
       </SectionCard>
 
-      <SectionCard title="语音中转（SFU）" description="所有语音经你自己的 LiveKit 服务器中转，不做客户端 P2P">
+      <SectionCard title="语音中转">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={draft.voiceAvailable ? "good" : "warn"}>
             {draft.voiceAvailable ? <RadioTower className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
@@ -268,7 +259,7 @@ export default function SettingsTab() {
               value={draft.livekitUrl ?? ""}
               maxLength={300}
               placeholder="ws://localhost:7880"
-              hint="ws:// 或 wss:// 地址；客户端将通过该地址连接语音中转服务"
+              hint="支持 ws:// 和 wss://"
               onChange={(event) => updateLivekit({ livekitUrl: event.target.value })}
             />
           </div>
@@ -277,7 +268,6 @@ export default function SettingsTab() {
             value={draft.livekitApiKey ?? ""}
             maxLength={200}
             placeholder="例如：devkey"
-            hint="LiveKit 配置中的 API Key"
             onChange={(event) => updateLivekit({ livekitApiKey: event.target.value })}
           />
           <Input
@@ -287,7 +277,6 @@ export default function SettingsTab() {
             value={draft.livekitApiSecret ?? ""}
             maxLength={300}
             placeholder="LiveKit API Secret"
-            hint="仅保存在服务器，用于签发房间访问令牌"
             rightSlot={
               <button
                 type="button"
@@ -303,30 +292,22 @@ export default function SettingsTab() {
         </div>
 
         <div className="mt-3 space-y-1 text-xs leading-relaxed text-muted-foreground">
-          <p>所有语音经你的 LiveKit 服务器中转；修改后新进入房间生效，已在房间内的用户需重新进入房间。</p>
-          <p>需要自行部署 LiveKit，详见部署文档；LiveKit URL / API Key / API Secret 三项齐全后语音才可用。</p>
-          <p>SFU 中转模式推荐单房间 50 - 100+ 人（当前上限 {draft.maxUsersPerRoom} 人），可在「容量与限制」中调整。</p>
-          {livekitDirty && <p className="text-warning">语音中转配置有未保存的修改。</p>}
+          <p>填齐三项才能通话。修改后请重新加入房间。</p>
         </div>
       </SectionCard>
 
-      <SectionCard title="默认音质" description="新建房间的默认音质，房间可单独覆盖；用户也可在本机设置中覆盖">
+      <SectionCard title="默认音质">
         <AudioSettingsEditor base={DEFAULT_AUDIO_SETTINGS} value={draft.defaultAudioSettings} onChange={(defaultAudioSettings) => update({ defaultAudioSettings })} />
-      </SectionCard>
-
-      <SectionCard title="房间分类" description="大厅与房间表单按分类分组展示">
-        <CategoriesEditor value={categories} onChange={setCategories} />
       </SectionCard>
 
       <UpdateCard />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-5 py-3 shadow-card">
-        <p className="text-xs text-muted-foreground">保存后服务器会向所有在线用户广播新设置。</p>
+      <div className="sticky bottom-0 z-20 flex items-center justify-end gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-popover sm:px-5">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} disabled={saving} onClick={reload}>
-            重新加载
+          <Button variant="outline" className="min-h-11" icon={<RefreshCw className="h-3.5 w-3.5" />} disabled={saving} onClick={reload}>
+            重载
           </Button>
-          <Button size="sm" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={() => void handleSave()}>
+          <Button className="min-h-11" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={() => void handleSave()}>
             保存设置
           </Button>
         </div>

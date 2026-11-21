@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, MessageSquare, Send, X } from "lucide-react";
 import type { ChatMessage, PeerInfo } from "@airmic/shared";
-import { Avatar, Badge, Button, IconButton } from "@/components/ui";
+import { Avatar, Badge, IconButton } from "@/components/ui";
 import { cn, formatClock } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -11,6 +11,7 @@ import { colorForName, ROLE_LABEL, ROLE_TONE, showRoleBadge } from "@/components
 
 export interface ChatPanelProps {
   className?: string;
+  open: boolean;
   /** 关闭/收起聊天面板（桌面折叠、移动端关闭抽屉） */
   onClose?: () => void;
 }
@@ -20,7 +21,7 @@ type TimelineItem =
   | { key: string; createdAt: string; kind: "notice"; text: string; level: "info" | "warn" | "error" };
 
 /** 房间聊天面板：消息 + 系统提示，支持自动滚动、角色徽章与输入限制 */
-export default function ChatPanel({ className, onClose }: ChatPanelProps) {
+export default function ChatPanel({ className, open, onClose }: ChatPanelProps) {
   const messages = useRoomStore((state) => state.messages);
   const notices = useRoomStore((state) => state.notices);
   const sendChat = useRoomStore((state) => state.sendChat);
@@ -61,14 +62,14 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
 
   useEffect(() => {
     const element = listRef.current;
-    if (!element) return;
+    if (!element || !open) return;
     if (stickRef.current) {
       element.scrollTop = element.scrollHeight;
       setHasNew(false);
     } else if (timeline.length > 0) {
       setHasNew(true);
     }
-  }, [timeline.length]);
+  }, [open, timeline.length]);
 
   const scrollToBottom = () => {
     const element = listRef.current;
@@ -87,7 +88,7 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
     }
     const sent = sendChat(content);
     if (!sent) {
-      useUiStore.getState().toast("消息发送失败，实时连接未建立", "error");
+      useUiStore.getState().toast("连接断开，消息未发送", "error");
       return;
     }
     setDraft("");
@@ -101,12 +102,9 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
         <div className="flex min-w-0 items-center gap-2">
           <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h2 className="truncate text-sm font-semibold tracking-tight text-foreground">房间聊天</h2>
-          <span className="tabular rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {messages.length > 99 ? "99+" : messages.length}
-          </span>
         </div>
         {onClose && (
-          <IconButton label="收起聊天" size="sm" onClick={onClose} className="-mr-1">
+          <IconButton label="收起聊天" onClick={onClose} className="-mr-1 h-10 w-10">
             <X className="h-4 w-4" />
           </IconButton>
         )}
@@ -127,7 +125,7 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
                 <MessageSquare className="h-5 w-5" />
               </span>
-              <p className="text-xs text-muted-foreground">还没有消息，和队友打个招呼吧</p>
+              <p className="text-sm text-muted-foreground">暂无消息</p>
             </div>
           )}
           {timeline.map((item) =>
@@ -157,10 +155,10 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
       <div className="shrink-0 border-t border-border p-2.5">
         {chatDisabled ? (
           <p className="rounded-field bg-muted px-3 py-2.5 text-center text-[11px] text-muted-foreground">
-            {server && !server.allowTextChat ? "服务器已关闭文字聊天" : "当前无法发送消息"}
+            文字聊天已关闭
           </p>
         ) : (
-          <div className="rounded-field border border-input bg-card transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
+          <div className="flex items-end gap-2">
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -172,23 +170,14 @@ export default function ChatPanel({ className, onClose }: ChatPanelProps) {
               }}
               maxLength={maxLength}
               rows={1}
-              placeholder="发送消息…（Enter 发送，Shift+Enter 换行）"
-              className="max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+              aria-label="消息内容"
+              enterKeyHint="send"
+              placeholder="输入消息…"
+              className="min-h-11 min-w-0 flex-1 resize-none rounded-field border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/15"
             />
-            <div className="flex items-center justify-between gap-2 px-2 pb-1.5">
-              <span className={cn("tabular text-[10px]", draft.length > maxLength * 0.9 ? "text-warning" : "text-muted-foreground")}>
-                {draft.length > 0 ? draft.length + "/" + maxLength : ""}
-              </span>
-              <Button
-                size="sm"
-                onClick={submit}
-                disabled={!draft.trim()}
-                aria-label="发送消息"
-                icon={<Send className="h-3.5 w-3.5" />}
-              >
-                发送
-              </Button>
-            </div>
+            <IconButton label="发送消息" onClick={submit} disabled={!draft.trim()} className="h-11 w-11 bg-primary text-primary-foreground hover:bg-primary/85 hover:text-primary-foreground">
+              <Send className="h-4 w-4" />
+            </IconButton>
           </div>
         )}
       </div>

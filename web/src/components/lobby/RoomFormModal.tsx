@@ -1,10 +1,9 @@
 import { useState } from "react";
 import type { AudioSettings, CreateRoomRequest, RoomSummary, UpdateRoomRequest } from "@airmic/shared";
-import { diffAudioSettings } from "@airmic/shared";
+import { canManageArea, diffAudioSettings } from "@airmic/shared";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -20,9 +19,11 @@ import { ROOM_ICONS } from "@/components/room/roomIcons";
 import { api, errorMessage } from "@/lib/api";
 import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
+import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 import AudioSettingsEditor from "./AudioSettingsEditor";
-import { categoryOptions, type RoomFormInitial } from "./roomForm";
+import { roomCreationAreas } from "./access";
+import type { RoomFormInitial } from "./roomForm";
 
 export interface RoomFormModalProps {
   initial: RoomFormInitial;
@@ -37,13 +38,15 @@ export interface RoomFormModalProps {
 
 export default function RoomFormModal({ initial, audioBase, canDelete = false, onClose, onSaved, onDeleted }: RoomFormModalProps) {
   const server = useAppStore((state) => state.server);
+  const directory = useAppStore((state) => state.directory);
+  const user = useAuthStore((state) => state.user);
   const isEdit = initial.id !== null;
 
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
-  const [channel, setChannel] = useState(initial.channel);
+  const [areaId, setAreaId] = useState(initial.areaId);
   const [icon, setIcon] = useState(initial.icon);
-  const [category, setCategory] = useState(initial.category);
+  const [sortOrder, setSortOrder] = useState(String(initial.sortOrder ?? ""));
   const [maxUsers, setMaxUsers] = useState(String(initial.maxUsers));
   const [maxUsersDirty, setMaxUsersDirty] = useState(false);
   const [locked, setLocked] = useState(initial.locked);
@@ -58,7 +61,14 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const categories = categoryOptions(server?.roomCategories ?? [], initial.category);
+  const areas = directory?.areas ?? [];
+  const destinations = isEdit
+    ? areas.filter((area) => area.parentId !== null && (area.id === initial.areaId || (user && directory && canManageArea(user, area, directory.grants))))
+    : roomCreationAreas(user, server, directory);
+  const areaOptions = destinations.map((area) => ({
+    value: String(area.id),
+    label: `${areas.find((root) => root.id === area.parentId)?.name ?? ""} / ${area.name}`,
+  }));
   const roomLimit = server?.maxUsersPerRoom ?? 0;
   const screenShareAllowed = server?.allowScreenShare ?? true;
 
@@ -66,14 +76,15 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     const trimmed = name.trim();
     if (!trimmed) return "请填写房间名称";
     if (Array.from(trimmed).length > 40) return "房间名称最多 40 个字符";
-    if (Array.from(channel.trim()).length > 20) return "频道名称最多 20 个字符";
+    if (!destinations.some((area) => area.id === areaId)) return "请选择有效的子区";
     if (Array.from(description).length > 200) return "房间简介最多 200 个字符";
     if (requirePassword) {
       if (!password && !initial.hasPassword) return "请设置房间密码（至少 4 位）";
       if (password && (password.length < 4 || password.length > 64)) return "房间密码需为 4 - 64 位";
     }
     const limit = Number(maxUsers);
-    if (!Number.isFinite(limit) || limit < 0 || limit > 100) return "人数上限需在 0 - 100 之间（0 表示跟随服务器）";
+    if (!Number.isInteger(limit) || limit < 0 || limit > 500) return "人数上限需为 0 到 500 的整数";
+    if (sortOrder && (!Number.isInteger(Number(sortOrder)) || Math.abs(Number(sortOrder)) > 100000)) return "排序值需为 -100000 到 100000 的整数";
     return null;
   };
 
@@ -88,16 +99,16 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     const payload: CreateRoomRequest = {
       name: name.trim(),
       description: description.trim(),
-      channel: channel.trim(),
       icon,
-      category,
       locked,
       screenShareEnabled,
     };
+    if (!isEdit || areaId !== initial.areaId) payload.areaId = areaId;
+    if (sortOrder !== "" && Number(sortOrder) !== initial.sortOrder) payload.sortOrder = Number(sortOrder);
     // 编辑时只有用户主动修改人数上限才提交，避免把“继承服务器上限”变成固定值
     if (!isEdit || maxUsersDirty) payload.maxUsers = Math.trunc(Number(maxUsers));
     // 创建时必须提交（null = 跟随服务器默认）；编辑时未改动音质则不提交，保留房间原有覆盖
-    if (initial.audioKnown && (!isEdit || audioDirty)) {
+    if (!isEdit || audioDirty) {
       payload.audioOverride = followDefault ? null : diffAudioSettings(audioBase, audio);
     }
     if (requirePassword) {
@@ -129,7 +140,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     if (initial.id === null) return;
     const confirmed = await useUiStore.getState().confirm({
       title: "删除房间",
-      message: "确定删除房间「" + initial.name + "」吗？房间内的用户会被移出，聊天记录也会一并删除，此操作不可撤销。",
+      message: `删除「${initial.name}」会移出所有成员并清除聊天记录。`,
       confirmText: "删除房间",
       danger: true,
     });
@@ -154,10 +165,9 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
       open
       onClose={submitting || deleting ? () => undefined : onClose}
       title={isEdit ? "编辑房间" : "创建房间"}
-      subtitle={isEdit ? "修改房间信息、权限与音质；配置会实时同步给房间内用户" : "新房间会立即出现在大厅中，可随时再编辑"}
       size="2xl"
       footer={
-        <div className="flex w-full items-center gap-2">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
           {isEdit && canDelete && (
             <Button
               variant="ghost"
@@ -187,56 +197,46 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
             <CardHeader title="基本信息" />
             <CardContent className="space-y-3">
               <Input label="房间名称" required value={name} maxLength={40} placeholder="例如：周末开黑房" onChange={(event) => setName(event.target.value)} />
-              <Input
-                label="频道"
-                value={channel}
-                maxLength={20}
-                placeholder="默认频道"
-                hint="一级分组，例如「游戏频道」；输入已有的频道名即可复用"
-                onChange={(event) => setChannel(event.target.value)}
-              />
               <Select
-                label="游戏"
-                hint="频道下的二级分组，例如「开黑房间」"
-                options={categories.map((item) => ({ value: item, label: item }))}
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
+                label="所属子区"
+                options={areaOptions}
+                value={String(areaId)}
+                disabled={areaOptions.length < 2}
+                onChange={(event) => setAreaId(Number(event.target.value))}
               />
-              <FieldShell label="房间图标" hint="选一个代表房间的小图标，会显示在导航与房间卡片上">
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="房间图标">
-                  {ROOM_ICONS.map((item) => {
-                    const selected = item.key === icon;
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        aria-label={item.label}
-                        aria-pressed={selected}
-                        title={item.label}
-                        onClick={() => setIcon(item.key)}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-field border outline-none transition-colors",
-                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                          selected
-                            ? "border-brand/50 bg-brand/10 text-brand ring-1 ring-brand/30"
-                            : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                      >
-                        <item.Icon className="h-4 w-4" />
-                      </button>
-                    );
-                  })}
+              <Textarea label="房间简介" rows={2} maxLength={200} value={description} placeholder="选填" onChange={(event) => setDescription(event.target.value)} />
+              <details className="rounded-xl border border-border px-3">
+                <summary className="cursor-pointer py-2.5 text-sm font-medium">排序和图标</summary>
+                <div className="space-y-3 pb-3">
+                  <Input label="排序值" type="number" min={-100000} max={100000} value={sortOrder} hint="数字越小越靠前" onChange={(event) => setSortOrder(event.target.value)} />
+                  <FieldShell label="房间图标">
+                    <div className="flex flex-wrap gap-1.5" role="group" aria-label="房间图标">
+                      {ROOM_ICONS.map((item) => {
+                        const selected = item.key === icon;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            aria-label={item.label}
+                            aria-pressed={selected}
+                            title={item.label}
+                            onClick={() => setIcon(item.key)}
+                            className={cn(
+                              "flex h-10 w-10 items-center justify-center rounded-field border outline-none transition-colors sm:h-8 sm:w-8",
+                              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              selected
+                                ? "border-brand/50 bg-brand/10 text-brand ring-1 ring-brand/30"
+                                : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                            )}
+                          >
+                            <item.Icon className="h-4 w-4" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </FieldShell>
                 </div>
-              </FieldShell>
-              <Textarea
-                label="房间简介"
-                hint="选填，最多 200 个字符"
-                rows={2}
-                maxLength={200}
-                value={description}
-                placeholder="介绍一下这个房间…"
-                onChange={(event) => setDescription(event.target.value)}
-              />
+              </details>
             </CardContent>
           </Card>
 
@@ -247,19 +247,19 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                 label="人数上限"
                 type="number"
                 min={0}
-                max={100}
+                max={500}
                 value={maxUsers}
-                hint={"0 = 跟随服务器上限" + (roomLimit > 0 ? "（当前服务器上限 " + roomLimit + " 人）" : "") + "；不修改则保持原有设置"}
+                hint={`0 = 服务器上限${roomLimit > 0 ? `（${roomLimit} 人）` : ""}`}
                 onChange={(event) => {
                   setMaxUsers(event.target.value);
                   setMaxUsersDirty(true);
                 }}
               />
               <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
-                <Switch label="房间锁定" description="锁定后普通用户无法加入" checked={locked} onChange={setLocked} />
+                <Switch label="锁定房间" description="锁定后禁止加入" checked={locked} onChange={setLocked} />
                 <Switch
                   label="允许屏幕共享"
-                  description={screenShareAllowed ? "房间内同时仅允许一人共享" : "服务器已全局关闭屏幕共享"}
+                  description={screenShareAllowed ? undefined : "服务器已关闭共享"}
                   checked={screenShareEnabled && screenShareAllowed}
                   disabled={!screenShareAllowed}
                   onChange={setScreenShareEnabled}
@@ -269,7 +269,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
               <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
                 <Switch
                   label="需要密码"
-                  description={isEdit && initial.hasPassword ? "关闭开关并保存将清除当前密码" : "开启后用户进入房间需输入密码"}
+                  description={isEdit && initial.hasPassword ? "关闭后清除密码" : undefined}
                   checked={requirePassword}
                   onChange={(checked) => {
                     setRequirePassword(checked);
@@ -283,8 +283,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                     value={password}
                     maxLength={64}
                     autoComplete="new-password"
-                    placeholder={isEdit && initial.hasPassword ? "留空保持当前密码" : "至少 4 位"}
-                    hint={isEdit && initial.hasPassword ? "留空表示不修改密码" : "4 - 64 位，房间内用户需输入此密码"}
+                    placeholder={isEdit && initial.hasPassword ? "留空保持密码" : "至少 4 位"}
                     rightSlot={
                       <button
                         type="button"
@@ -303,10 +302,9 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
           </Card>
         </div>
 
-        <Card>
-          <CardHeader title="音质设置" action={!initial.audioKnown ? <Badge tone="warn">需要服务器管理权限才能编辑音质</Badge> : undefined} />
-          <CardContent>
-            {initial.audioKnown ? (
+        <details className="rounded-xl border border-border bg-card px-4">
+          <summary className="cursor-pointer py-3 text-sm font-medium">音质设置</summary>
+          <div className="pb-4">
               <AudioSettingsEditor
                 base={audioBase}
                 value={audio}
@@ -320,13 +318,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                   setAudioDirty(true);
                 }}
               />
-            ) : (
-              <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                当前账号可以编辑房间的基础信息、密码与人数，但修改音质需要「服务器管理」权限。保存时不会改动房间已有的音质配置。
-              </p>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       </div>
     </Modal>
   );

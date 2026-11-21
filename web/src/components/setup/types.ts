@@ -26,14 +26,13 @@ export interface SetupFormState {
 export interface SetupStepInfo {
   id: "server" | "admin" | "voice" | "confirm";
   title: string;
-  description: string;
 }
 
 export const SETUP_STEPS: SetupStepInfo[] = [
-  { id: "server", title: "服务器信息", description: "服务器名称、公告与注册策略" },
-  { id: "admin", title: "管理员账号", description: "创建第一个管理员账号" },
-  { id: "voice", title: "语音中转与音质", description: "LiveKit SFU 与默认音质" },
-  { id: "confirm", title: "确认并完成", description: "检查配置并完成初始化" },
+  { id: "server", title: "服务器" },
+  { id: "admin", title: "管理员" },
+  { id: "voice", title: "语音" },
+  { id: "confirm", title: "确认" },
 ];
 
 export const REGISTRATION_OPTIONS: { value: RegistrationMode; label: string }[] = [
@@ -61,7 +60,7 @@ export function createInitialForm(status: SetupStatusResponse): SetupFormState {
     displayName: "",
     password: "",
     confirmPassword: "",
-    livekitUrl: server.livekitUrl ?? "",
+    livekitUrl: "",
     livekitApiKey: "",
     livekitApiSecret: "",
     maxUsersPerRoom: String(SFU_RECOMMENDED_ROOM_USERS),

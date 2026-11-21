@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>AirMic</title>
+  <defs>
+    <linearGradient id="airmic-indigo" x1="8" y1="4" x2="56" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6358ed"/>
+      <stop offset="1" stop-color="#3530a3"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#airmic-indigo)"/>
+  <rect x=".75" y=".75" width="62.5" height="62.5" rx="16.25" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="1.5"/>
+  <path d="M16 46.5 29.4 17.8a2.85 2.85 0 0 1 5.2 0L48 46.5" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 36.5h3.6l2.5-5.4 3.7 10.1 2.4-4.7H40" fill="none" stroke="#8ff4da" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

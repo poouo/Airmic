@@ -1,8 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Permission } from "@airmic/shared";
 import { ConfirmDialog, FullScreenLoader, ToastHost } from "@/components/ui";
 import AppLayout from "@/components/layout/AppLayout";
+import RoomDirectoryManager from "@/components/lobby/RoomDirectoryManager";
 import UpgradeAccountModal from "@/components/auth/UpgradeAccountModal";
 import ProfileModal from "@/components/profile/ProfileModal";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -12,8 +13,10 @@ import LobbyPage from "@/pages/LobbyPage";
 import RoomPage from "@/pages/RoomPage";
 import SetupPage from "@/pages/SetupPage";
 import { initRealtime } from "@/lib/events";
+import { syncVisualViewport } from "@/lib/viewport";
 import { useAppStore } from "@/stores/app";
-import { shouldAutoGuest, useAuthStore } from "@/stores/auth";
+import { useRoomStore } from "@/stores/room";
+import { blockAutoGuest, shouldAutoGuest, useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 
 function RequireAuth({ children, adminOnly = false }: { children: ReactNode; adminOnly?: boolean }) {
@@ -56,6 +59,16 @@ function AppRoutes() {
   const bootstrapped = useAppStore((state) => state.bootstrapped);
   const autoGuestRef = useRef(false);
   const location = useLocation();
+  const previousPath = useRef(location.pathname);
+
+  useEffect(() => {
+    const leftRoomPage = matchPath("/room/:roomId", previousPath.current) && !matchPath("/room/:roomId", location.pathname);
+    previousPath.current = location.pathname;
+    if (leftRoomPage) {
+      const room = useRoomStore.getState();
+      if (room.snapshot || room.joining) room.leaveRoom();
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     document.title = serverName ? serverName + " · AirMic" : "AirMic · 网页语音开黑";
@@ -71,7 +84,8 @@ function AppRoutes() {
     if (!shouldAutoGuest()) return;
     autoGuestRef.current = true;
     void useAuthStore.getState().enterAsGuest().catch(() => {
-      /* 游客创建被限流/关闭时，退回登录页由用户手动处理 */
+      /* 游客创建失败（限流/关闭/网络异常）时不再自动重试，改由登录页手动处理 */
+      blockAutoGuest();
     });
   }, [bootstrapped, setupRequired, status, location.pathname, server]);
 
@@ -96,6 +110,7 @@ function AppRoutes() {
       >
         <Route index element={<LobbyPage />} />
         <Route path="room/:roomId" element={<RoomPage />} />
+        <Route path="rooms/manage" element={<div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8"><RoomDirectoryManager /></div>} />
       </Route>
       <Route
         path="/admin"
@@ -113,6 +128,8 @@ function AppRoutes() {
 export default function App() {
   const status = useAuthStore((state) => state.status);
 
+  useEffect(syncVisualViewport, []);
+
   useEffect(() => {
     initRealtime();
     void useAppStore.getState().loadServerInfo();
@@ -121,7 +138,10 @@ export default function App() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      useAppStore.getState().connectSocket();
+      const app = useAppStore.getState();
+      void app.refreshDirectory();
+      void app.refreshRooms();
+      app.connectSocket();
     } else if (status === "anonymous") {
       useAppStore.getState().disconnectSocket();
     }

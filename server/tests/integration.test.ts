@@ -101,6 +101,24 @@ test("游客模式与限制", async () => {
   }
 });
 
+test("游客创建限流：超过限额返回 429 并提示等待秒数", async () => {
+  const ctx = await createTestContext({ guestRateLimit: 3 });
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      const created = await ctx.newClient().guest("游客" + index);
+      assert.equal(created.status, 200, JSON.stringify(created.body));
+    }
+    const limited = await ctx.newClient().post<{ error: { code: string; message: string } }>("/api/auth/guest", {
+      displayName: "游客超额",
+    });
+    assert.equal(limited.status, 429);
+    assert.equal(limited.body.error.code, "rate_limited");
+    assert.match(limited.body.error.message, /秒后再试/);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("房间 CRUD、密码与消息接口", async () => {
   const ctx = await createTestContext();
   try {

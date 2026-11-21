@@ -198,8 +198,10 @@ export interface ChangePasswordRequest {
 export interface CreateRoomRequest {
   name: string;
   description?: string;
+  areaId?: number;
+  /** 旧客户端可使用已有的子区名称，推荐传 areaId */
   category?: string;
-  /** 一级分组（频道）；缺省为“默认频道” */
+  /** 旧客户端可用一级分区名称限定查找范围 */
   channel?: string;
   /** 房间图标 key；缺省为 gamepad */
   icon?: string;

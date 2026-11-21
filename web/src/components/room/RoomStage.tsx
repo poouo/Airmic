@@ -108,24 +108,23 @@ function InviteHint() {
     if (clipboard && typeof clipboard.writeText === "function") {
       void clipboard
         .writeText(text)
-        .then(() => useUiStore.getState().toast("房间链接已复制，发给队友即可加入", "success"))
+        .then(() => useUiStore.getState().toast("已复制房间链接", "success"))
         .catch(() => useUiStore.getState().toast("复制失败，请手动复制地址栏链接", "warning"));
       return;
     }
-    useUiStore.getState().toast("请手动复制地址栏链接分享给队友", "info");
+    useUiStore.getState().toast("可从地址栏复制链接", "info");
   };
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center">
+    <div className="flex flex-wrap items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card px-3 py-3">
       <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
         <UserPlus className="h-5 w-5" />
       </div>
       <div>
         <p className="text-sm font-medium text-foreground">房间里只有你</p>
-        <p className="mt-1 text-xs text-muted-foreground">把房间链接分享给队友，等他们加入后会自动连接语音</p>
       </div>
       <Button size="sm" variant="secondary" icon={<Share2 className="h-3.5 w-3.5" />} onClick={copyLink}>
-        复制房间链接
+        复制邀请链接
       </Button>
     </div>
   );

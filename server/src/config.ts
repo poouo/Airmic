@@ -60,6 +60,8 @@ export interface AppConfig {
   logRetentionDays: number;
   userSessionTtlDays: number;
   guestSessionTtlHours: number;
+  /** 游客身份创建限流：同一 IP 在 10 分钟内最多可创建的游客账号数 */
+  guestRateLimit: number;
 }
 
 function readFileIfExists(filePath: string): string | null {
@@ -97,6 +99,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logRetentionDays: Math.min(30, Math.max(1, Number(process.env.LOG_RETENTION_DAYS ?? 3) || 3)),
     userSessionTtlDays: Number(process.env.USER_SESSION_TTL_DAYS ?? 30),
     guestSessionTtlHours: Number(process.env.GUEST_SESSION_TTL_HOURS ?? 24),
+    guestRateLimit: Math.min(500, Math.max(1, Math.floor(Number(process.env.GUEST_RATE_LIMIT ?? 30) || 30))),
   };
   return { ...config, ...overrides };
 }

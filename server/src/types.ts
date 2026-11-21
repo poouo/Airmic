@@ -5,6 +5,7 @@ import type { AuditService } from "./services/audit.js";
 import type { AuthService } from "./services/auth.js";
 import type { BansService } from "./services/bans.js";
 import type { RoomsService } from "./services/rooms.js";
+import type { RoomDirectoryService } from "./services/room-directory.js";
 import type { SettingsService } from "./services/settings.js";
 import type { UpdateService } from "./services/update.js";
 import type { LogsService } from "./services/logs.js";
@@ -22,6 +23,7 @@ export interface Services {
   settings: SettingsService;
   users: UsersService;
   rooms: RoomsService;
+  roomDirectory: RoomDirectoryService;
   bans: BansService;
   audit: AuditService;
   auth: AuthService;

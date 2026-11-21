@@ -38,6 +38,7 @@ export function initRealtime(): void {
     const app = useAppStore.getState();
     app.setServer(message.server);
     app.setRooms(message.rooms);
+    if (message.directory) app.setDirectory(message.directory);
     app.setOnlineUsers(message.onlineUsers);
     useAuthStore.getState().setUser(message.user);
 
@@ -52,6 +53,10 @@ export function initRealtime(): void {
 
   socket.on("rooms", (message) => {
     useAppStore.getState().setRooms(message.rooms);
+  });
+
+  socket.on("room_directory_changed", () => {
+    void useAppStore.getState().refreshDirectory();
   });
 
   socket.on("online_users", (message) => {

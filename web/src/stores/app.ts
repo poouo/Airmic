@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { OnlineUser, RoomSummary, ServerSettingsPublic } from "@airmic/shared";
-import { api } from "../lib/api";
+import type { OnlineUser, RoomArea, RoomDirectory, RoomSummary, ServerSettingsPublic } from "@airmic/shared";
+import { api, errorMessage } from "../lib/api";
 import { socket } from "../lib/ws";
 import type { SocketStatus } from "../lib/ws";
 
@@ -8,6 +8,8 @@ interface AppState {
   server: ServerSettingsPublic | null;
   setupRequired: boolean;
   rooms: RoomSummary[];
+  directory: RoomDirectory | null;
+  directoryError: string | null;
   onlineUsers: OnlineUser[];
   connection: SocketStatus;
   bootstrapped: boolean;
@@ -16,6 +18,8 @@ interface AppState {
   connectSocket: () => void;
   disconnectSocket: () => void;
   refreshRooms: () => Promise<void>;
+  refreshDirectory: () => Promise<void>;
+  setDirectory: (directory: RoomDirectory) => void;
   setConnection: (status: SocketStatus) => void;
   setServer: (server: ServerSettingsPublic) => void;
   setRooms: (rooms: RoomSummary[]) => void;
@@ -25,10 +29,14 @@ interface AppState {
   onlineCountForRoom: (roomId: number) => number;
 }
 
+let directoryRequest = 0;
+
 export const useAppStore = create<AppState>((set, get) => ({
   server: null,
   setupRequired: false,
   rooms: [],
+  directory: null,
+  directoryError: null,
   onlineUsers: [],
   connection: "idle",
   bootstrapped: false,
@@ -53,6 +61,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   disconnectSocket() {
     socket.disconnect();
+    directoryRequest++;
+    set({ directory: null, directoryError: null, rooms: [] });
+  },
+
+  async refreshDirectory() {
+    const request = ++directoryRequest;
+    try {
+      const directory = await api.roomDirectory.get();
+      if (request === directoryRequest) set({ directory, directoryError: null });
+    } catch (error) {
+      if (request === directoryRequest) set({ directoryError: errorMessage(error) });
+    }
+  },
+
+  setDirectory(directory) {
+    directoryRequest++;
+    set({ directory, directoryError: null });
   },
 
   async refreshRooms() {
@@ -99,55 +124,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
-export function groupRoomsByCategory(rooms: RoomSummary[]): { category: string; rooms: RoomSummary[] }[] {
-  const map = new Map<string, RoomSummary[]>();
+export function groupRoomDirectory(areas: RoomArea[], rooms: RoomSummary[]) {
+  const byArea = new Map<number, RoomSummary[]>();
   for (const room of rooms) {
-    const category = room.category || "开黑房间";
-    const list = map.get(category);
+    const list = byArea.get(room.areaId);
     if (list) list.push(room);
-    else map.set(category, [room]);
+    else byArea.set(room.areaId, [room]);
   }
-  return [...map.entries()]
-    .map(([category, list]) => ({
-      category,
-      rooms: [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
-    }))
-    .sort((a, b) => a.category.localeCompare(b.category, "zh-CN"));
-}
-
-export interface RoomGameGroup {
-  category: string;
-  rooms: RoomSummary[];
-}
-
-export interface RoomChannelGroup {
-  channel: string;
-  games: RoomGameGroup[];
-}
-
-/**
- * 三级导航分组：频道（channel）→ 游戏（category）→ 房间。
- * 频道、游戏均按房间列表中的出现顺序分组，组内按 sortOrder / id 排序。
- */
-export function groupRoomsByChannel(rooms: RoomSummary[]): RoomChannelGroup[] {
-  const channelMap = new Map<string, Map<string, RoomSummary[]>>();
-  for (const room of rooms) {
-    const channel = room.channel || "默认频道";
-    const category = room.category || "开黑房间";
-    let gameMap = channelMap.get(channel);
-    if (!gameMap) {
-      gameMap = new Map<string, RoomSummary[]>();
-      channelMap.set(channel, gameMap);
-    }
-    const list = gameMap.get(category);
-    if (list) list.push(room);
-    else gameMap.set(category, [room]);
-  }
-  return [...channelMap.entries()].map(([channel, gameMap]) => ({
-    channel,
-    games: [...gameMap.entries()].map(([category, list]) => ({
-      category,
-      rooms: [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
+  return areas.filter((area) => area.parentId === null).map((area) => ({
+    area,
+    children: areas.filter((child) => child.parentId === area.id).map((child) => ({
+      area: child,
+      rooms: (byArea.get(child.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
     })),
   }));
 }

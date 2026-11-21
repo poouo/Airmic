@@ -113,7 +113,6 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
       open
       onClose={onClose}
       title="个人资料"
-      subtitle="修改昵称、头像与状态，或更新账号密码"
       size="lg"
       footer={
         <>
@@ -248,7 +247,7 @@ function ProfileModalBody({ user, setUser, onClose }: { user: UserSelf; setUser:
                 />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs leading-relaxed text-muted-foreground">修改成功后，其他设备上的登录状态将被退出。</p>
+                <p className="text-xs text-muted-foreground">改密后，其他设备需重新登录。</p>
                 <Button variant="secondary" size="sm" loading={savingPassword} onClick={() => void changePassword()}>
                   修改密码
                 </Button>

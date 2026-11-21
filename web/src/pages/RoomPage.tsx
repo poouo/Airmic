@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { HeadphoneOff, Headphones, Mic, MicOff, Volume2, WifiOff } from "lucide-react";
+import { Volume2, WifiOff } from "lucide-react";
 import type { PeerInfo, PeerStatePatch, Role, UserSelf } from "@airmic/shared";
+import { canManageRoomScope } from "@airmic/shared";
 import ChatPanel from "@/components/chat/ChatPanel";
+import { canEditRoom } from "@/components/lobby/access";
+import RoomEditor from "@/components/lobby/RoomEditor";
 import { JoinGate } from "@/components/room/JoinGate";
 import { RoomControls } from "@/components/room/RoomControls";
 import { RoomHeader } from "@/components/room/RoomHeader";
+import RoomMembersModal from "@/components/room/RoomMembersModal";
 import { RoomStage } from "@/components/room/RoomStage";
 import type { RoomMember } from "@/components/room/types";
 import { playJoinSound, playLeaveSound } from "@/components/room/sounds";
 import { useLocalSpeaking, usePeerStats, useScreenStreams, useVoiceState } from "@/components/room/useVoice";
 import { socket } from "@/lib/ws";
+import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useRoomStore } from "@/stores/room";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import { voice } from "@/voice/engine";
-import { MASTER_VOLUME_KEY } from "@/voice/engine";
 import type { VoiceStateSnapshot } from "@/voice/engine";
 
 const ROLE_RANK: Record<Role, number> = { admin: 0, moderator: 1, user: 2, guest: 3 };
@@ -40,19 +44,19 @@ export default function RoomPage() {
   const server = useAppStore((state) => state.server);
   const connection = useAppStore((state) => state.connection);
   const rooms = useAppStore((state) => state.rooms);
+  const directory = useAppStore((state) => state.directory);
   const selfState = useVoiceState();
   const localSpeaking = useLocalSpeaking();
   const peerStats = usePeerStats();
   const screenStreams = useScreenStreams();
   const perUserVolume = useSettingsStore((state) => state.perUserVolume ?? {});
-  /** 手机端快捷条用的主音量（0-200，100 为原始音量） */
-  const masterVolume = perUserVolume[MASTER_VOLUME_KEY] ?? 100;
   const pttEnabled = useSettingsStore((state) => state.pttEnabled);
   const pttKey = useSettingsStore((state) => state.pttKey);
 
-  const [chatOpen, setChatOpen] = useState(true);
-  const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [shareBusy, setShareBusy] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
+  const [managingMembersIn, setManagingMembersIn] = useState<number | null>(null);
 
   const room = snapshot !== null && snapshot.room.id === roomId ? snapshot.room : null;
   const inRoom = room !== null;
@@ -66,31 +70,22 @@ export default function RoomPage() {
     }
     const state = useRoomStore.getState();
     if (state.snapshot?.room.id === roomId) return;
-    if (state.joining) return;
     // 已经发起过同一房间的加入请求（例如大厅带密码加入后立即跳转），等待 room_joined 即可
     if (state.lastJoin?.roomId === roomId) return;
     state.joinRoom(roomId);
   }, [navigate, roomId, roomIdValid]);
 
   // ============ 被踢/房间被删除：快照变空后返回大厅 ============
-  const hadRoomRef = useRef(false);
+  const joinedRoomRef = useRef<number | null>(null);
   useEffect(() => {
     if (inRoom) {
-      hadRoomRef.current = true;
+      joinedRoomRef.current = roomId;
       return;
     }
-    if (!hadRoomRef.current) return;
-    hadRoomRef.current = false;
+    if (joinedRoomRef.current !== roomId || joining) return;
+    joinedRoomRef.current = null;
     navigate("/", { replace: true });
-  }, [inRoom, navigate]);
-
-  // 页面卸载时离开房间（语音清理由 events.ts 的 room_left 负责）
-  useEffect(() => {
-    return () => {
-      const state = useRoomStore.getState();
-      if (state.snapshot?.room.id === roomId) state.leaveRoom();
-    };
-  }, [roomId]);
+  }, [inRoom, joining, navigate, roomId]);
 
   // ============ 状态上报（节流 ≤5 次/秒） ============
   const stateQueueRef = useRef<PeerStatePatch>({});
@@ -218,6 +213,7 @@ export default function RoomPage() {
     () =>
       voice.on("error", (payload) => {
         if (payload.code === "screen_share_cancelled") return;
+        if (payload.code === "voice_unavailable" && useAppStore.getState().server?.voiceAvailable === false) return;
         const type =
           payload.code.startsWith("screen_share") || payload.code === "mic_device_fallback" ? "warning" : "error";
         useUiStore.getState().toast(payload.message, type);
@@ -300,7 +296,7 @@ export default function RoomPage() {
 
   const handleToggleMic = useCallback(() => {
     if (selfState.forceMuted) {
-      useUiStore.getState().toast("你已被管理员强制静音，无法开启麦克风", "warning");
+      useUiStore.getState().toast("已被管理员静音", "warning");
       return;
     }
     // 已关闭或没有可用麦克风时点击 = 开启/重试，否则 = 静音
@@ -316,7 +312,7 @@ export default function RoomPage() {
   const handleToggleScreenShare = useCallback(async () => {
     if (shareBusy) return;
     if (!canShare && !selfState.screenSharing) {
-      useUiStore.getState().toast("当前无法共享屏幕（房间未开启或已有成员正在共享）", "warning");
+      useUiStore.getState().toast("暂时无法共享屏幕", "warning");
       return;
     }
     setShareBusy(true);
@@ -348,20 +344,10 @@ export default function RoomPage() {
     voice.setPeerVolume(userId, volume);
   }, []);
 
-  const handleToggleChat = useCallback(() => {
-    if (window.matchMedia("(min-width: 1024px)").matches) {
-      setChatOpen((open) => !open);
-    } else {
-      setChatDrawerOpen(true);
-    }
-  }, []);
+  const handleToggleChat = useCallback(() => setChatOpen((open) => !open), []);
 
   const handleOpenSettings = useCallback(() => {
     useUiStore.getState().openModal("settings");
-  }, []);
-
-  const handleRetryMicrophone = useCallback(() => {
-    voice.setMicEnabled(true);
   }, []);
 
   // ============ 成员列表 ============
@@ -399,29 +385,27 @@ export default function RoomPage() {
     );
   }
 
+  const canEdit = canEditRoom(me, server, directory, room);
+  const canManageMembers = !!me && !!directory && canManageRoomScope(me, room, directory);
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div className="app-canvas flex h-full min-h-0 flex-col overflow-hidden">
       {connection !== "online" && (
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
           <WifiOff className="h-3.5 w-3.5" />
-          {connection === "reconnecting"
-            ? "实时连接已断开，正在重新连接…"
-            : connection === "connecting"
-              ? "正在连接服务器…"
-              : "实时连接已断开，请刷新页面后重试"}
+          {connection === "reconnecting" ? "正在重连…" : connection === "connecting" ? "连接中…" : "连接已断开"}
         </div>
       )}
 
       {selfState.audioBlocked && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-info/20 bg-info/10 px-4 py-2 text-[11px] text-info">
           <Volume2 className="h-3.5 w-3.5" />
-          浏览器阻止了自动播放，暂时听不到队友的声音。
           <button
             type="button"
             onClick={() => void voice.resumeAudio()}
             className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
           >
-            点击启用声音
+            启用声音
           </button>
         </div>
       )}
@@ -430,64 +414,13 @@ export default function RoomPage() {
         room={room}
         memberCount={members.length}
         capacity={capacity}
-        hasMicrophone={selfState.hasMicrophone}
         onBack={handleBack}
-        onToggleChat={handleToggleChat}
-        onRetryMicrophone={handleRetryMicrophone}
+        onEdit={canEdit ? () => setEditingRoomId(room.id) : undefined}
+        onManageMembers={canManageMembers ? () => setManagingMembersIn(room.id) : undefined}
       />
 
-      {/* 手机/平板快捷操作条：麦克风、耳聋、主音量（桌面端底部控制栏已有完整按钮） */}
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 pb-2 lg:hidden">
-        <button
-          type="button"
-          onClick={handleToggleMic}
-          aria-label={selfState.micEnabled && selfState.hasMicrophone ? "静音麦克风" : "开启麦克风"}
-          className={
-            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors " +
-            (selfState.micEnabled && selfState.hasMicrophone
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground")
-          }
-        >
-          {selfState.micEnabled && selfState.hasMicrophone ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          <span>{selfState.micEnabled && selfState.hasMicrophone ? "麦克风" : "已静音"}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleToggleDeafen}
-          aria-label={selfState.deafened ? "取消耳聋" : "耳聋（只听不说）"}
-          className={
-            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors " +
-            (selfState.deafened ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground")
-          }
-        >
-          {selfState.deafened ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
-        </button>
-
-        <label className="ml-auto flex min-w-0 flex-1 items-center gap-2 text-[11px] text-muted-foreground">
-          <Volume2 className="h-4 w-4 shrink-0" />
-          <input
-            type="range"
-            min={0}
-            max={200}
-            step={5}
-            value={masterVolume}
-            aria-label="主音量"
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              const store = useSettingsStore.getState();
-              store.update({ perUserVolume: { ...store.perUserVolume, [MASTER_VOLUME_KEY]: value } });
-              voice.setMasterVolume(value);
-            }}
-            className="h-1.5 w-full min-w-0 accent-primary"
-          />
-          <span className="tabular w-9 shrink-0 text-right">{masterVolume}%</span>
-        </label>
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-3 app-scroll sm:p-4">
             <RoomStage
               members={members}
@@ -507,9 +440,8 @@ export default function RoomPage() {
             pttKey={pttKey}
             screenShareAllowed={canShare}
             shareBusy={shareBusy}
-            connection={connection}
             peerStats={peerStatsList}
-            chatOpen={chatOpen || chatDrawerOpen}
+            chatOpen={chatOpen}
             onToggleMic={handleToggleMic}
             onToggleDeafen={handleToggleDeafen}
             onToggleScreenShare={() => void handleToggleScreenShare()}
@@ -517,31 +449,17 @@ export default function RoomPage() {
             onOpenSettings={handleOpenSettings}
             onLeave={handleLeave}
           />
-        </main>
-
-        {chatOpen && (
-          <aside className="hidden min-h-0 w-80 shrink-0 py-3 pr-3 lg:flex lg:py-4 lg:pr-4">
-            <ChatPanel
-              className="w-full overflow-hidden rounded-2xl border border-border shadow-card"
-              onClose={() => setChatOpen(false)}
-            />
-          </aside>
-        )}
-      </div>
-
-      {chatDrawerOpen && (
-        <div className="fixed inset-0 z-30 flex lg:hidden">
-          <button
-            type="button"
-            aria-label="关闭聊天"
-            onClick={() => setChatDrawerOpen(false)}
-            className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px] animate-fade-in dark:bg-black/50"
-          />
-          <div className="relative ml-auto flex h-full w-[min(92vw,400px)] flex-col overflow-hidden rounded-l-2xl border-l border-border bg-card shadow-popover animate-rise-in">
-            <ChatPanel onClose={() => setChatDrawerOpen(false)} />
-          </div>
         </div>
-      )}
+        <aside aria-label="房间聊天" className={cn(
+          "min-h-0 lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:p-0 lg:py-3 lg:pr-3 xl:w-88",
+          chatOpen ? "viewport-overlay z-40 flex justify-end" : "hidden",
+        )}>
+          <button type="button" aria-label="关闭聊天遮罩" onClick={handleToggleChat} className="absolute inset-0 bg-black/30 lg:hidden" />
+          <ChatPanel className="relative w-full overflow-hidden border-border sm:max-w-sm lg:rounded-2xl lg:border lg:shadow-card" open={chatOpen} onClose={handleToggleChat} />
+        </aside>
+      </div>
+      {canEdit && editingRoomId === room.id && <RoomEditor target={{ kind: "edit", roomId: room.id }} onClose={() => setEditingRoomId(null)} />}
+      {canManageMembers && managingMembersIn === room.id && <RoomMembersModal roomId={room.id} members={members} user={me} onClose={() => setManagingMembersIn(null)} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
-import { Eye, EyeOff, Lock } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button, Input, Modal } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
@@ -34,7 +34,7 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
     try {
       const result = await api.rooms.checkPassword(room.id, password);
       if (!result.ok) {
-        setError("房间密码不正确，请重新输入");
+        setError("密码不正确");
         return;
       }
       useRoomStore.getState().joinRoom(room.id, password);
@@ -54,7 +54,7 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
       open
       onClose={submitting ? () => undefined : onClose}
       title="输入房间密码"
-      subtitle={"房间「" + room.name + "」需要密码才能进入"}
+      subtitle={room.name}
       size="sm"
       footer={
         <>
@@ -68,10 +68,6 @@ export default function JoinRoomPasswordModal({ room, onClose }: JoinRoomPasswor
       }
     >
       <div className="space-y-4">
-        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          该房间已设置密码，请输入密码后加入。
-        </p>
         <Input
           label="房间密码"
           type={visible ? "text" : "password"}

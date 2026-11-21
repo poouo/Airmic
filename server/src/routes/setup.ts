@@ -130,13 +130,15 @@ export async function registerSetupRoutes(app: FastifyInstance, services: Servic
       const shouldCreateRooms = body.createDefaultRooms !== false && services.rooms.countRooms() === 0;
       const createdRooms: number[] = [];
       if (shouldCreateRooms) {
-        const settings = services.settings.get();
+        const directory = services.roomDirectory;
+        const root = directory.findByName(null, "默认频道") ?? directory.create(null, "默认频道");
         for (const room of DEFAULT_ROOMS) {
+          const area = directory.findByName(root.id, room.category) ?? directory.create(root.id, room.category);
           const row = services.rooms.create(
             {
               name: room.name,
               description: room.description,
-              category: room.category,
+              areaId: area.id,
               maxUsers: 0,
               screenShareEnabled: true,
             },
@@ -144,7 +146,6 @@ export async function registerSetupRoutes(app: FastifyInstance, services: Servic
           );
           createdRooms.push(row.id);
         }
-        void settings;
       }
 
       services.audit.log({

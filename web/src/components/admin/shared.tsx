@@ -26,7 +26,7 @@ export function SectionCard({
   return (
     <Card className={cn("overflow-hidden", className)}>
       {hasHeader && <CardHeader title={title ?? ""} description={description} action={action} />}
-      <div className={bodyClassName ?? "px-5 py-4"}>{children}</div>
+      <div className={bodyClassName ?? "px-3 py-4 sm:px-5"}>{children}</div>
     </Card>
   );
 }
@@ -62,10 +62,11 @@ export function AdminErrorPanel({ message, onRetry }: { message: string; onRetry
 
 // ============ 表格（规范第 4 节） ============
 
-export function TableShell({ children, className }: { children: ReactNode; className?: string }) {
+export function TableShell({ children, className, stickyActions = false }: { children: ReactNode; className?: string; stickyActions?: boolean }) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full min-w-[760px] border-collapse text-sm">{children}</table>
+    <div className={cn("app-scroll overflow-x-auto", className)}>
+      <table className={cn("w-full min-w-[40rem] border-separate border-spacing-0 text-sm",
+        stickyActions && "max-sm:[&_tr>:last-child]:sticky max-sm:[&_tr>:last-child]:right-0 max-sm:[&_tr>:last-child]:z-10 max-sm:[&_tr>:last-child]:border-l max-sm:[&_tr>:last-child]:bg-card")}>{children}</table>
     </div>
   );
 }
@@ -73,13 +74,13 @@ export function TableShell({ children, className }: { children: ReactNode; class
 export function THead({ children }: { children: ReactNode }) {
   return (
     <thead>
-      <tr className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">{children}</tr>
+      <tr className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground [&>th]:border-b">{children}</tr>
     </thead>
   );
 }
 
 export function TBody({ children }: { children: ReactNode }) {
-  return <tbody className="divide-y divide-border">{children}</tbody>;
+  return <tbody className="[&>tr:not(:last-child)>td]:border-b">{children}</tbody>;
 }
 
 export function Tr({
@@ -101,11 +102,11 @@ export function Tr({
 }
 
 export function Th({ children, className }: { children?: ReactNode; className?: string }) {
-  return <th className={cn("whitespace-nowrap px-4 py-2.5 text-left font-medium", className)}>{children}</th>;
+  return <th scope="col" className={cn("whitespace-nowrap px-3 py-2.5 text-left font-medium sm:px-4", className)}>{children}</th>;
 }
 
 export function Td({ children, className }: { children?: ReactNode; className?: string }) {
-  return <td className={cn("px-4 py-3 align-middle text-foreground/90", className)}>{children}</td>;
+  return <td className={cn("px-3 py-3 align-middle text-foreground/90 sm:px-4", className)}>{children}</td>;
 }
 
 export function AdminPagination({
@@ -184,6 +185,12 @@ export const ACTION_LABELS: Record<string, string> = {
   room_create: "创建房间",
   room_update: "修改房间",
   room_delete: "删除房间",
+  room_area_create: "新增分区",
+  room_area_update: "修改分区",
+  room_area_delete: "删除分区",
+  room_manager_grant: "授予房管权限",
+  room_manager_revoke: "撤销房管权限",
+  room_member_kick: "移出房间",
   user_update: "修改用户",
   user_delete: "删除用户",
   user_kick: "踢出用户",

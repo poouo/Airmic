@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SetupStatusResponse } from "@airmic/shared";
-import { ArrowLeft, ArrowRight, Check, RefreshCw, ServerOff, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, RefreshCw, ServerOff } from "lucide-react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Alert, Badge, Button, Divider, FullScreenLoader } from "@/components/ui";
+import { Alert, Button, FullScreenLoader } from "@/components/ui";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 import SetupAdminStep from "@/components/setup/SetupAdminStep";
 import SetupConfirmStep from "@/components/setup/SetupConfirmStep";
@@ -143,7 +143,7 @@ export default function SetupPage() {
       useAppStore.getState().setServer(result.server);
       useAppStore.getState().setRooms(result.rooms);
       useAppStore.setState({ setupRequired: false, bootstrapped: true });
-      useUiStore.getState().toast("服务器初始化完成，欢迎使用 AirMic！", "success", "初始化成功", 5000);
+      useUiStore.getState().toast("初始化完成", "success");
       navigate("/", { replace: true });
     } catch (caught) {
       const message = errorMessage(caught);
@@ -168,20 +168,7 @@ export default function SetupPage() {
     <SetupShell>
       <SetupStepper current={step} onSelect={handleSelectStep} />
 
-      <Divider className="my-5" />
-
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">
-            第 {step + 1} 步 · {currentStep.title}
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{currentStep.description}</p>
-        </div>
-        <Badge>
-          <Sparkles className="h-3 w-3" />
-          共 {SETUP_STEPS.length} 步
-        </Badge>
-      </div>
+      <h2 className="my-4 text-lg font-semibold tracking-tight text-foreground">第 {step + 1} 步 · {currentStep.title}</h2>
 
       {step === 0 && <SetupServerStep form={form} update={update} disabled={submitting} requiresToken={status.requiresToken} />}
       {step === 1 && <SetupAdminStep form={form} update={update} disabled={submitting} />}
@@ -195,19 +182,16 @@ export default function SetupPage() {
       )}
 
       <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
-        <Button variant="ghost" onClick={goPrevious} disabled={step === 0 || submitting} icon={<ArrowLeft className="h-4 w-4" />}>
+        <Button className="min-h-11" variant="ghost" onClick={goPrevious} disabled={step === 0 || submitting} icon={<ArrowLeft className="h-4 w-4" />}>
           上一步
         </Button>
         <div className="flex items-center gap-3">
-          <span className="hidden text-[11px] text-muted-foreground sm:block">
-            第 {step + 1} / {SETUP_STEPS.length} 步
-          </span>
           {isLastStep ? (
-            <Button loading={submitting} onClick={() => void handleSubmit()} icon={<Check className="h-4 w-4" />}>
+            <Button className="min-h-11" loading={submitting} onClick={() => void handleSubmit()} icon={<Check className="h-4 w-4" />}>
               完成初始化
             </Button>
           ) : (
-            <Button onClick={goNext} disabled={submitting}>
+            <Button className="min-h-11" onClick={goNext} disabled={submitting}>
               下一步
               <ArrowRight className="h-4 w-4" />
             </Button>

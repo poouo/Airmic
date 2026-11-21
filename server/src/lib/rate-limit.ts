@@ -30,6 +30,13 @@ export class RateLimiter {
     return Math.max(0, limit - bucket.count);
   }
 
+  /** 距离窗口重置的剩余毫秒数（未限流或已重置时为 0） */
+  retryAfterMs(key: string): number {
+    const bucket = this.buckets.get(key);
+    if (!bucket) return 0;
+    return Math.max(0, bucket.resetAt - this.now());
+  }
+
   sweep(): void {
     const now = this.now();
     for (const [key, bucket] of this.buckets) {

@@ -104,6 +104,10 @@ class FakeHub implements HubLike {
     this.record("broadcastRooms");
   }
 
+  broadcastRoomDirectoryChanged(userId?: number): void {
+    this.record("broadcastRoomDirectoryChanged", userId);
+  }
+
   broadcastRoomUpdate(roomId: number): void {
     this.record("broadcastRoomUpdate", roomId);
   }

@@ -172,8 +172,7 @@ export class SettingsService {
       forceRelay: settings.forceRelay,
       roomCategories: [...settings.roomCategories],
       version: APP_VERSION,
-      // 只暴露客户端连接地址，不暴露 API Key/Secret
-      livekitUrl: settings.livekitUrl,
+      // 不暴露 SFU 地址与 API Key/Secret：客户端在入房后通过令牌接口获取连接地址
       voiceAvailable: isLivekitConfigured(credentials),
       mediaTransport: MEDIA_TRANSPORT,
     };

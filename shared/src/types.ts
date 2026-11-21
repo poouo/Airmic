@@ -71,11 +71,9 @@ export interface ServerSettingsPublic {
   forceRelay: boolean;
   roomCategories: string[];
   version: string;
-  /** 客户端可连接的 LiveKit SFU 信令地址；null 表示尚未配置语音中转服务 */
-  livekitUrl: string | null;
   /** 语音中转服务是否已配置好（未配置时房间内无法通话） */
   voiceAvailable: boolean;
-  /** 媒体传输方式，固定 sfu */
+  /** 媒体传输方式，固定 sfu；SFU 连接地址只通过令牌接口下发，不在公开信息中暴露 */
   mediaTransport: MediaTransport;
 }
 
@@ -84,6 +82,8 @@ export interface ServerSettings extends ServerSettingsPublic {
   registrationCode: string;
   maxMessagesPerRoom: number;
   allowGuestChat: boolean;
+  /** LiveKit SFU 信令地址（仅管理员可见；普通客户端通过令牌接口获取连接地址） */
+  livekitUrl: string | null;
   /** LiveKit API Key（仅管理员可见） */
   livekitApiKey: string | null;
   /** LiveKit API Secret（仅管理员可见） */
@@ -122,8 +122,33 @@ export interface OnlineUser {
   speaking: boolean;
 }
 
+export interface RoomArea {
+  id: number;
+  parentId: number | null;
+  name: string;
+  sortOrder: number;
+}
+
+export interface RoomManagementScope {
+  kind: "area" | "room";
+  id: number;
+}
+
+export interface RoomDirectory {
+  areas: RoomArea[];
+  grants: RoomManagementScope[];
+}
+
+export interface RoomManager {
+  userId: number;
+  username: string;
+  displayName: string;
+}
+
 export interface RoomSummary {
   id: number;
+  areaId: number;
+  createdById: number | null;
   name: string;
   description: string;
   category: string;

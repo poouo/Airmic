@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Check, Keyboard, Mic, RefreshCw } from "lucide-react";
-import { audioSummary } from "@airmic/shared";
 import type { AudioSettings } from "@airmic/shared";
 import { Button, Divider, Kbd, SectionTitle, Select, Slider, Switch } from "@/components/ui";
 import { LevelMeter } from "@/components/room/LevelMeter";
@@ -85,7 +84,6 @@ export function MicrophoneTab() {
         </SectionTitle>
         <Select
           label="麦克风"
-          hint="切换后立即重新采集，不会中断与队友的连接"
           options={inputOptions}
           value={inputDeviceId ?? ""}
           onChange={(event) => handleSelectDevice(event.target.value)}
@@ -97,9 +95,6 @@ export function MicrophoneTab() {
 
       <section className="space-y-3">
         <SectionTitle>音频处理</SectionTitle>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          当前生效音质：{audioSummary(effective)}。修改会写入本机音质覆盖并立即重新应用。
-        </p>
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           {PROCESSING_OPTIONS.map((option) => (
             <div key={option.key} className="px-3.5 py-3">
@@ -125,7 +120,7 @@ export function MicrophoneTab() {
             if (!checked) voice.setPTTActive(false);
           }}
           label="启用按键说话"
-          description="按住绑定键时麦克风才会打开，松开即静音"
+          description="按住快捷键发言"
         />
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5">
           <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -138,7 +133,7 @@ export function MicrophoneTab() {
             onClick={() => setListeningKey((listening) => !listening)}
             icon={listeningKey ? <Check className="h-3.5 w-3.5" /> : <Keyboard className="h-3.5 w-3.5" />}
           >
-            {listeningKey ? "请按下按键…（Esc 取消）" : "重新绑定"}
+            {listeningKey ? "按下快捷键…" : "更改按键"}
           </Button>
         </div>
       </section>
@@ -156,9 +151,6 @@ export function MicrophoneTab() {
           onChange={(value) => useSettingsStore.getState().update({ vadThreshold: value })}
           formatValue={(value) => Math.round(value * 100) + "%"}
         />
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          阈值越低越容易判定为"正在说话"。如果说话高亮不灵敏可以适当降低，环境噪音较多时请调高。
-        </p>
       </section>
     </div>
   );

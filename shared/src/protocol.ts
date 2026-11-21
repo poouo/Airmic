@@ -4,6 +4,7 @@ import type {
   PeerInfo,
   PeerStatePatch,
   RoomDetail,
+  RoomDirectory,
   RoomSnapshot,
   RoomSummary,
   ServerSettingsPublic,
@@ -66,10 +67,12 @@ export type ServerMessage =
       user: UserSelf;
       server: ServerSettingsPublic;
       rooms: RoomSummary[];
+      directory: RoomDirectory;
       onlineUsers: OnlineUser[];
       protocolVersion: number;
     }
   | { t: "rooms"; rooms: RoomSummary[] }
+  | { t: "room_directory_changed" }
   | { t: "online_users"; users: OnlineUser[] }
   | { t: "room_joined"; snapshot: RoomSnapshot }
   | { t: "room_left"; reason?: string }

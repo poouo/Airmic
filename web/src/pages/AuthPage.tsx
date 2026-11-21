@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Ghost, LogIn, Mic, ServerOff, UserPlus } from "lucide-react";
-import { Alert, Badge, Button, Spinner, Tabs, type TabItem } from "@/components/ui";
+import { Ghost, LogIn, ServerOff, UserPlus } from "lucide-react";
+import { Alert, Button, Spinner, Tabs, type TabItem } from "@/components/ui";
 import ThemeToggle from "@/components/layout/ThemeToggle";
+import AirMicMark from "@/components/brand/AirMicMark";
 import AuthBrandPanel from "@/components/auth/AuthBrandPanel";
 import GuestForm from "@/components/auth/GuestForm";
 import LoginForm from "@/components/auth/LoginForm";
 import RegisterForm from "@/components/auth/RegisterForm";
-import { cn } from "@/lib/format";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 
@@ -28,8 +28,6 @@ export default function AuthPage() {
   const setupRequired = useAppStore((state) => state.setupRequired);
   const bootstrapped = useAppStore((state) => state.bootstrapped);
   const loadingServer = useAppStore((state) => state.loadingServer);
-  const onlineCount = useAppStore((state) => state.onlineUsers.length);
-  const roomCount = useAppStore((state) => state.rooms.length);
 
   const [tab, setTab] = useState<AuthTab>("login");
 
@@ -37,7 +35,8 @@ export default function AuthPage() {
     if (setupRequired) setTab("register");
   }, [setupRequired]);
 
-  // 游客允许打开登录页（用于切换/升级账号），已登录的正式账号才回首页`r`n  if (status === "authenticated" && !currentUser?.isGuest) return <Navigate to="/" replace />;
+  // 游客允许打开登录页（用于切换/升级账号），已登录的正式账号才回首页
+  if (status === "authenticated" && !currentUser?.isGuest) return <Navigate to="/" replace />;
 
   const registrationMode = server?.registrationMode ?? "open";
   const guestEnabled = server?.guestEnabled ?? false;
@@ -50,18 +49,12 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="app-canvas relative flex min-h-screen flex-col bg-background">
+    <div className="page-frame app-canvas relative flex flex-col bg-background">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-6">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Mic className="h-4 w-4" />
-          </span>
+          <AirMicMark size={36} />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold tracking-tight text-foreground">AirMic</h1>
-              <Badge tone="brand">v{server?.version ?? "1.0.0"}</Badge>
-            </div>
-            <p className="truncate text-[11px] text-muted-foreground">网页语音开黑 · 打开即聊</p>
+            <h1 className="text-base font-semibold tracking-tight text-foreground">AirMic</h1>
           </div>
         </div>
         <ThemeToggle />
@@ -69,22 +62,10 @@ export default function AuthPage() {
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 items-center px-4 pb-10 sm:px-6">
         <div className="mx-auto grid w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-card lg:max-w-5xl lg:grid-cols-[minmax(0,1fr)_27.5rem]">
-          <AuthBrandPanel
-            server={server}
-            onlineCount={onlineCount}
-            roomCount={roomCount}
-            setupRequired={setupRequired}
-            className="hidden lg:flex"
-          />
+          <AuthBrandPanel server={server} />
 
           <div className="flex flex-col border-border bg-card p-5 sm:p-7 lg:border-l">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">进入服务器</h2>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{server?.name ?? "AirMic 语音服务器"}</p>
-              </div>
-              <Badge tone={server ? "good" : "neutral"}>{server ? "服务器在线" : "等待服务器信息"}</Badge>
-            </div>
+            <h2 className="mb-4 break-words text-xl font-semibold tracking-tight text-foreground lg:hidden">{server?.name ?? "AirMic 语音服务器"}</h2>
 
             <Tabs items={TAB_ITEMS} value={tab} onChange={handleTabChange} className="mb-5" />
 
@@ -100,7 +81,7 @@ export default function AuthPage() {
                   {loadingServer || !bootstrapped ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <Spinner className="h-5 w-5" />
-                      <p className="text-xs text-muted-foreground">正在获取服务器信息…</p>
+                      <p className="text-xs text-muted-foreground">连接中…</p>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -109,7 +90,6 @@ export default function AuthPage() {
                       </span>
                       <div>
                         <p className="text-sm font-medium text-foreground">无法连接服务器</p>
-                        <p className="mt-1 text-xs text-muted-foreground">请确认后端服务已启动，然后重试</p>
                       </div>
                       <Button
                         variant="outline"
@@ -117,7 +97,7 @@ export default function AuthPage() {
                         loading={loadingServer}
                         onClick={() => void useAppStore.getState().loadServerInfo()}
                       >
-                        重新加载
+                        重试
                       </Button>
                       <div className="mt-1 w-full border-t border-border pt-4 text-left">
                         {tab === "login" && <LoginForm />}
@@ -136,9 +116,6 @@ export default function AuthPage() {
               )}
             </div>
 
-            <p className={cn("mt-5 text-center text-[11px] leading-relaxed text-muted-foreground", !ready && "opacity-70")}>
-              登录即表示同意遵守服务器规则 · AirMic {server?.version ?? "1.0.0"} · WebRTC 网页语音
-            </p>
           </div>
         </div>
       </main>

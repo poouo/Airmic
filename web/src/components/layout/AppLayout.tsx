@@ -1,6 +1,7 @@
 import { useEffect } from "react";
-import { Mic, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Outlet, useLocation } from "react-router-dom";
+import AirMicMark from "@/components/brand/AirMicMark";
 import { IconButton } from "@/components/ui";
 import { useUiStore } from "@/stores/ui";
 import Sidebar from "./Sidebar";
@@ -17,7 +18,7 @@ export default function AppLayout() {
   }, [location.pathname, setSidebarOpen]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-frame flex flex-col overflow-hidden bg-card text-foreground">
       <TopBar onOpenSidebar={() => setSidebarOpen(true)} />
 
       <div className="flex min-h-0 flex-1">
@@ -30,14 +31,12 @@ export default function AppLayout() {
       </div>
 
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px] animate-fade-in dark:bg-black/50" onClick={() => setSidebarOpen(false)} aria-hidden />
-          <div className="absolute inset-y-0 left-0 flex w-[72%] max-w-[17rem] flex-col border-r border-sidebar-border bg-sidebar shadow-popover animate-rise-in">
+        <div className="viewport-overlay z-40 flex lg:hidden">
+          <button type="button" aria-label="关闭侧栏遮罩" className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setSidebarOpen(false)} />
+          <div role="dialog" aria-label="房间导航" aria-modal="true" className="relative flex min-h-0 w-[min(86vw,20rem)] flex-col border-r border-sidebar-border bg-sidebar shadow-popover animate-rise-in">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
               <span className="flex items-center gap-2.5">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Mic className="h-4 w-4" />
-                </span>
+                <AirMicMark size={28} />
                 <span className="text-sm font-semibold tracking-tight">AirMic</span>
               </span>
               <IconButton label="关闭侧栏" size="sm" onClick={() => setSidebarOpen(false)}>
@@ -45,7 +44,7 @@ export default function AppLayout() {
               </IconButton>
             </div>
             <div className="flex min-h-0 flex-1">
-              <Sidebar onNavigate={() => setSidebarOpen(false)} />
+              <Sidebar mobile onNavigate={() => setSidebarOpen(false)} />
             </div>
           </div>
         </div>

@@ -59,6 +59,8 @@ SETUP_TOKEN=请替换为一次性初始化口令
 TRUST_PROXY=true
 USER_SESSION_TTL_DAYS=30
 GUEST_SESSION_TTL_HOURS=24
+# 游客创建限流：同一 IP 每 10 分钟最多创建 30 个游客账号（1-500）
+GUEST_RATE_LIMIT=30
 LOG_LEVEL=info
 # 管理后台运行日志（SQLite app_logs）保留天数，1-30，默认 3
 LOG_RETENTION_DAYS=3

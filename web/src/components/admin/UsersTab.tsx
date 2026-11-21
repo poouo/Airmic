@@ -113,7 +113,7 @@ export default function UsersTab() {
           </div>
         ) : (
           <>
-            <TableShell>
+            <TableShell stickyActions>
               <THead>
                 <Th>用户</Th>
                 <Th>角色</Th>

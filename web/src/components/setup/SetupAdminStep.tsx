@@ -1,12 +1,10 @@
-import { Alert, Input } from "@/components/ui";
+import { Input } from "@/components/ui";
 import type { SetupStepProps } from "./types";
 
 /** 第 2 步：管理员账号 */
 export default function SetupAdminStep({ form, update, disabled }: SetupStepProps) {
   return (
     <div className="space-y-4">
-      <Alert tone="info">该账号将成为服务器第一个管理员，拥有全部管理权限；请妥善保管账号密码。</Alert>
-
       <div className="grid gap-3 sm:grid-cols-2">
         <Input
           label="管理员用户名"

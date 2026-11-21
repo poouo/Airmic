@@ -9,12 +9,12 @@ export interface SetupStepperProps {
 
 export default function SetupStepper({ current, onSelect }: SetupStepperProps) {
   return (
-    <ol className="flex items-center gap-1 overflow-x-auto app-scroll pb-1 sm:gap-2.5" aria-label="初始化步骤">
+    <ol className="grid grid-cols-4 gap-1 rounded-xl bg-background p-1" aria-label="初始化步骤">
       {SETUP_STEPS.map((step, index) => {
         const done = index < current;
         const active = index === current;
         return (
-          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2.5">
+          <li key={step.id} className="min-w-0">
             <button
               type="button"
               onClick={() => {
@@ -22,30 +22,29 @@ export default function SetupStepper({ current, onSelect }: SetupStepperProps) {
               }}
               disabled={index >= current}
               aria-current={active ? "step" : undefined}
+              aria-label={step.title}
               className={cn(
-                "flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-left outline-none transition-colors",
+                "flex min-h-11 w-full min-w-0 items-center justify-center gap-1 rounded-lg px-0.5 py-1 outline-none transition-colors sm:gap-2",
                 "focus-visible:ring-2 focus-visible:ring-ring",
-                done ? "cursor-pointer hover:bg-accent" : "cursor-default",
+                active ? "bg-card shadow-card" : done ? "cursor-pointer hover:bg-accent" : "cursor-default",
               )}
             >
               <span
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors",
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors sm:h-7 sm:w-7",
                   done && "bg-primary text-primary-foreground",
-                  active && "border border-foreground/40 bg-card text-foreground shadow-card",
+                  active && "bg-accent text-brand",
                   !done && !active && "border border-border bg-muted text-muted-foreground",
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
               </span>
               <span className="min-w-0">
-                <span className={cn("block truncate text-xs font-medium", active ? "text-foreground" : done ? "text-foreground/80" : "text-muted-foreground")}>
+                <span className={cn("hidden truncate text-xs font-medium sm:block", active ? "text-foreground" : done ? "text-foreground/80" : "text-muted-foreground")}>
                   {step.title}
                 </span>
-                <span className="hidden truncate text-[10px] text-muted-foreground sm:block">{step.description}</span>
               </span>
             </button>
-            {index < SETUP_STEPS.length - 1 && <span className={cn("h-px min-w-3 flex-1", done ? "bg-foreground/25" : "bg-border")} />}
           </li>
         );
       })}
