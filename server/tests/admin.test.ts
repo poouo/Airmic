@@ -261,7 +261,7 @@ test("未登录返回 401，普通用户访问管理接口返回 403，首个注
 
 test("overview 返回统计、在线用户、最近审计与房间人数", async (t) => {
   const env = await setup(t);
-  const guest = createActor(env.ctx, { username: "guest_1", displayName: "游客甲", isGuest: true });
+  createActor(env.ctx, { username: "guest_1", displayName: "游客甲", isGuest: true });
   const room = createRoom(env.ctx, "一号房", {}, env.admin.row.id);
   env.ctx.services.rooms.addMessage(
     room.id,
@@ -273,7 +273,7 @@ test("overview 返回统计、在线用户、最近审计与房间人数", async
     { id: env.user.row.id, name: "普通用户", role: "user" },
     "你好",
   );
-  env.ctx.services.bans.create({ userId: guest.row.id, reason: "测试封禁", bannedById: env.admin.row.id });
+  env.ctx.services.bans.create({ ip: "198.51.100.8", reason: "测试封禁", bannedById: env.admin.row.id });
   const expiredAt = new Date(Date.now() - 60_000).toISOString();
   env.ctx.services.db.run(
     "INSERT INTO bans (user_id, username, ip, reason, banned_by, created_at, expires_at, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
@@ -768,14 +768,13 @@ test("审计日志分页与按操作筛选", async (t) => {
   assert.equal((await env.admin.client.get("/api/admin/audit?pageSize=500")).status, 400);
 });
 
-test("有效登录会话列表并排除已注销会话", async (t) => {
+test("登录会话列表仅显示有效的注册账号会话", async (t) => {
   const env = await setup(t);
   createActor(env.ctx, { username: "guest_session", displayName: "会话游客", isGuest: true });
 
   const res = await env.admin.client.get<AdminSessionsResponse>("/api/admin/sessions");
   assert.equal(res.status, 200);
-  assert.ok(res.body.sessions.length >= 3);
-  assert.ok(res.body.sessions.length <= 200);
+  assert.equal(res.body.sessions.length, 2);
   const adminSession = res.body.sessions.find((session) => session.userId === env.admin.row.id);
   assert.ok(adminSession);
   assert.equal(adminSession.username, "admin_root");
@@ -784,7 +783,7 @@ test("有效登录会话列表并排除已注销会话", async (t) => {
   assert.equal(adminSession.isGuest, false);
   assert.equal(adminSession.ip, "127.0.0.1");
   assert.ok(Date.parse(adminSession.expiresAt) > Date.now());
-  assert.ok(res.body.sessions.some((session) => session.isGuest));
+  assert.ok(res.body.sessions.every((session) => !session.isGuest));
 
   env.ctx.services.auth.revokeUserSessions(env.user.row.id);
   const after = await env.admin.client.get<AdminSessionsResponse>("/api/admin/sessions");

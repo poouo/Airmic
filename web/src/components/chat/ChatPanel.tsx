@@ -23,6 +23,7 @@ type TimelineItem =
 /** 房间聊天面板：消息 + 系统提示，支持自动滚动、角色徽章与输入限制 */
 export default function ChatPanel({ className, open, onClose }: ChatPanelProps) {
   const messages = useRoomStore((state) => state.messages);
+  const room = useRoomStore((state) => state.snapshot?.room);
   const notices = useRoomStore((state) => state.notices);
   const sendChat = useRoomStore((state) => state.sendChat);
   const peers = useRoomStore((state) => state.peers);
@@ -35,7 +36,8 @@ export default function ChatPanel({ className, open, onClose }: ChatPanelProps) 
   const stickRef = useRef(true);
 
   const maxLength = server?.maxChatLength ?? 500;
-  const chatDisabled = server !== null && !server.allowTextChat;
+  const chatDisabled = room?.textChatEnabled === false || server?.allowTextChat === false || (me?.isGuest && server?.allowGuestChat === false);
+  const historyDays = room?.chatHistoryDays ?? 30;
 
   const peerMap = useMemo(() => {
     const map = new Map<number, PeerInfo>();
@@ -44,7 +46,8 @@ export default function ChatPanel({ className, open, onClose }: ChatPanelProps) 
   }, [peers]);
 
   const timeline = useMemo<TimelineItem[]>(() => {
-    const items: TimelineItem[] = messages.map((message) => ({
+    const cutoff = new Date(Date.now() - historyDays * 86_400_000).toISOString();
+    const items: TimelineItem[] = messages.filter((message) => message.createdAt > cutoff).map((message) => ({
       key: "m" + message.id,
       createdAt: message.createdAt,
       kind: "message",
@@ -58,7 +61,7 @@ export default function ChatPanel({ className, open, onClose }: ChatPanelProps) 
       return left.createdAt < right.createdAt ? -1 : 1;
     });
     return items;
-  }, [messages, notices]);
+  }, [historyDays, messages, notices]);
 
   useEffect(() => {
     const element = listRef.current;

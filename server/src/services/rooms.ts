@@ -23,6 +23,8 @@ export interface RoomRow {
   sort_order: number;
   locked: number;
   allow_guests: number;
+  text_chat_enabled: number;
+  chat_history_days: number;
   screen_share_enabled: number;
   audio_override: string | null;
   created_by: number | null;
@@ -56,6 +58,8 @@ export interface RoomInput {
   sortOrder?: number;
   locked?: boolean;
   allowGuests?: boolean;
+  textChatEnabled?: boolean;
+  chatHistoryDays?: number;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
 }
@@ -65,6 +69,8 @@ export interface CreateRoomInput extends RoomInput {
 }
 
 export class RoomsService {
+  private readonly guestOwners = new Map<number, number>();
+
   constructor(
     private readonly db: Database,
     private readonly settings: SettingsService,
@@ -117,6 +123,16 @@ export class RoomsService {
     return Number(this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM rooms")?.count ?? 0);
   }
 
+  ownerId(row: RoomRow): number | null {
+    return row.created_by ?? this.guestOwners.get(row.id) ?? null;
+  }
+
+  releaseGuestRooms(guestId: number): void {
+    for (const [roomId, ownerId] of this.guestOwners) {
+      if (ownerId === guestId) this.guestOwners.delete(roomId);
+    }
+  }
+
   countRoomUsers(roomId: number): number {
     return Number(
       this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM messages WHERE room_id = ?", roomId)?.count ?? 0,
@@ -127,7 +143,7 @@ export class RoomsService {
     return {
       id: row.id,
       areaId: row.area_id,
-      createdById: row.created_by,
+      createdById: this.ownerId(row),
       name: row.name,
       description: row.description,
       category: row.category,
@@ -138,6 +154,8 @@ export class RoomsService {
       userCount,
       locked: row.locked === 1,
       allowGuests: row.allow_guests === 1,
+      textChatEnabled: row.text_chat_enabled === 1,
+      chatHistoryDays: row.chat_history_days,
       sortOrder: row.sort_order,
       screenShareEnabled: row.screen_share_enabled === 1,
       createdAt: row.created_at,
@@ -191,7 +209,7 @@ export class RoomsService {
     return JSON.stringify(diff);
   }
 
-  create(input: CreateRoomInput, actorId: number | null): RoomRow {
+  create(input: CreateRoomInput, actorId: number | null, guestOwner = false): RoomRow {
     const area = this.resolveArea(input);
     if (!area) throw new Error("创建房间需要有效的子区");
     const icon = (input.icon ?? "gamepad").trim() || "gamepad";
@@ -206,8 +224,8 @@ export class RoomsService {
       ) + 10);
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, allow_guests, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, allow_guests, text_chat_enabled, chat_history_days, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.name.trim(),
       (input.description ?? "").trim(),
       area.id,
@@ -217,14 +235,17 @@ export class RoomsService {
       nextSort,
       input.locked ? 1 : 0,
       input.allowGuests === false ? 0 : 1,
+      input.textChatEnabled === false ? 0 : 1,
+      input.chatHistoryDays ?? 30,
       input.screenShareEnabled === false ? 0 : 1,
       this.normalizeOverride(input.audioOverride),
-      actorId,
+      guestOwner ? null : actorId,
       timestamp,
       timestamp,
     );
     const row = this.findById(result.lastInsertRowid);
     if (!row) throw new Error("创建房间失败");
+    if (guestOwner && actorId !== null) this.guestOwners.set(row.id, actorId);
     return row;
   }
 
@@ -272,6 +293,14 @@ export class RoomsService {
       fields.push("allow_guests = ?");
       params.push(input.allowGuests ? 1 : 0);
     }
+    if (input.textChatEnabled !== undefined) {
+      fields.push("text_chat_enabled = ?");
+      params.push(input.textChatEnabled ? 1 : 0);
+    }
+    if (input.chatHistoryDays !== undefined) {
+      fields.push("chat_history_days = ?");
+      params.push(input.chatHistoryDays);
+    }
     if (input.screenShareEnabled !== undefined) {
       fields.push("screen_share_enabled = ?");
       params.push(input.screenShareEnabled ? 1 : 0);
@@ -284,12 +313,22 @@ export class RoomsService {
     fields.push("updated_at = ?");
     params.push(nowIso());
     params.push(id);
-    this.db.run("UPDATE rooms SET " + fields.join(", ") + " WHERE id = ?", ...params);
+    this.db.transaction(() => {
+      this.db.run("UPDATE rooms SET " + fields.join(", ") + " WHERE id = ?", ...params);
+      if (input.chatHistoryDays !== undefined && input.chatHistoryDays !== current.chat_history_days) {
+        this.db.run(
+          "DELETE FROM messages WHERE room_id = ? AND created_at <= ?",
+          id,
+          historyCutoff(Math.min(input.chatHistoryDays, current.chat_history_days)),
+        );
+      }
+    });
     return this.findById(id);
   }
 
   remove(id: number): void {
     this.db.run("DELETE FROM rooms WHERE id = ?", id);
+    this.guestOwners.delete(id);
   }
 
   verifyPassword(row: RoomRow, password: string | null | undefined): boolean {
@@ -302,21 +341,33 @@ export class RoomsService {
     return row.password_hash !== null;
   }
 
-  listMessages(roomId: number, limit = 50, beforeId?: number): ChatMessage[] {
+  listMessages(room: RoomRow, limit = 50, beforeId?: number): ChatMessage[] {
     const boundedLimit = Math.min(Math.max(1, limit), 200);
+    const cutoff = historyCutoff(room.chat_history_days);
     const rows = beforeId
       ? this.db.all<MessageRow>(
-          "SELECT id, room_id, user_id, sender_name, sender_role, kind, content, created_at FROM messages WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?",
-          roomId,
+          "SELECT id, room_id, user_id, sender_name, sender_role, kind, content, created_at FROM messages WHERE room_id = ? AND created_at > ? AND id < ? ORDER BY id DESC LIMIT ?",
+          room.id,
+          cutoff,
           beforeId,
           boundedLimit,
         )
       : this.db.all<MessageRow>(
-          "SELECT id, room_id, user_id, sender_name, sender_role, kind, content, created_at FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT ?",
-          roomId,
+          "SELECT id, room_id, user_id, sender_name, sender_role, kind, content, created_at FROM messages WHERE room_id = ? AND created_at > ? ORDER BY id DESC LIMIT ?",
+          room.id,
+          cutoff,
           boundedLimit,
         );
     return rows.reverse().map((row) => this.toMessage(row));
+  }
+
+  purgeExpiredMessages(): void {
+    this.db.run(`
+      DELETE FROM messages WHERE id IN (
+        SELECT m.id FROM rooms r JOIN messages m ON m.room_id = r.id
+        WHERE m.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || r.chat_history_days || ' days')
+      )
+    `);
   }
 
   addMessage(
@@ -328,8 +379,8 @@ export class RoomsService {
     const result = this.db.run(
       "INSERT INTO messages (room_id, user_id, sender_name, sender_role, kind, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       roomId,
-      sender.id,
-      sender.name,
+      sender.role === "guest" ? null : sender.id,
+      sender.role === "guest" ? "游客" : sender.name,
       sender.role,
       kind,
       content,
@@ -341,7 +392,7 @@ export class RoomsService {
       result.lastInsertRowid,
     );
     if (!message) throw new Error("发送消息失败");
-    return this.toMessage(message);
+    return { ...this.toMessage(message), userId: sender.id, senderName: sender.name };
   }
 
   private pruneMessages(roomId: number): void {
@@ -367,6 +418,10 @@ export class RoomsService {
       createdAt: row.created_at,
     };
   }
+}
+
+function historyCutoff(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
 function clampRoomMaxUsers(value: unknown): number {

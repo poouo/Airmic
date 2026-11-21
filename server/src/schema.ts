@@ -216,10 +216,34 @@ const V5 = `
 ALTER TABLE rooms ADD COLUMN allow_guests INTEGER NOT NULL DEFAULT 1;
 `;
 
+const V6 = `
+ALTER TABLE rooms ADD COLUMN text_chat_enabled INTEGER NOT NULL DEFAULT 1 CHECK (text_chat_enabled IN (0, 1));
+ALTER TABLE rooms ADD COLUMN chat_history_days INTEGER NOT NULL DEFAULT 30 CHECK (chat_history_days BETWEEN 1 AND 30);
+CREATE INDEX idx_messages_room_created ON messages(room_id, created_at);
+`;
+
+const V7 = `
+CREATE TEMP TABLE legacy_guest_ids (id INTEGER PRIMARY KEY);
+INSERT OR IGNORE INTO legacy_guest_ids SELECT id FROM users WHERE is_guest = 1;
+INSERT OR IGNORE INTO legacy_guest_ids
+  SELECT CAST(target_id AS INTEGER) FROM audit_log WHERE action = 'guest_login' AND target_type = 'user'
+    AND target_id IS NOT NULL AND CAST(target_id AS INTEGER) NOT IN (SELECT id FROM users WHERE is_guest = 0);
+UPDATE messages SET user_id = NULL, sender_name = '游客'
+  WHERE sender_role = 'guest' OR user_id IN (SELECT id FROM legacy_guest_ids);
+DELETE FROM app_logs WHERE user_id IN (SELECT id FROM legacy_guest_ids);
+DELETE FROM audit_log WHERE action = 'guest_login' OR actor_id IN (SELECT id FROM legacy_guest_ids)
+  OR (target_type = 'user' AND CAST(target_id AS INTEGER) IN (SELECT id FROM legacy_guest_ids));
+DELETE FROM bans WHERE user_id IN (SELECT id FROM legacy_guest_ids);
+DELETE FROM users WHERE is_guest = 1;
+DROP TABLE legacy_guest_ids;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
   { version: 2, name: "app-logs", sql: V2 },
   { version: 3, name: "room-channel-icon", sql: V3 },
   { version: 4, name: "room-directory", sql: V4 },
   { version: 5, name: "room-guest-access", sql: V5 },
+  { version: 6, name: "room-chat-settings", sql: V6 },
+  { version: 7, name: "temporary-guests", sql: V7 },
 ];

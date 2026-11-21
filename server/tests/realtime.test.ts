@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
-import type { ClientMessage, ServerMessage, SignalPayload } from "@airmic/shared";
+import type { ChatMessage, ClientMessage, ServerMessage, SignalPayload } from "@airmic/shared";
 import { PROTOCOL_VERSION, WS_CLOSE_CODES } from "@airmic/shared";
 import { createTestContext, sleep, type TestClient, type TestContext } from "./helpers.js";
 import { getHub } from "../src/realtime/instance.js";
@@ -993,6 +993,51 @@ test("聊天开关：关闭游客聊天或全局文字聊天返回 chat_disabled
     aliceWs.ws.send({ t: "chat", content: "管理消息" });
     const textDenied = await aliceWs.ws.waitFor("error", (message) => message.request === "chat");
     assert.equal(textDenied.code, "chat_disabled");
+  }),
+);
+
+test("房间聊天开关和保留天数即时生效，游客历史消息匿名保存", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const guest = session.ctx.newClient();
+    const login = await guest.guest("临时昵称");
+    const guestId = login.body.user.id;
+    assert.equal(login.status, 200);
+    assert.equal((await guest.patch("/api/users/me", { displayName: "临时昵称已更新" })).status, 200);
+    const { ws } = await session.connectWithHello(guest);
+    const roomId = await session.createRoom({ name: "限时聊天房" });
+    const roomPath = "/api/rooms/" + roomId;
+    const joined = await joinRoom(ws, roomId);
+    assert.equal(joined.snapshot.room.chatHistoryDays, 30);
+    assert.equal(joined.snapshot.room.textChatEnabled, true);
+
+    ws.send({ t: "chat", content: "已发送的消息" });
+    const live = (await ws.waitFor("chat_message")).message;
+    assert.equal(live.senderName, "临时昵称已更新");
+    assert.equal(live.userId, guestId);
+    const history = await guest.get<{ messages: ChatMessage[] }>(roomPath + "/messages");
+    assert.equal(history.body.messages[0]?.senderName, "游客");
+    assert.equal(history.body.messages[0]?.userId, null);
+    assert.equal(history.body.messages[0]?.content, "已发送的消息");
+
+    const { db, logs, rooms } = session.ctx.services;
+    logs.flushNow();
+    assert.equal(db.get("SELECT 1 FROM app_logs WHERE user_id = ? OR username = ? OR meta LIKE ?", guestId, login.body.user.username, "%" + guestId + "%"), undefined);
+    assert.equal(db.get("SELECT 1 FROM audit_log WHERE actor_id = ? OR target_id = ?", guestId, String(guestId)), undefined);
+    db.run("UPDATE messages SET created_at = ? WHERE id = ?", new Date(Date.now() - 3 * 86_400_000).toISOString(), live.id);
+    assert.equal((await session.admin.patch(roomPath, { chatHistoryDays: 31 })).status, 400);
+    assert.equal((await session.admin.patch(roomPath, { textChatEnabled: false, chatHistoryDays: 2 })).status, 200);
+    assert.equal(db.get("SELECT 1 FROM messages WHERE id = ?", live.id), undefined);
+    assert.deepEqual((await guest.get(roomPath + "/messages")).body, { messages: [] });
+
+    ws.send({ t: "chat", content: "被关闭的聊天" });
+    assert.equal((await ws.waitFor("error", (message) => message.request === "chat")).code, "chat_disabled");
+    assert.equal((await session.admin.patch(roomPath, { textChatEnabled: true })).status, 200);
+    ws.send({ t: "chat", content: "恢复后的聊天" });
+    const next = (await ws.waitFor("chat_message")).message;
+    db.run("UPDATE messages SET created_at = ? WHERE id = ?", new Date(Date.now() - 3 * 86_400_000).toISOString(), next.id);
+    assert.deepEqual((await guest.get(roomPath + "/messages")).body, { messages: [] });
+    rooms.purgeExpiredMessages();
+    assert.equal(db.get("SELECT 1 FROM messages WHERE id = ?", next.id), undefined);
   }),
 );
 

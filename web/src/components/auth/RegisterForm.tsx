@@ -6,16 +6,16 @@ import { useAuthStore } from "@/stores/auth";
 
 export interface RegisterFormProps {
   registrationMode: RegistrationMode;
-  setupRequired: boolean;
 }
 
-export default function RegisterForm({ registrationMode, setupRequired }: RegisterFormProps) {
+export default function RegisterForm({ registrationMode }: RegisterFormProps) {
   const submitting = useAuthStore((state) => state.submitting);
   const register = useAuthStore((state) => state.register);
-  const closed = registrationMode === "closed" && !setupRequired;
+  const guestName = useAuthStore((state) => state.user?.isGuest ? state.user.displayName : "");
+  const closed = registrationMode === "closed";
 
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(guestName);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -41,7 +41,7 @@ export default function RegisterForm({ registrationMode, setupRequired }: Regist
       setLocalError("两次输入的密码不一致");
       return;
     }
-    if (registrationMode === "invite" && !setupRequired && !inviteCode.trim()) {
+    if (registrationMode === "invite" && !inviteCode.trim()) {
       setLocalError("请输入邀请码");
       return;
     }
@@ -51,7 +51,7 @@ export default function RegisterForm({ registrationMode, setupRequired }: Regist
         username: trimmedUsername,
         password,
         displayName: displayName.trim() || undefined,
-        inviteCode: registrationMode === "invite" && !setupRequired ? inviteCode.trim() : undefined,
+        inviteCode: registrationMode === "invite" ? inviteCode.trim() : undefined,
       });
     } catch {
       /* 错误由 authStore.error 展示 */
@@ -60,19 +60,12 @@ export default function RegisterForm({ registrationMode, setupRequired }: Regist
 
   if (closed) {
     return (
-      <Alert tone="warning" title="服务器已暂停注册">
-        当前仅允许已有账号登录；如需注册请联系服务器管理员，或使用游客身份进入。
-      </Alert>
+      <Alert tone="warning">服务器已暂停注册</Alert>
     );
   }
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
-      {setupRequired && (
-        <Alert tone="info" title="首个账号将成为管理员">
-          服务器还没有管理员，完成注册后你将获得全部管理权限。
-        </Alert>
-      )}
       {localError && <Alert tone="error">{localError}</Alert>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Input

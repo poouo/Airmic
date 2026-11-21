@@ -7,25 +7,9 @@ import { requireAuth } from "../plugins/auth.js";
 import { getClientIp, getUserAgent } from "../lib/http.js";
 import { globalRateLimiter } from "../lib/rate-limit.js";
 import { parseWith } from "../lib/validation.js";
-import { badRequest, conflict, forbidden, tooManyRequests, unauthorized } from "../lib/errors.js";
+import { conflict, forbidden, tooManyRequests, unauthorized } from "../lib/errors.js";
 import type { Services } from "../types.js";
 import { getHub } from "../realtime/instance.js";
-
-const registerSchema = z.object({
-  username: z.string(),
-  password: z.string(),
-  displayName: z.string().optional(),
-  inviteCode: z.string().optional(),
-});
-
-const loginSchema = z.object({
-  username: z.string(),
-  password: z.string(),
-});
-
-const guestSchema = z.object({
-  displayName: z.string(),
-});
 
 const registerBodySchema = z.object({
   username: z
@@ -51,20 +35,27 @@ const guestBodySchema = z.object({
 /** 游客身份创建限流窗口：与 GUEST_RATE_LIMIT（默认 30 次）配合，按 IP 计算 */
 const GUEST_RATE_WINDOW_MS = 10 * 60_000;
 
-/** 游客升级为正式账号：与注册同一套用户名/密码规则，但不需要邀请码 */
-const upgradeBodySchema = registerBodySchema.omit({ inviteCode: true });
-
 function setCookie(reply: FastifyReply, name: string, value: string, options: Parameters<FastifyReply["setCookie"]>[2]): void {
   reply.setCookie(name, value, options);
 }
 
 export async function registerAuthRoutes(app: FastifyInstance, services: Services): Promise<void> {
-  app.post("/api/auth/register", async (request: FastifyRequest, reply: FastifyReply): Promise<AuthResponse> => {
+  function retireGuest(request: FastifyRequest): void {
+    const auth = request.auth;
+    if (!auth?.user.isGuest) return;
+    services.auth.revokeSession(auth.sessionId);
+    services.rooms.releaseGuestRooms(auth.user.id);
+    getHub()?.disconnectUser(auth.user.id, "游客会话已结束");
+  }
+
+  async function register(request: FastifyRequest, reply: FastifyReply, upgrade = false): Promise<AuthResponse> {
+    const guest = upgrade ? requireAuth(request).user : null;
+    if (guest && !guest.isGuest) throw conflict("当前账号已经是正式账号", "already_upgraded");
     const ip = getClientIp(request);
     if (!globalRateLimiter.hit("register:" + ip, 10, 10 * 60_000)) throw tooManyRequests("注册太频繁，请稍后再试");
     const body = parseWith(registerBodySchema, request.body) as RegisterRequest;
     const settings = services.settings.get();
-    const isFirstUser = services.users.countUsers({ includeGuests: true }) === 0;
+    const isFirstUser = services.users.countUsers() === 0;
 
     if (!isFirstUser) {
       if (settings.registrationMode === "closed") throw forbidden("服务器已关闭注册");
@@ -81,7 +72,7 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     const role = isFirstUser ? "admin" : "user";
     const user = services.users.create({
       username: body.username,
-      displayName: body.displayName?.trim() || body.username,
+      displayName: body.displayName?.trim() || guest?.displayName || body.username,
       passwordHash: hashPassword(body.password),
       role,
       ip,
@@ -90,7 +81,7 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     services.audit.log({
       actorId: user.id,
       actorName: user.display_name,
-      action: "register",
+      action: upgrade ? "upgrade_account" : "register",
       targetType: "user",
       targetId: user.id,
       targetName: user.username,
@@ -99,7 +90,8 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     });
 
     const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
-    setCookie(reply, AUTH_COOKIE, ctx.token, isFirstUser ? services.auth.cookieOptions() : services.auth.cookieOptions());
+    setCookie(reply, AUTH_COOKIE, ctx.token, services.auth.cookieOptions());
+    retireGuest(request);
     services.logs.write({
       level: "info",
       category: "auth",
@@ -112,7 +104,10 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     });
     getHub()?.broadcastOnlineUsers();
     return { user: ctx.user };
-  });
+  }
+
+  app.post("/api/auth/register", (request, reply) => register(request, reply));
+  app.post("/api/auth/upgrade", (request, reply) => register(request, reply, true));
 
   app.post("/api/auth/login", async (request: FastifyRequest, reply: FastifyReply): Promise<AuthResponse> => {
     const ip = getClientIp(request);
@@ -120,7 +115,7 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     const body = parseWith(loginBodySchema, request.body) as LoginRequest;
     const user = services.users.findByUsername(body.username);
     if (!user || !verifyPassword(body.password, user.password_hash)) {
-      services.logs.write({
+      if (!request.auth?.user.isGuest) services.logs.write({
         level: "warn",
         category: "security",
         message: "登录失败：用户名或密码错误",
@@ -143,6 +138,7 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     }
     const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
     setCookie(reply, AUTH_COOKIE, ctx.token, services.auth.cookieOptions());
+    retireGuest(request);
     services.audit.log({ actorId: user.id, actorName: user.display_name, action: "login", ip });
     services.logs.write({
       level: "info",
@@ -171,81 +167,17 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     if (ban) throw forbidden("该 IP 已被封禁：" + ban.reason, "banned");
 
     const user = services.users.createGuest(body.displayName.trim(), ip);
-    const ctx = services.auth.createSessionForUser(user, ip, getUserAgent(request));
+    const ctx = services.auth.createSessionForUser(user, null, null);
     setCookie(reply, AUTH_COOKIE, ctx.token, services.auth.guestCookieOptions());
-    services.logs.write({
-      level: "info",
-      category: "auth",
-      message: "游客登录：" + user.display_name,
-      meta: { userId: user.id },
-      userId: user.id,
-      username: user.username,
-      ip,
-      requestId: request.id,
-    });
-    services.audit.log({
-      actorId: user.id,
-      actorName: user.display_name,
-      action: "guest_login",
-      targetType: "user",
-      targetId: user.id,
-      targetName: user.username,
-      ip,
-    });
+    retireGuest(request);
     getHub()?.broadcastOnlineUsers();
     return { user: ctx.user };
   });
 
-  /** 游客原地升级为正式账号：保留 user id / 会话 / 房间身份，只补用户名与密码 */
-  app.post("/api/auth/upgrade", async (request: FastifyRequest, reply: FastifyReply): Promise<AuthResponse> => {
-    const auth = requireAuth(request);
-    const ip = getClientIp(request);
-    if (!globalRateLimiter.hit("upgrade:" + ip, 10, 10 * 60_000)) throw tooManyRequests("操作太频繁，请稍后再试");
-    const body = parseWith(upgradeBodySchema, request.body) as RegisterRequest;
-    const row = services.users.findById(auth.user.id);
-    if (!row) throw unauthorized("登录状态已失效，请刷新页面重试", "unauthorized");
-    if (row.is_guest !== 1) throw conflict("当前账号已经是正式账号", "already_upgraded");
-    if (services.settings.get().registrationMode === "closed") throw forbidden("服务器已关闭注册，无法升级账号");
-    if (services.users.usernameExists(body.username)) throw conflict("用户名已被占用", "username_taken");
-
-    const updated = services.users.upgradeGuest(auth.user.id, {
-      username: body.username,
-      passwordHash: hashPassword(body.password),
-      displayName: body.displayName?.trim() || undefined,
-    });
-    if (!updated) throw badRequest("升级失败，请稍后重试");
-
-    // 把游客会话的 Cookie 换成正式账号的有效期，避免升级后很快掉线
-    const token = request.cookies?.[AUTH_COOKIE];
-    if (token) setCookie(reply, AUTH_COOKIE, token, services.auth.cookieOptions());
-
-    services.audit.log({
-      actorId: updated.id,
-      actorName: updated.display_name,
-      action: "upgrade_account",
-      targetType: "user",
-      targetId: updated.id,
-      targetName: updated.username,
-      ip,
-    });
-    services.logs.write({
-      level: "info",
-      category: "auth",
-      message: "游客升级为正式账号：" + updated.username,
-      meta: { userId: updated.id },
-      userId: updated.id,
-      username: updated.username,
-      ip,
-      requestId: request.id,
-    });
-    getHub()?.refreshUser(updated.id);
-    getHub()?.broadcastOnlineUsers();
-    const roomId = getHub()?.getRoomIdForUser(updated.id) ?? null;
-    return { user: services.users.toSelf(updated, roomId) };
-  });
-
   app.post("/api/auth/logout", async (request: FastifyRequest, reply: FastifyReply) => {
-    if (request.auth) {
+    if (request.auth?.user.isGuest) {
+      retireGuest(request);
+    } else if (request.auth) {
       services.auth.revokeSession(request.auth.sessionId);
       getHub()?.disconnectUser(request.auth.user.id, "已退出登录");
       services.logs.write({
@@ -270,9 +202,4 @@ export async function registerAuthRoutes(app: FastifyInstance, services: Service
     return { user: { ...user, roomId } };
   });
 
-  // 兼容测试/API 客户端：也允许从请求体读取邀请码等字段
-  void registerSchema;
-  void loginSchema;
-  void guestSchema;
-  setCookie;
 }

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import type { Role, UserPublic, UserSelf } from "@airmic/shared";
 import { permissionsForRole } from "@airmic/shared";
 import type { Database } from "../db.js";
@@ -27,12 +28,17 @@ export const USER_COLUMNS =
   "id, username, display_name, password_hash, role, is_guest, is_banned, ban_reason, " +
   "banned_until, avatar_color, avatar_emoji, status_text, last_ip, created_at, updated_at, last_seen_at";
 
+const GUEST_ID_MIN = 2 ** 42;
+
+export function isGuestId(id: number): boolean {
+  return id >= GUEST_ID_MIN;
+}
+
 export interface CreateUserInput {
   username: string;
   displayName: string;
   passwordHash: string | null;
   role?: Role;
-  isGuest?: boolean;
   ip?: string | null;
 }
 
@@ -44,10 +50,12 @@ export interface ListUsersOptions {
 }
 
 export class UsersService {
+  private readonly guests = new Map<number, UserRow>();
+
   constructor(private readonly db: Database) {}
 
   findById(id: number): UserRow | undefined {
-    return this.db.get<UserRow>("SELECT " + USER_COLUMNS + " FROM users WHERE id = ?", id);
+    return this.guests.get(id) ?? this.db.get<UserRow>("SELECT " + USER_COLUMNS + " FROM users WHERE id = ?", id);
   }
 
   findByUsername(username: string): UserRow | undefined {
@@ -61,13 +69,12 @@ export class UsersService {
   create(input: CreateUserInput): UserRow {
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO users (username, display_name, password_hash, role, is_guest, avatar_color, created_at, updated_at, last_seen_at, last_ip) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO users (username, display_name, password_hash, role, avatar_color, created_at, updated_at, last_seen_at, last_ip) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.username,
       input.displayName,
       input.passwordHash,
       input.role ?? "user",
-      input.isGuest ? 1 : 0,
       pickAvatarColor(),
       timestamp,
       timestamp,
@@ -80,34 +87,29 @@ export class UsersService {
   }
 
   createGuest(displayName: string, ip: string | null): UserRow {
-    let username = "guest_" + randomId(4);
-    let attempts = 0;
-    while (this.usernameExists(username) && attempts < 10) {
-      username = "guest_" + randomId(4);
-      attempts += 1;
-    }
-    return this.create({ username, displayName, passwordHash: null, role: "guest", isGuest: true, ip });
-  }
-
-  /**
-   * 游客原地升级为正式账号：补用户名与密码哈希，角色变为 user，is_guest 清零。
-   * 保留同一个 user id，因此会话、房间成员身份和实时连接都不需要重建。
-   */
-  upgradeGuest(
-    id: number,
-    input: { username: string; passwordHash: string; displayName?: string },
-  ): UserRow | undefined {
-    const current = this.findById(id);
-    if (!current || current.is_guest !== 1) return undefined;
-    this.db.run(
-      "UPDATE users SET username = ?, display_name = ?, password_hash = ?, role = 'user', is_guest = 0, updated_at = ? WHERE id = ?",
-      input.username,
-      input.displayName ?? current.display_name,
-      input.passwordHash,
-      nowIso(),
+    let id = randomInt(GUEST_ID_MIN, 2 ** 46);
+    while (this.findById(id)) id = randomInt(GUEST_ID_MIN, 2 ** 46);
+    const timestamp = nowIso();
+    const user: UserRow = {
       id,
-    );
-    return this.findById(id);
+      username: "guest_" + randomId(4),
+      display_name: displayName,
+      password_hash: null,
+      role: "guest",
+      is_guest: 1,
+      is_banned: 0,
+      ban_reason: null,
+      banned_until: null,
+      avatar_color: pickAvatarColor(),
+      avatar_emoji: null,
+      status_text: "",
+      last_ip: ip,
+      created_at: timestamp,
+      updated_at: timestamp,
+      last_seen_at: timestamp,
+    };
+    this.guests.set(id, user);
+    return user;
   }
 
   updateProfile(
@@ -116,6 +118,18 @@ export class UsersService {
   ): UserRow | undefined {
     const current = this.findById(id);
     if (!current) return undefined;
+    if (current.is_guest === 1) {
+      const updated = {
+        ...current,
+        display_name: patch.displayName ?? current.display_name,
+        avatar_color: patch.avatarColor ?? current.avatar_color,
+        avatar_emoji: patch.avatarEmoji !== undefined ? patch.avatarEmoji : current.avatar_emoji,
+        status_text: patch.statusText ?? current.status_text,
+        updated_at: nowIso(),
+      };
+      this.guests.set(id, updated);
+      return updated;
+    }
     this.db.run(
       "UPDATE users SET display_name = ?, avatar_color = ?, avatar_emoji = ?, status_text = ?, updated_at = ? WHERE id = ?",
       patch.displayName ?? current.display_name,
@@ -148,6 +162,7 @@ export class UsersService {
   }
 
   delete(id: number): void {
+    if (this.guests.delete(id)) return;
     this.db.run("DELETE FROM users WHERE id = ?", id);
   }
 
@@ -156,15 +171,12 @@ export class UsersService {
     return Number(row?.count ?? 0);
   }
 
-  countUsers(filter: { includeGuests?: boolean } = {}): number {
-    const sql = filter.includeGuests
-      ? "SELECT COUNT(*) AS count FROM users"
-      : "SELECT COUNT(*) AS count FROM users WHERE is_guest = 0";
-    return Number(this.db.get<{ count: number }>(sql)?.count ?? 0);
+  countUsers(): number {
+    return Number(this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE is_guest = 0")?.count ?? 0);
   }
 
   countGuests(): number {
-    return Number(this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE is_guest = 1")?.count ?? 0);
+    return this.guests.size;
   }
 
   listRegistered(options: ListUsersOptions): { rows: UserRow[]; total: number } {
@@ -188,16 +200,6 @@ export class UsersService {
       (options.page - 1) * options.pageSize,
     );
     return { rows, total };
-  }
-
-  /** 清理 N 天未活跃的游客账号（消息发送者会保留快照字段） */
-  cleanupGuests(olderThanDays = 7): number {
-    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
-    const result = this.db.run(
-      "DELETE FROM users WHERE is_guest = 1 AND COALESCE(last_seen_at, created_at) < ?",
-      cutoff,
-    );
-    return result.changes;
   }
 
   toPublic(row: UserRow): UserPublic {

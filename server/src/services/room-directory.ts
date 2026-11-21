@@ -1,4 +1,4 @@
-import type { RoomArea, RoomDirectory, RoomManagementScope, RoomManager } from "@airmic/shared";
+import { canManageRoomScope, type RoomArea, type RoomDirectory, type RoomManagementScope, type RoomManager, type UserSelf } from "@airmic/shared";
 import type { Database } from "../db.js";
 
 const AREA_COLUMNS = "id, parent_id AS parentId, name, sort_order AS sortOrder";
@@ -17,6 +17,11 @@ export class RoomDirectoryService {
       userId,
     );
     return { areas: this.list(), grants };
+  }
+
+  canManageRoom(user: UserSelf, room: { id: number; area_id: number }): boolean {
+    return !user.isGuest && (user.permissions.includes("manage_rooms") ||
+      canManageRoomScope(user, { id: room.id, areaId: room.area_id }, this.forUser(user.id)));
   }
 
   find(id: number): RoomArea | undefined {

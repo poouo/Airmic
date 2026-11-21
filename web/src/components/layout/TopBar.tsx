@@ -1,26 +1,37 @@
-import { Menu, Users } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import AirMicMark from "@/components/brand/AirMicMark";
-import { IconButton } from "@/components/ui";
+import { Button, IconButton } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
+import { useAuthStore } from "@/stores/auth";
+import { useUiStore } from "@/stores/ui";
 import ConnectionStatus from "./ConnectionStatus";
 import ThemeToggle from "./ThemeToggle";
 import UserMenu from "./UserMenu";
 
 export interface TopBarProps {
-  onOpenSidebar: () => void;
+  onOpenSidebar?: () => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
-export default function TopBar({ onOpenSidebar }: TopBarProps) {
+export default function TopBar({ onOpenSidebar, sidebarCollapsed, onToggleSidebar }: TopBarProps) {
   const server = useAppStore((state) => state.server);
   const connection = useAppStore((state) => state.connection);
   const onlineCount = useAppStore((state) => state.onlineUsers.length);
+  const user = useAuthStore((state) => state.user);
+  const openModal = useUiStore((state) => state.openModal);
+  const showRegister = user?.isGuest && server?.registrationMode !== "closed";
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-2 sm:gap-3 sm:px-4">
-      <IconButton label="打开侧栏" className="h-10 w-10 lg:hidden" onClick={onOpenSidebar}>
+      {onOpenSidebar && <IconButton label="打开侧栏" className="h-10 w-10 lg:hidden" onClick={onOpenSidebar}>
         <Menu className="h-5 w-5" />
-      </IconButton>
+      </IconButton>}
+      {user && <IconButton label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"} aria-controls="desktop-room-sidebar"
+        aria-expanded={!sidebarCollapsed} className="hidden shrink-0 lg:inline-flex" onClick={onToggleSidebar}>
+        {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+      </IconButton>}
 
       <Link
         to="/"
@@ -37,15 +48,18 @@ export default function TopBar({ onOpenSidebar }: TopBarProps) {
         </span>
       </Link>
 
-      <span className="mx-1 hidden h-5 w-px shrink-0 bg-border sm:block" />
-      <ConnectionStatus status={connection} />
+      {user && <div className={user.isGuest ? "hidden shrink-0 sm:block" : "shrink-0"}>
+        <ConnectionStatus status={connection} />
+      </div>}
 
-      <div className="ml-auto flex items-center gap-1.5">
-        <span className="hidden items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {user && <span className="hidden items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
           <Users className="h-3.5 w-3.5" />
           在线 <span className="tabular text-foreground">{onlineCount}</span>
-        </span>
+        </span>}
         <ThemeToggle />
+        {user?.isGuest && <Button size="sm" variant="ghost" onClick={() => openModal("login")}>登录</Button>}
+        {showRegister && <Button size="sm" onClick={() => openModal("register")}>注册</Button>}
         <UserMenu />
       </div>
     </header>

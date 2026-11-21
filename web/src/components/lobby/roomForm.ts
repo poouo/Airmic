@@ -13,6 +13,8 @@ export interface RoomFormInitial {
   maxUsers: number;
   locked: boolean;
   allowGuests: boolean;
+  textChatEnabled: boolean;
+  chatHistoryDays: number;
   screenShareEnabled: boolean;
   /** 房间音质覆盖；null 表示跟随服务器默认 */
   audioOverride: import("@airmic/shared").AudioOverride | null;
@@ -31,6 +33,8 @@ export function createRoomInitial(base: AudioSettings, areaId: number): RoomForm
     maxUsers: 0,
     locked: false,
     allowGuests: true,
+    textChatEnabled: true,
+    chatHistoryDays: 30,
     screenShareEnabled: true,
     audioOverride: null,
     audioSettings: base,
@@ -49,6 +53,8 @@ export function detailRoomInitial(room: RoomDetail): RoomFormInitial {
     maxUsers: room.maxUsers,
     locked: room.locked,
     allowGuests: room.allowGuests !== false,
+    textChatEnabled: room.textChatEnabled !== false,
+    chatHistoryDays: room.chatHistoryDays ?? 30,
     screenShareEnabled: room.screenShareEnabled,
     audioOverride: room.audioOverride,
     audioSettings: room.audioSettings,

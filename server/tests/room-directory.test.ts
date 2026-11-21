@@ -39,6 +39,14 @@ test("旧数据库按原有路径迁移，保留房间 ID、密码、聊天和�
                (9, '二号房', '娱乐区', '大厅', NULL, 'before', 'before'),
                (12, '已删除', '娱乐区', '大厅', NULL, 'before', 'before');
         INSERT INTO messages (id, room_id, sender_name, content, created_at) VALUES (13, 7, '玩家', '上车', 'before');
+        INSERT INTO users (id, username, display_name, role, is_guest, created_at, updated_at)
+        VALUES (12, 'guest_legacy', '旧游客', 'guest', 1, 'before', 'before');
+        INSERT INTO sessions (session_id, user_id, created_at, last_seen_at, expires_at)
+        VALUES ('legacy_guest_session', 12, 'before', 'before', 'after');
+        INSERT INTO messages (room_id, user_id, sender_name, sender_role, content, created_at)
+        VALUES (9, 12, '旧游客', 'guest', '游客留言', 'before');
+        INSERT INTO app_logs (created_at, level, category, message, username, user_id)
+        VALUES ('before', 'info', 'auth', '旧游客已进入', 'guest_legacy', 12);
         INSERT INTO settings (key, value, updated_at) VALUES ('roomCategories', '["大厅", "备用"]', 'before');
         DELETE FROM rooms WHERE id = 12;
         PRAGMA user_version = 3;
@@ -55,6 +63,13 @@ test("旧数据库按原有路径迁移，保留房间 ID、密码、聊天和�
       assert.deepEqual(rooms.map(({ id, channel, category, password_hash }) => [id, channel, category, password_hash]),
         [[7, "游戏区", "大厅", "old-hash"], [9, "娱乐区", "大厅", null]]);
       assert.equal(db.get("SELECT 1 FROM rooms WHERE allow_guests != 1"), undefined);
+      assert.equal(db.get("SELECT 1 FROM rooms WHERE text_chat_enabled != 1 OR chat_history_days != 30"), undefined);
+      assert.equal(db.get("SELECT 1 FROM users WHERE id = 12"), undefined);
+      assert.equal(db.get("SELECT 1 FROM sessions WHERE user_id = 12"), undefined);
+      assert.equal(db.get("SELECT 1 FROM app_logs WHERE user_id = 12"), undefined);
+      const guestMessage = db.get<{ user_id: number | null; sender_name: string }>("SELECT user_id, sender_name FROM messages WHERE content = '游客留言'");
+      assert.equal(guestMessage?.user_id, null);
+      assert.equal(guestMessage?.sender_name, "游客");
       assert.equal(db.get<{ content: string }>("SELECT content FROM messages WHERE id = 13 AND room_id = 7")?.content, "上车");
       assert.equal(db.get<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'rooms'")?.seq, 12);
       assert.equal(db.get<{ name: string }>("SELECT name FROM room_areas WHERE name = '备用' AND parent_id IS NOT NULL")?.name, "备用");
@@ -164,7 +179,18 @@ test("房间、子区和一级分区授权隔离，撤销立即生效，踢出�
     assert.equal((await manager.patch(roomPath(outside.id), { locked: true })).status, 403);
     assert.equal((await manager.post(areasPath, { parentId: null, name: "越界分区" })).status, 403);
     assert.equal((await manager.get("/api/admin/settings")).status, 403);
+    const protectedRoom = await createRoom(admin, delta, "分区加密房", "test-password");
+    const passwordPath = `${roomPath(protectedRoom.id)}/check-password`;
+    assert.deepEqual((await admin.post(passwordPath, {})).body, { ok: true, required: false });
+    assert.deepEqual((await manager.post(passwordPath, {})).body, { ok: true, required: false });
+    assert.deepEqual((await player.post(passwordPath, {})).body, { ok: false, required: true });
+    socket.send({ t: "join_room", roomId: protectedRoom.id });
+    assert.equal((await socket.waitFor("room_joined")).snapshot.room.id, protectedRoom.id);
+    socket.send({ t: "leave_room" });
+    await socket.waitFor("room_left");
     assert.equal((await admin.del(`${rootGrant}/${managerId}`)).status, 200);
+    socket.send({ t: "join_room", roomId: protectedRoom.id });
+    assert.equal((await socket.waitFor("error")).code, "room_password_required");
     assert.equal((await manager.patch(roomPath(sibling.id), { locked: false })).status, 403);
   } finally {
     await ctx.close();

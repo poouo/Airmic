@@ -47,7 +47,7 @@ export default function UserMenu() {
     if (!confirmed) return;
     await logout();
     useUiStore.getState().toast("已退出登录", "info");
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true, state: null });
   };
 
   const itemClass =
@@ -126,26 +126,12 @@ export default function UserMenu() {
                 role="menuitem"
                 onClick={() => {
                   setOpen(false);
-                  navigate("/login");
+                  openModal("login");
                 }}
                 className={itemClass}
               >
                 <UserRound className="h-4 w-4 text-muted-foreground" />
                 登录已有账号
-              </button>
-            )}
-            {user.isGuest && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  openModal("upgrade");
-                }}
-                className={itemClass}
-              >
-                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                升级为正式账号
               </button>
             )}
             {canAdmin && (

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AudioOverride, RoomSummary, UserSelf } from "@airmic/shared";
-import { canManageArea, canManageRoomScope, ROLE_ORDER } from "@airmic/shared";
+import { canManageArea, ROLE_ORDER } from "@airmic/shared";
 import { getClientIp } from "../lib/http.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { parseWith } from "../lib/validation.js";
@@ -36,6 +36,8 @@ const createRoomSchema = z.object({
   sortOrder: z.number().int().min(-100000).max(100000).optional(),
   locked: z.boolean().optional(),
   allowGuests: z.boolean().optional(),
+  textChatEnabled: z.boolean().optional(),
+  chatHistoryDays: z.number().int().min(1).max(30).optional(),
   screenShareEnabled: z.boolean().optional(),
   audioOverride: audioOverrideSchema.nullable().optional(),
 });
@@ -51,12 +53,8 @@ function allowsPersonalRooms(services: Services, user: UserSelf): boolean {
   return user.isGuest ? settings.allowGuestRoomCreation : settings.allowRoomCreation;
 }
 
-function hasRoomScope(services: Services, user: UserSelf, row: RoomRow): boolean {
-  return canManageRoomScope(user, { id: row.id, areaId: row.area_id }, services.roomDirectory.forUser(user.id));
-}
-
 function canEditRoom(services: Services, user: UserSelf, row: RoomRow): boolean {
-  return hasRoomScope(services, user, row) || (row.created_by === user.id && allowsPersonalRooms(services, user));
+  return services.roomDirectory.canManageRoom(user, row) || (services.rooms.ownerId(row) === user.id && allowsPersonalRooms(services, user));
 }
 
 function findRoom(services: Services, request: FastifyRequest): RoomRow {
@@ -77,6 +75,8 @@ function toRoomInput(body: z.infer<typeof createRoomSchema> | z.infer<typeof upd
     sortOrder: body.sortOrder,
     locked: body.locked,
     allowGuests: body.allowGuests,
+    textChatEnabled: body.textChatEnabled,
+    chatHistoryDays: body.chatHistoryDays,
     screenShareEnabled: body.screenShareEnabled,
     audioOverride: body.audioOverride as AudioOverride | null | undefined,
   };
@@ -101,9 +101,9 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
       throw forbidden("房间数量已达上限");
     }
     if (services.rooms.findByName(area.id, body.name)) throw conflict("该子区已有同名房间", "room_name_taken");
-    const row = services.rooms.create({ ...toRoomInput(body), name: body.name, areaId: area.id }, auth.user.id);
+    const row = services.rooms.create({ ...toRoomInput(body), name: body.name, areaId: area.id }, auth.user.id, auth.user.isGuest);
     const summary = services.rooms.toSummary(row, 0);
-    services.audit.log({
+    if (!auth.user.isGuest) services.audit.log({
       actorId: auth.user.id,
       actorName: auth.user.displayName,
       action: "room_create",
@@ -138,7 +138,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     if (duplicate && duplicate.id !== row.id) throw conflict("该子区已有同名房间", "room_name_taken");
     const updated = services.rooms.update(row.id, { ...toRoomInput(body), areaId: moved ? area.id : undefined });
     if (!updated) throw notFound("房间不存在");
-    services.audit.log({
+    if (!auth.user.isGuest) services.audit.log({
       actorId: auth.user.id,
       actorName: auth.user.displayName,
       action: "room_update",
@@ -159,7 +159,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const roomId = row.id;
     if (!canEditRoom(services, auth.user, row)) throw forbidden("没有权限删除该房间");
     services.rooms.remove(roomId);
-    services.audit.log({
+    if (!auth.user.isGuest) services.audit.log({
       actorId: auth.user.id,
       actorName: auth.user.displayName,
       action: "room_delete",
@@ -176,7 +176,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
   app.post("/api/rooms/:id/members/:userId/kick", async (request) => {
     const { user } = requireAuth(request);
     const row = findRoom(services, request);
-    if (!hasRoomScope(services, user, row)) throw forbidden("没有权限管理该房间的成员");
+    if (!services.roomDirectory.canManageRoom(user, row)) throw forbidden("没有权限管理该房间的成员");
     const targetId = Number((request.params as { userId: string }).userId);
     if (!Number.isSafeInteger(targetId) || targetId < 1) throw badRequest("用户 ID 不正确");
     const target = services.users.findById(targetId);
@@ -193,8 +193,8 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
       actorName: user.displayName,
       action: "room_member_kick",
       targetType: "user",
-      targetId,
-      targetName: target.username,
+      targetId: target.is_guest === 1 ? null : targetId,
+      targetName: target.is_guest === 1 ? "游客" : target.username,
       details: JSON.stringify({ roomId: row.id }),
       ip: getClientIp(request),
     });
@@ -211,7 +211,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     }
     const limit = query.limit ? Math.min(200, Math.max(1, Number(query.limit))) : 50;
     const beforeId = query.beforeId ? Number(query.beforeId) : undefined;
-    return { messages: services.rooms.listMessages(room.id, limit, beforeId) };
+    return { messages: services.rooms.listMessages(room, limit, beforeId) };
   });
 
   /** 校验房间密码（用于 UI 提前校验，可省略直接 join_room） */
@@ -222,7 +222,7 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     if (!row) throw notFound("房间不存在");
     if (user.isGuest && row.allow_guests === 0) throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
     const body = parseWith(z.object({ password: z.string().optional() }), request.body ?? {});
-    if (!row.password_hash) return { ok: true, required: false };
+    if (!row.password_hash || services.roomDirectory.canManageRoom(user, row)) return { ok: true, required: false };
     const ok = services.rooms.verifyPassword(row, body.password);
     return { ok, required: true };
   });

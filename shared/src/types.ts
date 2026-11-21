@@ -158,6 +158,8 @@ export interface RoomSummary {
   icon: string;
   hasPassword: boolean;
   allowGuests: boolean;
+  textChatEnabled: boolean;
+  chatHistoryDays: number;
   maxUsers: number;
   userCount: number;
   locked: boolean;

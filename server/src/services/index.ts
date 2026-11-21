@@ -47,7 +47,7 @@ export function createServices(config: AppConfig): Services {
 
 /** 启动时的数据维护：初始管理员、过期数据清理 */
 function bootstrap(services: Services): void {
-  const { config, users, settings, bans, audit, auth } = services;
+  const { config, users, bans, audit } = services;
 
   if (config.adminUsername && config.adminPassword && users.countAdmins() === 0) {
     const existing = users.findByUsername(config.adminUsername);
@@ -67,20 +67,8 @@ function bootstrap(services: Services): void {
   }
 
   bans.expireOld();
-  users.cleanupGuests(7);
   services.db.run("DELETE FROM sessions WHERE revoked = 1 OR expires_at < ?", nowIso());
-
-  // 定期执行清理任务
-  const interval = setInterval(() => {
-    try {
-      bans.expireOld();
-      services.db.run("DELETE FROM sessions WHERE expires_at < ?", nowIso());
-    } catch {
-      /* 忽略清理错误 */
-    }
-  }, 60_000);
-  interval.unref?.();
-  void settings;
+  services.rooms.purgeExpiredMessages();
 }
 
 export type { Services };

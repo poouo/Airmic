@@ -163,12 +163,8 @@ export interface GuestLoginRequest {
   displayName: string;
 }
 
-/** 游客原地升级为正式账号（保留同一 user id / 房间身份） */
-export interface UpgradeGuestRequest {
-  username: string;
-  password: string;
-  displayName?: string;
-}
+/** 将游客身份注册为正式账号。 */
+export type UpgradeGuestRequest = RegisterRequest;
 
 export interface AuthResponse {
   user: UserSelf;
@@ -213,6 +209,8 @@ export interface CreateRoomRequest {
   sortOrder?: number;
   locked?: boolean;
   allowGuests?: boolean;
+  textChatEnabled?: boolean;
+  chatHistoryDays?: number;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
 }

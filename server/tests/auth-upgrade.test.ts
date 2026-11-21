@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AuthResponse } from "@airmic/shared";
 import { createTestContext } from "./helpers.js";
 
-test("游客原地升级为正式账号：保留 user id，并可用新账号登录", async () => {
+test("游客注册为正式账号时换发持久会话并删除原游客身份", async () => {
   const ctx = await createTestContext();
   try {
     const guest = ctx.newClient();
@@ -11,6 +11,10 @@ test("游客原地升级为正式账号：保留 user id，并可用新账号登
     assert.equal(created.status, 200);
     const before = (created.body as AuthResponse).user;
     assert.equal(before.isGuest, true);
+    const guestToken = guest.cookies.get("airmic_token");
+    assert.ok(guestToken);
+    assert.equal(ctx.services.db.get("SELECT 1 FROM users WHERE id = ?", before.id), undefined);
+    assert.equal(ctx.services.db.get("SELECT 1 FROM sessions WHERE user_id = ?", before.id), undefined);
 
     const upgraded = await guest.post<AuthResponse>("/api/auth/upgrade", {
       username: "player_one",
@@ -18,15 +22,16 @@ test("游客原地升级为正式账号：保留 user id，并可用新账号登
       displayName: "玩家一号",
     });
     assert.equal(upgraded.status, 200);
-    assert.equal(upgraded.body.user.id, before.id, "升级后必须保留同一个 user id");
+    assert.notEqual(upgraded.body.user.id, before.id);
     assert.equal(upgraded.body.user.isGuest, false);
     assert.equal(upgraded.body.user.username, "player_one");
     assert.equal(upgraded.body.user.displayName, "玩家一号");
 
-    // 原会话继续有效（不需要重新登录、不丢房间身份）
+    assert.equal(ctx.services.auth.authenticate(guestToken), null);
+    assert.equal(ctx.services.users.findById(before.id), undefined);
     const me = await guest.get<AuthResponse>("/api/auth/me");
     assert.equal(me.status, 200);
-    assert.equal(me.body.user.id, before.id);
+    assert.equal(me.body.user.id, upgraded.body.user.id);
     assert.equal(me.body.user.isGuest, false);
 
     // 新账号可以在别的客户端登录
@@ -36,7 +41,7 @@ test("游客原地升级为正式账号：保留 user id，并可用新账号登
       password: "password123",
     });
     assert.equal(login.status, 200);
-    assert.equal(login.body.user.id, before.id);
+    assert.equal(login.body.user.id, upgraded.body.user.id);
 
     // 已升级的账号不能再次升级
     const again = await guest.post("/api/auth/upgrade", { username: "player_two", password: "password123" });

@@ -114,9 +114,7 @@ export class Hub implements HubLike {
   /** @fastify/websocket 的 /ws 路由入口 */
   handleConnection(socket: WebSocket, request: FastifyRequest): void {
     if (this.closing) {
-      this.log("warn", "ws", "服务器正在关闭，拒绝 WebSocket 连接", { reason: "shutdown" }, null, {
-        ip: getClientIp(request),
-      });
+      this.log("warn", "ws", "服务器正在关闭，拒绝 WebSocket 连接", { reason: "shutdown" });
       closeSocketWithWatchdog(socket, WS_CLOSE_CODES.shutdown, "服务器正在关闭");
       return;
     }
@@ -128,8 +126,6 @@ export class Hub implements HubLike {
         "ws",
         "WebSocket 连接处理异常",
         { reason: describeError(error).slice(0, 500) },
-        null,
-        { ip: getClientIp(request) },
       );
       this.logError("处理 WebSocket 连接时出错", error);
       closeSocketWithWatchdog(socket, CLOSE_CODE_INTERNAL_ERROR, "服务器内部错误");
@@ -140,7 +136,7 @@ export class Hub implements HubLike {
     const ip = getClientIp(request);
     const token = AuthService.extractTokenFromCookieHeader(request.headers.cookie);
     if (!token) {
-      this.log("warn", "security", "WebSocket 认证失败", { reason: "缺少登录凭证", ip }, null, { ip });
+      this.log("warn", "security", "WebSocket 认证失败", { reason: "缺少登录凭证" });
       closeSocketWithWatchdog(socket, CLOSE_CODE_UNAUTHORIZED, "请先登录");
       return;
     }
@@ -149,12 +145,10 @@ export class Hub implements HubLike {
     if (!auth) {
       const ban = this.detectBan(token, ip);
       if (ban) {
-        this.log("warn", "security", "封禁用户尝试连接", { reason: ban.reason || "账号或 IP 已被封禁", ip }, null, {
-          ip,
-        });
+        this.log("warn", "security", "封禁用户尝试连接");
         closeSocketWithWatchdog(socket, CLOSE_CODE_REJECTED, "账号已被封禁" + (ban.reason ? "：" + ban.reason : ""));
       } else {
-        this.log("warn", "security", "WebSocket 认证失败", { reason: "登录凭证无效或已过期", ip }, null, { ip });
+        this.log("warn", "security", "WebSocket 认证失败", { reason: "登录凭证无效或已过期" });
         closeSocketWithWatchdog(socket, CLOSE_CODE_UNAUTHORIZED, "请先登录");
       }
       return;
@@ -162,7 +156,7 @@ export class Hub implements HubLike {
 
     const ban = this.services.bans.findActive(auth.user.id, ip);
     if (ban) {
-      this.log(
+      if (!auth.user.isGuest) this.log(
         "warn",
         "security",
         "封禁用户尝试连接",
@@ -178,7 +172,7 @@ export class Hub implements HubLike {
     const settings = this.services.settings.get();
     // 同一账号重连时占用原有名额，不按"新用户"判断满员
     if (!existing && settings.maxUsers > 0 && this.connections.size >= settings.maxUsers) {
-      this.log(
+      if (!auth.user.isGuest) this.log(
         "warn",
         "ws",
         "服务器人数已满，拒绝 WebSocket 连接",
@@ -233,7 +227,7 @@ export class Hub implements HubLike {
     socket.on("message", (data: RawData, isBinary: boolean) => this.handleRawMessage(conn, data, isBinary));
     socket.on("close", (code: number, reason: Buffer) => this.handleSocketClose(conn, code, reason.toString()));
     socket.on("error", (error: Error) => {
-      this.logWarn("WebSocket 连接错误（用户 " + conn.userId + "）：" + describeError(error));
+      if (!conn.user.isGuest) this.logWarn("WebSocket 连接错误（用户 " + conn.userId + "）：" + describeError(error));
     });
 
     if (existing) this.replaceConnection(existing, conn.id);
@@ -398,7 +392,7 @@ export class Hub implements HubLike {
     try {
       this.routeMessage(conn, message);
     } catch (error) {
-      this.logError("处理 WebSocket 消息失败（用户 " + conn.userId + "）", error);
+      if (!conn.user.isGuest) this.logError("处理 WebSocket 消息失败（用户 " + conn.userId + "）", error);
       this.sendError(conn, "internal", "服务器处理消息时出错", requestType);
     }
   }
@@ -456,13 +450,15 @@ export class Hub implements HubLike {
       this.sendError(conn, "room_locked", "房间已被锁定", "join_room");
       return;
     }
-    if (this.services.rooms.hasPassword(row) && !password) {
-      this.sendError(conn, "room_password_required", "该房间需要密码", "join_room");
-      return;
-    }
-    if (!this.services.rooms.verifyPassword(row, password)) {
-      this.sendError(conn, "room_password_invalid", "房间密码不正确", "join_room");
-      return;
+    if (this.services.rooms.hasPassword(row) && !this.services.roomDirectory.canManageRoom(conn.user, row)) {
+      if (!password) {
+        this.sendError(conn, "room_password_required", "该房间需要密码", "join_room");
+        return;
+      }
+      if (!this.services.rooms.verifyPassword(row, password)) {
+        this.sendError(conn, "room_password_invalid", "房间密码不正确", "join_room");
+        return;
+      }
     }
     const maxUsers = this.services.rooms.maxUsersFor(row);
     const currentUsers = this.getRoomCounts().get(row.id) ?? 0;
@@ -564,7 +560,7 @@ export class Hub implements HubLike {
     return {
       room: this.services.rooms.toDetail(row, members.length),
       peers,
-      messages: this.services.rooms.listMessages(row.id, 50),
+      messages: this.services.rooms.listMessages(row, 50),
       screenSharerId: sharer ? sharer.userId : null,
     };
   }
@@ -684,6 +680,10 @@ export class Hub implements HubLike {
     }
     if (conn.user.isGuest && !settings.allowGuestChat) {
       this.sendError(conn, "chat_disabled", "游客不能发送文字消息", "chat");
+      return;
+    }
+    if (this.services.rooms.findById(conn.roomId)?.text_chat_enabled === 0) {
+      this.sendError(conn, "chat_disabled", "该房间已关闭文字聊天", "chat");
       return;
     }
     const content = rawContent.trim();
@@ -1164,6 +1164,7 @@ export class Hub implements HubLike {
     conn?: ClientConnection | null,
     extra?: { userId?: number; username?: string; ip?: string },
   ): void {
+    if (conn?.user.isGuest) return;
     try {
       this.services.logs.write({
         level,

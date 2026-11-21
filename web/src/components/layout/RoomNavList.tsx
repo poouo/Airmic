@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
-import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2, UserRoundCheck } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2, UserRoundCheck } from "lucide-react";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
@@ -31,9 +31,9 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between px-3 py-2">
-        <p className="text-xs font-semibold text-foreground">语音房间</p>
+    <nav aria-label="房间目录" className="flex min-h-0 flex-1 flex-col">
+      <div className="mx-3 mb-2 flex shrink-0 items-center justify-between border-b border-sidebar-border py-2">
+        <p className="pl-1 text-sm font-semibold text-foreground">语音房间</p>
         <div className="flex items-center gap-1">
           {canManage && <IconButton label="分区与房间管理" aria-haspopup="dialog" onClick={() => useUiStore.getState().openModal("room-directory")}><Settings2 className="h-4 w-4" /></IconButton>}
           {canCreateRooms && (
@@ -42,7 +42,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto app-scroll px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto app-scroll px-3 pb-3">
         {groups.length === 0 ? (
           <div className="px-2 py-6 text-center">
             <p className="text-xs text-muted-foreground">{directory ? "还没有分区" : "正在加载分区…"}</p>
@@ -62,29 +62,30 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
             const channelCollapsed = collapsed.has(channelKey);
             const channelRoomCount = group.children.reduce((sum, child) => sum + child.rooms.length, 0);
             return (
-              <div key={channelKey} className="mb-2.5">
+              <div key={channelKey} className="mb-3">
                 <button
                   type="button"
                   onClick={() => toggleGroup(channelKey)}
                   aria-expanded={!channelCollapsed}
                   title={group.area.name}
-                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-card px-2 py-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
+                  <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", !channelCollapsed && "rotate-90")} />
                   {channelCollapsed ? (
                     <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
                   ) : (
                     <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
                     {group.area.name}
                   </span>
-                  <span className="tabular shrink-0 rounded bg-sidebar-accent/70 px-1 py-px font-mono text-[10px] leading-4 text-muted-foreground/80">
+                  <span className="tabular shrink-0 rounded-md bg-sidebar-accent px-1.5 py-px text-[11px] leading-4 text-muted-foreground">
                     {channelRoomCount}
                   </span>
                 </button>
 
                 {!channelCollapsed && (
-                  <div className="mt-0.5 space-y-0.5">
+                  <div className="ml-3 mt-1 space-y-1 border-l border-sidebar-border pl-2">
                     {group.children.map((game) => {
                       const gameKey = game.area.id;
                       const gameCollapsed = collapsed.has(gameKey);
@@ -95,19 +96,20 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                             onClick={() => toggleGroup(gameKey)}
                             aria-expanded={!gameCollapsed}
                             title={game.area.name}
-                            className="flex min-h-9 w-full items-center gap-1.5 rounded-lg py-1 pl-5 pr-2 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-7"
+                            className="flex min-h-9 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8"
                           >
-                            <Layers className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                            <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground/80">
+                            <ChevronRight className={cn("h-3 w-3 shrink-0 text-muted-foreground transition-transform", !gameCollapsed && "rotate-90")} />
+                            <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground">
                               {game.area.name}
                             </span>
-                            <span className="tabular shrink-0 rounded px-1 py-px font-mono text-[10px] leading-4 text-muted-foreground/60">
+                            <span className="tabular shrink-0 px-1 text-[11px] text-muted-foreground">
                               {game.rooms.length}
                             </span>
                           </button>
 
                           {!gameCollapsed && (
-                            <div className="mt-0.5 space-y-0.5">
+                            <div className="ml-2 mt-0.5 space-y-0.5">
                               {game.rooms.map((room) => {
                                 const active = room.id === currentRoomId;
                                 const full = room.maxUsers > 0 && room.userCount >= room.maxUsers;
@@ -116,20 +118,21 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                                     key={room.id}
                                     type="button"
                                     onClick={() => onSelect(room)}
+                                    aria-current={active ? "true" : undefined}
                                     title={room.locked ? "房间已锁定" : "加入「" + room.name + "」"}
                                     className={cn(
-                                      "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-7 pr-2 text-left outline-none transition-colors lg:min-h-8",
+                                      "flex min-h-11 w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left outline-none transition-colors lg:min-h-9",
                                       "focus-visible:ring-2 focus-visible:ring-ring",
                                       active
-                                        ? "bg-sidebar-accent text-foreground"
-                                        : "text-sidebar-foreground/85 hover:bg-sidebar-accent/60 hover:text-foreground",
+                                        ? "border-primary/25 bg-primary/10 text-foreground"
+                                        : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
                                       room.locked && !active && "opacity-55",
                                     )}
                                   >
                                     <span title={iconLabel(room.icon)} className="inline-flex shrink-0">
                                       <RoomIcon
                                         icon={room.icon}
-                                        className={cn("h-3.5 w-3.5", active ? "text-foreground" : "text-muted-foreground/70")}
+                                        className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")}
                                       />
                                     </span>
                                     <span className={cn("min-w-0 flex-1 truncate text-[13px]", active && "font-medium")}>
@@ -140,8 +143,8 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                                     {room.locked && <LockKeyhole className="h-3 w-3 shrink-0 text-muted-foreground" />}
                                     <span
                                       className={cn(
-                                        "tabular shrink-0 rounded px-1 py-px font-mono text-[10px] leading-4",
-                                        full ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
+                                        "tabular shrink-0 rounded-md px-1 py-px text-[11px] leading-4",
+                                        full ? "bg-destructive/10 text-destructive" : room.userCount > 0 ? "bg-sidebar-accent font-medium text-foreground" : "text-muted-foreground",
                                       )}
                                     >
                                       {room.userCount}/{room.maxUsers > 0 ? room.maxUsers : "∞"}
@@ -161,6 +164,6 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
           })
         )}
       </div>
-    </div>
+    </nav>
   );
 }

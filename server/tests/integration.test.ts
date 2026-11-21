@@ -146,9 +146,10 @@ test("房间 CRUD、密码与消息接口", async () => {
     assert.equal(list.body.rooms[0]?.hasPassword, true);
 
     // 密码校验
-    const badPassword = await admin.post<{ ok: boolean }>("/api/rooms/" + roomId + "/check-password", { password: "bad" });
+    const user = await ctx.registerUser("player1");
+    const badPassword = await user.post<{ ok: boolean }>("/api/rooms/" + roomId + "/check-password", { password: "bad" });
     assert.equal(badPassword.body.ok, false);
-    const goodPassword = await admin.post<{ ok: boolean }>("/api/rooms/" + roomId + "/check-password", { password: "secret123" });
+    const goodPassword = await user.post<{ ok: boolean }>("/api/rooms/" + roomId + "/check-password", { password: "secret123" });
     assert.equal(goodPassword.body.ok, true);
 
     // 更新：清空密码、改名、音质覆盖
@@ -168,7 +169,6 @@ test("房间 CRUD、密码与消息接口", async () => {
     assert.equal(update.body.room.audioSettings.channels, 2);
 
     // 普通用户无管理权限不能修改他人房间（默认 allowRoomCreation=false）
-    const user = await ctx.registerUser("player1");
     const denied = await user.patch("/api/rooms/" + roomId, { name: "hack" });
     assert.equal(denied.status, 403);
     assert.equal((await user.post("/api/rooms", { name: "普通用户的房" })).status, 403);

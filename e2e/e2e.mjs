@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServer } from "./lib/server.mjs";
-import { ApiClient } from "./lib/api.mjs";
 import { launchBrowser, waitForAudioConnection } from "./lib/browser.mjs";
 import { startLivekit } from "./lib/livekit.mjs";
 
@@ -29,7 +28,6 @@ async function step(name, fn) {
   }
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const cookieJar = (api) => [...api.cookies.entries()].map(([name, value]) => ({ name, value, domain: "127.0.0.1", path: "/" }));
 const consoleIssues = (entry) =>
   [...(entry.consoleErrors || [])].filter(
     (text) => !/favicon|AudioContext was not allowed|autoplay|status of 401|status of 404/i.test(text),
@@ -131,16 +129,17 @@ async function main() {
       return "默认 light，夜间切换与持久化正常";
     });
 
-    await step("6. 初始化后 /setup 重定向回登录页，登录页三入口可用", async () => {
+    await step("6. 初始化后 /setup 返回大厅，默认选中游客入口", async () => {
       const anon = await browser.newPage("anon");
       await anon.page.goto(server.url + "/setup", { waitUntil: "networkidle" });
-      await anon.page.waitForURL(/\/login$/, { timeout: 10000 });
-      const body = await anon.page.innerText("body");
-      for (const keyword of ["登录", "注册", "游客"]) {
-        if (!body.includes(keyword)) throw new Error("登录页缺少入口：" + keyword);
-      }
-      await browser.screenshot(anon.page, "00-login-light");
-      return "重定向与登录页正常";
+      await anon.page.waitForURL(server.url + "/", { timeout: 10000 });
+      const main = anon.page.getByRole("main");
+      await main.getByRole("button", { name: "登录", exact: true }).waitFor();
+      await main.getByRole("button", { name: "注册", exact: true }).waitFor();
+      const guestOption = main.getByRole("button", { name: "游客", exact: true });
+      if (await guestOption.getAttribute("aria-pressed") !== "true") throw new Error("游客入口未默认选中");
+      await browser.screenshot(anon.page, "00-lobby-entry-light");
+      return "大厅提供游客、登录和注册";
     });
 
     await step("7. 创建 SFU 大房间（管理员 API）", async () => {
@@ -160,11 +159,15 @@ async function main() {
       return "roomId=" + roomId + ", maxUsers=20";
     });
 
-    await step("8. 游客登录并注入浏览器会话", async () => {
-      const guestApi = new ApiClient(server.url);
-      const guest = await guestApi.guest("E2E 游客");
+    await step("8. 从房间直链完成游客进入并返回原房间", async () => {
+      await guestPage.page.goto(server.url + "/room/" + roomId);
+      await guestPage.page.waitForURL(server.url + "/");
+      await guestPage.page.getByLabel("游客昵称").fill("E2E 游客");
+      await guestPage.page.getByRole("button", { name: "以游客身份进入" }).click();
+      await guestPage.page.waitForURL(server.url + "/room/" + roomId);
+      const session = await guestPage.page.request.get(server.url + "/api/auth/me");
+      const { user: guest } = await session.json();
       if (!guest.isGuest) throw new Error("游客标记不正确");
-      await guestPage.context.addCookies(cookieJar(guestApi));
       return "游客 id=" + guest.id;
     });
 

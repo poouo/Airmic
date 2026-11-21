@@ -373,7 +373,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       const userId = parseIdParam((request.params as { id: string }).id, "用户");
       const body: UpdateUserRequest = parseWith(updateUserRequestSchema, request.body ?? {});
       const target = services.users.findById(userId);
-      if (!target) throw notFound("用户不存在");
+      if (!target || target.is_guest === 1) throw notFound("注册用户不存在");
 
       if (body.role !== undefined && body.role !== target.role) {
         if (target.role === "admin" && body.role !== "admin" && services.users.countAdmins() <= 1) {
@@ -414,7 +414,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       const userId = parseIdParam((request.params as { id: string }).id, "用户");
       if (userId === auth.user.id) throw badRequest("不能删除自己的账号");
       const target = services.users.findById(userId);
-      if (!target) throw notFound("用户不存在");
+      if (!target || target.is_guest === 1) throw notFound("注册用户不存在");
       if (target.role === "admin" && services.users.countAdmins() <= 1) {
         throw badRequest("不能删除最后一名管理员，服务器至少需要保留一名管理员");
       }
@@ -449,7 +449,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       const scope = body.scope ?? "server";
       const reason = body.reason?.trim() || (scope === "room" ? "你已被管理员请出房间" : "你已被管理员踢出服务器");
       hub.kick(userId, scope, reason);
-      services.audit.log({
+      if (target?.is_guest !== 1) services.audit.log({
         actorId: auth.user.id,
         actorName: auth.user.displayName,
         action: "user_kick",
@@ -475,7 +475,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       if (!hub || !hub.isOnline(userId)) throw conflict("该用户当前不在线");
       const reason = body.reason?.trim() || undefined;
       hub.forceMute(userId, body.muted, reason);
-      services.audit.log({
+      if (target?.is_guest !== 1) services.audit.log({
         actorId: auth.user.id,
         actorName: auth.user.displayName,
         action: "user_mute",
@@ -511,7 +511,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       if (hub && !hub.moveToRoom(userId, body.roomId)) {
         throw conflict("移动失败，该用户可能不在线或目标房间已满");
       }
-      services.audit.log({
+      if (target.is_guest !== 1) services.audit.log({
         actorId: auth.user.id,
         actorName: auth.user.displayName,
         action: "user_move",
@@ -550,6 +550,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       if (body.userId !== undefined) {
         target = services.users.findById(body.userId);
         if (!target) throw notFound("用户不存在");
+        if (target.is_guest === 1) throw badRequest("游客可从房间移除，封禁时请选择 IP");
         if (target.id === auth.user.id) throw badRequest("不能封禁自己的账号");
         if (target.role === "admin") throw badRequest("不能封禁管理员账号");
       }

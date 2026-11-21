@@ -32,6 +32,8 @@ export interface IssuedSession {
 }
 
 export class AuthService {
+  private readonly guestSessions = new Map<string, { userId: number; expiresAt: string }>();
+
   constructor(
     private readonly db: Database,
     private readonly users: UsersService,
@@ -54,7 +56,9 @@ export class AuthService {
     const ttlSeconds = this.ttlSecondsFor(user);
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const timestamp = nowIso();
-    this.db.run(
+    if (user.is_guest === 1) {
+      this.guestSessions.set(sessionId, { userId: user.id, expiresAt });
+    } else this.db.run(
       "INSERT INTO sessions (session_id, user_id, ip, user_agent, created_at, last_seen_at, expires_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
       sessionId,
       user.id,
@@ -72,11 +76,17 @@ export class AuthService {
     if (!token) return null;
     const payload = verifyJwt(token, this.settings.getJwtSecret());
     if (!payload) return null;
+    const guestSession = this.guestSessions.get(payload.sid);
+    if (guestSession) {
+      if (guestSession.userId !== payload.sub || Date.parse(guestSession.expiresAt) <= Date.now()) return null;
+      const user = this.loadUserSelf(guestSession.userId);
+      return user ? { user, sessionId: payload.sid, token } : null;
+    }
     const session = this.db.get<SessionRow>(
       "SELECT session_id, user_id, ip, user_agent, created_at, last_seen_at, expires_at, revoked FROM sessions WHERE session_id = ?",
       payload.sid,
     );
-    if (!session || session.revoked === 1) return null;
+    if (!session || session.user_id !== payload.sub || session.revoked === 1) return null;
     if (Date.parse(session.expires_at) <= Date.now()) return null;
     const row = this.users.findById(session.user_id);
     if (!row) return null;
@@ -93,11 +103,28 @@ export class AuthService {
   }
 
   revokeSession(sessionId: string): void {
+    const guest = this.guestSessions.get(sessionId);
+    if (guest) {
+      this.guestSessions.delete(sessionId);
+      this.users.delete(guest.userId);
+      return;
+    }
     this.db.run("UPDATE sessions SET revoked = 1 WHERE session_id = ?", sessionId);
   }
 
   revokeUserSessions(userId: number): void {
     this.db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ?", userId);
+  }
+
+  removeExpiredGuests(): number[] {
+    const now = nowIso();
+    const expired: number[] = [];
+    for (const [sessionId, session] of this.guestSessions) {
+      if (session.expiresAt > now) continue;
+      this.revokeSession(sessionId);
+      expired.push(session.userId);
+    }
+    return expired;
   }
 
   createSessionForUser(user: UserRow, ip: string | null, userAgent: string | null): AuthContext {

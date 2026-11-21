@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import { APP_VERSION } from "@airmic/shared";
 import path from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { LogController, type FastifyInstance, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "./config.js";
 import { loadConfig } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { getClientIp } from "./lib/http.js";
+import { nowIso } from "./lib/time.js";
 import { registerAuthDecorators } from "./plugins/auth.js";
 import { registerRealtime } from "./realtime/index.js";
 import { getHub } from "./realtime/instance.js";
@@ -22,9 +23,19 @@ import { registerSetupRoutes } from "./routes/setup.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerUserRoutes } from "./routes/users.js";
 import { createServices } from "./services/index.js";
+import { isGuestId } from "./services/users.js";
 
 export interface BuildAppOptions {
   config?: AppConfig;
+}
+
+function involvesGuest(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url;
+  if (request.auth?.user.isGuest || route === "/api/auth/guest") return true;
+  const params = request.params as { id?: string; userId?: string } | undefined;
+  if (route?.startsWith("/api/admin/users/:id")) return isGuestId(Number(params?.id));
+  if (route?.startsWith("/api/rooms/:id/members/:userId")) return isGuestId(Number(params?.userId));
+  return false;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -34,6 +45,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const loggerOption = config.logLevel === "silent" ? false : { level: config.logLevel };
   const baseOptions = {
     logger: loggerOption,
+    logController: new LogController({ disableRequestLogging: true }),
     trustProxy: config.trustProxy,
     bodyLimit: 2 * 1024 * 1024,
   };
@@ -76,17 +88,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         error: { code: candidate.code ?? "bad_request", message: candidate.message ?? "请求不正确" },
       });
     }
-    services.logs.write({
-      level: "error",
-      category: "error",
-      message: "未处理的服务端错误：" + (candidate.message ?? String(error)),
-      meta: { path: request.raw.url, stack: error instanceof Error ? error.stack?.slice(0, 4000) : String(error) },
-      userId: request.auth?.user.id ?? null,
-      username: request.auth?.user.username ?? null,
-      ip: getClientIp(request),
-      requestId: request.id,
-    });
-    request.log.error({ err: error }, "未处理的服务端错误");
+    if (!involvesGuest(request)) {
+      services.logs.write({
+        level: "error",
+        category: "error",
+        message: "未处理的服务端错误：" + (candidate.message ?? String(error)),
+        meta: { path: request.raw.url, stack: error instanceof Error ? error.stack?.slice(0, 4000) : String(error) },
+        userId: request.auth?.user.id ?? null,
+        username: request.auth?.user.username ?? null,
+        ip: request.auth ? getClientIp(request) : null,
+        requestId: request.id,
+      });
+      request.log.error({ err: error }, "未处理的服务端错误");
+    }
     return reply.code(500).send({ error: { code: "internal", message: "服务器内部错误" } });
   });
 
@@ -113,6 +127,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const url = request.raw.url ?? "";
     if (!url.startsWith("/api/") && !url.startsWith("/ws")) return;
     if (url.startsWith("/api/health") || url.startsWith("/api/admin/logs")) return;
+    if (involvesGuest(request)) return;
     const path = url.split("?")[0] ?? url;
     const status = reply.statusCode;
     const category = path.startsWith("/ws")
@@ -131,11 +146,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       meta: { method: request.method, path, status, ms: elapsed },
       userId: request.auth?.user.id ?? null,
       username: request.auth?.user.username ?? null,
-      ip: getClientIp(request),
+      ip: request.auth ? getClientIp(request) : null,
       requestId: request.id,
     });
   });
 
+  let maintenance: NodeJS.Timeout | undefined;
   app.addHook("onReady", async () => {
     services.logs.write({
       level: "info",
@@ -143,6 +159,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       message: "AirMic 服务已启动",
       meta: { version: APP_VERSION, port: config.port, node: process.version, pid: process.pid },
     });
+    maintenance = setInterval(() => {
+      try {
+        for (const guestId of services.auth.removeExpiredGuests()) {
+          services.rooms.releaseGuestRooms(guestId);
+          getHub()?.disconnectUser(guestId, "游客会话已过期");
+        }
+        services.bans.expireOld();
+        services.db.run("DELETE FROM sessions WHERE expires_at < ?", nowIso());
+        services.rooms.purgeExpiredMessages();
+      } catch (error) {
+        app.log.error({ err: error }, "清理过期数据失败");
+      }
+    }, 60_000).unref();
   });
 
   await registerServerRoutes(app, services);
@@ -173,6 +202,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   app.addHook("onClose", async () => {
+    clearInterval(maintenance);
     services.logs.write({ level: "info", category: "system", message: "AirMic 服务正在关闭" });
     services.logs.shutdown();
     getHub()?.shutdown();

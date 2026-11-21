@@ -84,7 +84,7 @@ export default function SetupPage() {
         </>
       );
     }
-    return <Navigate to={authStatus === "authenticated" ? "/" : "/login"} replace />;
+    return <Navigate to="/" replace />;
   }
 
   if (!status || !form) {

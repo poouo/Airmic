@@ -51,6 +51,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
   const [maxUsersDirty, setMaxUsersDirty] = useState(false);
   const [locked, setLocked] = useState(initial.locked);
   const [allowGuests, setAllowGuests] = useState(initial.allowGuests);
+  const [textChatEnabled, setTextChatEnabled] = useState(initial.textChatEnabled);
+  const [chatHistoryDays, setChatHistoryDays] = useState(String(initial.chatHistoryDays));
   const [screenShareEnabled, setScreenShareEnabled] = useState(initial.screenShareEnabled);
   const [requirePassword, setRequirePassword] = useState(initial.hasPassword);
   const [password, setPassword] = useState("");
@@ -85,6 +87,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     }
     const limit = Number(maxUsers);
     if (!Number.isInteger(limit) || limit < 0 || limit > 500) return "人数上限需为 0 到 500 的整数";
+    const days = Number(chatHistoryDays);
+    if (!Number.isInteger(days) || days < 1 || days > 30) return "聊天记录保留天数需为 1 到 30";
     if (sortOrder && (!Number.isInteger(Number(sortOrder)) || Math.abs(Number(sortOrder)) > 100000)) return "排序值需为 -100000 到 100000 的整数";
     return null;
   };
@@ -106,6 +110,8 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
     };
     if (!isEdit || areaId !== initial.areaId) payload.areaId = areaId;
     if (!isEdit || allowGuests !== initial.allowGuests) payload.allowGuests = allowGuests;
+    if (!isEdit || textChatEnabled !== initial.textChatEnabled) payload.textChatEnabled = textChatEnabled;
+    if (!isEdit || Number(chatHistoryDays) !== initial.chatHistoryDays) payload.chatHistoryDays = Number(chatHistoryDays);
     if (sortOrder !== "" && Number(sortOrder) !== initial.sortOrder) payload.sortOrder = Number(sortOrder);
     // 编辑时只有用户主动修改人数上限才提交，避免把“继承服务器上限”变成固定值
     if (!isEdit || maxUsersDirty) payload.maxUsers = Math.trunc(Number(maxUsers));
@@ -267,6 +273,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
                   disabled={!screenShareAllowed}
                   onChange={setScreenShareEnabled}
                 />
+                <Switch label="允许文字聊天" checked={textChatEnabled} onChange={setTextChatEnabled} />
               </div>
 
               <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
@@ -304,6 +311,14 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
             </CardContent>
           </Card>
         </div>
+
+        <details className="rounded-xl border border-border bg-card px-4">
+          <summary className="cursor-pointer py-3 text-sm font-medium">聊天记录</summary>
+          <div className="max-w-xs pb-4">
+            <Input label="聊天记录保留天数" type="number" min={1} max={30} value={chatHistoryDays} hint="1–30 天，到期自动清理"
+              onChange={(event) => setChatHistoryDays(event.target.value)} />
+          </div>
+        </details>
 
         <details className="rounded-xl border border-border bg-card px-4">
           <summary className="cursor-pointer py-3 text-sm font-medium">音质设置</summary>

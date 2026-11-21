@@ -5,7 +5,7 @@
  * 前置：npm run build；本机有 Chrome/Edge。
  *
  * 输出：e2e/artifacts/ui/*.png
- * 覆盖：初始化向导、登录页（桌面/移动端）、大厅（浅色/深色/移动端）、
+ * 覆盖：初始化向导、大厅入口（桌面/移动端）、大厅（浅色/深色/移动端）、
  *       房间（浅色/深色）、语音设置弹窗（浅色/深色）、管理后台主要页面。
  */
 import { existsSync, mkdirSync } from "node:fs";
@@ -146,16 +146,16 @@ async function main() {
     await admin.page.waitForTimeout(900);
     await shot(admin.page, "17-admin-logs-light");
 
-    // ---------- 登录页（桌面 / 移动端） ----------
+    // ---------- 大厅入口（桌面 / 移动端） ----------
     await anon.page.setViewportSize({ width: 1440, height: 900 });
-    await anon.page.goto(server.url + "/login", { waitUntil: "networkidle" });
+    await anon.page.goto(server.url, { waitUntil: "networkidle" });
     await anon.page.waitForTimeout(800);
-    await shot(anon.page, "00-login-light");
+    await shot(anon.page, "00-lobby-entry-light");
 
     await anon.page.setViewportSize({ width: 390, height: 844 });
-    await anon.page.goto(server.url + "/login", { waitUntil: "networkidle" });
+    await anon.page.goto(server.url, { waitUntil: "networkidle" });
     await anon.page.waitForTimeout(800);
-    await shot(anon.page, "18-login-mobile");
+    await shot(anon.page, "18-lobby-entry-mobile");
 
     // ---------- 移动端大厅 / 房间 ----------
     const guestApi = new ApiClient(server.url);

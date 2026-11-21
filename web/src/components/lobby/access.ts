@@ -19,6 +19,12 @@ export function canEditRoom(user: UserSelf | null, server: ServerSettingsPublic 
     (room.createdById === user.id && allowsPersonalRooms(user, server));
 }
 
+export function needsRoomPassword(user: UserSelf | null, directory: RoomDirectory | null, room: RoomSummary): boolean {
+  if (!room.hasPassword) return false;
+  if (!user || user.isGuest) return true;
+  return !user.permissions.includes("manage_rooms") && (!directory || !canManageRoomScope(user, room, directory));
+}
+
 export function canOpenRoomManagement(user: UserSelf | null, server: ServerSettingsPublic | null, directory: RoomDirectory | null, rooms: RoomSummary[]): boolean {
   return !!user && (user.permissions.includes("manage_rooms") || !!directory?.grants.length ||
     rooms.some((room) => canEditRoom(user, server, directory, room)));

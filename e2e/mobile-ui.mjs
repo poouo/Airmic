@@ -93,11 +93,8 @@ try {
   await assertTappable(button(page, "离开房间"));
   await button(page, "打开侧栏").tap();
   await page.getByRole("dialog", { name: "房间导航" }).getByRole("button", { name: /加密测试房/ }).tap();
-  const passwordDialog = page.getByRole("dialog", { name: "输入房间密码" });
-  await passwordDialog.getByLabel("房间密码").fill("mobile-1234");
-  await assertTappable(button(passwordDialog, "进入房间"));
-  await button(passwordDialog, "进入房间").tap();
   await page.waitForURL("**/room/" + protectedRoom.id);
+  assert.equal(await page.getByRole("dialog", { name: "输入房间密码" }).count(), 0);
   await page.getByRole("heading", { name: "加密测试房", exact: true }).waitFor();
   await button(page, "打开侧栏").tap();
   const drawer = page.getByRole("dialog", { name: "房间导航" });
@@ -107,7 +104,7 @@ try {
   assert.equal(page.url(), server.url + "/room/" + protectedRoom.id);
   await button(directory, "关闭").tap();
   await button(drawer, "关闭侧栏").tap();
-  console.log("通过：从房间侧栏切换到加密房");
+  console.log("通过：管理员可从手机侧栏免密码进入加密房");
 
   await button(page, "聊天").tap();
   await page.getByRole("textbox", { name: "消息内容" }).fill("短屏发送成功");
@@ -118,6 +115,21 @@ try {
   const historyPath = "/api/rooms/" + protectedRoom.id + "/messages";
   assert.equal((await admin.get(historyPath)).messages[0].content, "短屏发送成功");
   await assert.rejects(() => player.get(historyPath), /请先加入该房间/);
+  const playerContext = await browser.browser.newContext({ isMobile: true, hasTouch: true, viewport: { width: 360, height: 320 } });
+  try {
+    await playerContext.addCookies([...player.cookies].map(([name, value]) => ({ name, value, url: server.url })));
+    const playerPage = await playerContext.newPage();
+    await playerPage.goto(server.url);
+    await playerPage.getByRole("article").filter({ hasText: "加密测试房" }).getByRole("button", { name: "进入房间" }).tap();
+    const passwordDialog = playerPage.getByRole("dialog", { name: "输入房间密码" });
+    await passwordDialog.getByLabel("房间密码").fill("mobile-1234");
+    await assertTappable(button(passwordDialog, "进入房间"));
+    await button(passwordDialog, "进入房间").tap();
+    await playerPage.waitForURL("**/room/" + protectedRoom.id);
+    await playerPage.getByRole("heading", { name: "加密测试房", exact: true }).waitFor();
+  } finally {
+    await playerContext.close();
+  }
   await page.evaluate(() => window.simulateKeyboard(undefined));
   await button(page, "收起聊天").tap();
 
@@ -168,8 +180,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, "airmic-mobile-lobby.png") });
 
   await context.clearCookies();
-  await page.goto(server.url + "/login");
-  await button(page, "游客").tap();
+  await page.goto(server.url);
   const guestName = page.getByRole("textbox", { name: "游客昵称" });
   await guestName.fill("手机游客");
   await page.route("**/api/auth/guest", (route) => route.fulfill({ status: 429, json: { error: { message: "请稍后再试" } } }), { times: 1 });
@@ -177,10 +188,12 @@ try {
   await page.getByText("请稍后再试", { exact: true }).waitFor();
   assert.equal(await guestName.inputValue(), "手机游客");
   await button(page, "以游客身份进入").tap();
-  await page.waitForURL(server.url + "/");
+  await page.getByRole("heading", { name: "语音房间" }).waitFor();
   const session = await page.request.get(server.url + "/api/auth/me");
   assert.equal((await session.json()).user.displayName, "手机游客");
-  console.log("通过：手动游客登录可重试并跳转大厅");
+  await button(page, "注册").tap();
+  await page.getByRole("dialog", { name: "注册账号" }).getByLabel("用户名").waitFor();
+  console.log("通过：大厅游客入口可重试，手机顶栏可打开注册");
   await context.close();
 } finally {
   await browser?.close();

@@ -6,7 +6,7 @@ import { useRoomStore } from "@/stores/room";
 import { useUiStore } from "@/stores/ui";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
 import RoomEditor from "@/components/lobby/RoomEditor";
-import { canOpenRoomManagement, roomCreationAreas } from "@/components/lobby/access";
+import { canOpenRoomManagement, needsRoomPassword, roomCreationAreas } from "@/components/lobby/access";
 import OnlineUsersList from "./OnlineUsersList";
 import RoomNavList from "./RoomNavList";
 import SidebarUserCard from "./SidebarUserCard";
@@ -48,7 +48,7 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
       useUiStore.getState().toast("房间已满", "warning");
       return;
     }
-    if (room.hasPassword) {
+    if (needsRoomPassword(user, directory, room)) {
       // 不关闭移动端抽屉：密码弹窗由 Modal 渲染在抽屉之上
       setJoinTarget(room);
       return;

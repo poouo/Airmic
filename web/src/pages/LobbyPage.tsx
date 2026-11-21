@@ -1,19 +1,21 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
 import { ArrowRight, RefreshCw, Settings2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Alert, Button, IconButton, PageHeader, Spinner } from "@/components/ui";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useRoomStore } from "@/stores/room";
 import { useUiStore } from "@/stores/ui";
-import { canEditRoom, canOpenRoomManagement, roomCreationAreas } from "@/components/lobby/access";
+import { canEditRoom, canOpenRoomManagement, needsRoomPassword, roomCreationAreas } from "@/components/lobby/access";
 import JoinRoomPasswordModal from "@/components/lobby/JoinRoomPasswordModal";
 import LobbyRoomGrid from "@/components/lobby/LobbyRoomGrid";
 import RoomEditor, { type RoomEditorTarget } from "@/components/lobby/RoomEditor";
+import LobbyEntry from "@/components/auth/LobbyEntry";
 
 export default function LobbyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const server = useAppStore((state) => state.server);
   const rooms = useAppStore((state) => state.rooms);
@@ -23,6 +25,11 @@ export default function LobbyPage() {
   const currentRoom = useRoomStore((state) => state.snapshot?.room ?? null);
   const [joinTarget, setJoinTarget] = useState<RoomSummary | null>(null);
   const [editor, setEditor] = useState<RoomEditorTarget | null>(null);
+  const returnTo: unknown = location.state?.returnTo;
+
+  if (user && typeof returnTo === "string" && /^\/(?:room\/\d+|rooms\/manage|admin)(?:\?|$)/.test(returnTo)) {
+    return <Navigate to={returnTo} replace state={null} />;
+  }
 
   const handleJoin = (room: RoomSummary) => {
     if (room.id === currentRoom?.id) return navigate(`/room/${room.id}`);
@@ -34,14 +41,14 @@ export default function LobbyPage() {
       useUiStore.getState().toast("实时连接尚未建立，请稍后再试", "warning");
       return;
     }
-    if (room.hasPassword) return setJoinTarget(room);
+    if (needsRoomPassword(user, directory, room)) return setJoinTarget(room);
     useRoomStore.getState().joinRoom(room.id);
     navigate(`/room/${room.id}`);
   };
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
-      {connection !== "online" && <Alert tone="warning">{connection === "reconnecting" ? "正在重连…" : "语音未连接"}</Alert>}
+      {user && connection !== "online" && <Alert tone="warning">{connection === "reconnecting" ? "正在重连…" : "语音未连接"}</Alert>}
       <div className="rounded-2xl border border-border bg-linear-to-br from-card via-card to-secondary p-4 shadow-raised sm:p-6">
         <PageHeader title={server?.name ?? "AirMic 语音服务器"} description={server?.motd && <span className="whitespace-pre-line break-words">{server.motd}</span>}
           actions={<>
@@ -50,7 +57,7 @@ export default function LobbyPage() {
           </>}
         />
       </div>
-      <section className="space-y-4">
+      {user ? <section className="space-y-4">
         <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
           <h2 className="text-base font-semibold text-foreground">语音房间</h2>
           <IconButton label="刷新分区和房间" onClick={() => {
@@ -64,7 +71,7 @@ export default function LobbyPage() {
           createAreas={roomCreationAreas(user, server, directory)} canEdit={(room) => canEditRoom(user, server, directory, room)}
           onJoin={handleJoin} onEdit={(room) => setEditor({ kind: "edit", roomId: room.id })}
           onCreate={(areaId) => setEditor({ kind: "create", areaId })} /> : !directoryError && <Spinner />}
-      </section>
+      </section> : <LobbyEntry />}
       {joinTarget && <JoinRoomPasswordModal room={joinTarget} onClose={() => setJoinTarget(null)} />}
       {editor && <RoomEditor target={editor} onClose={() => setEditor(null)} />}
     </div>

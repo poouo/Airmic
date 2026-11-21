@@ -22,7 +22,7 @@ export default function SidebarUserCard() {
     if (!confirmed) return;
     await logout();
     useUiStore.getState().toast("已退出登录", "info");
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true, state: null });
   };
 
   return (
