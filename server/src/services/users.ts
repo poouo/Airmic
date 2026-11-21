@@ -167,8 +167,8 @@ export class UsersService {
     return Number(this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE is_guest = 1")?.count ?? 0);
   }
 
-  list(options: ListUsersOptions): { rows: UserRow[]; total: number } {
-    const conditions: string[] = [];
+  listRegistered(options: ListUsersOptions): { rows: UserRow[]; total: number } {
+    const conditions = ["is_guest = 0"];
     const params: (string | number)[] = [];
     if (options.search) {
       conditions.push("(username LIKE ? OR display_name LIKE ?)");
@@ -179,10 +179,10 @@ export class UsersService {
       conditions.push("role = ?");
       params.push(options.role);
     }
-    const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+    const where = "WHERE " + conditions.join(" AND ");
     const total = Number(this.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM users " + where, ...params)?.count ?? 0);
     const rows = this.db.all<UserRow>(
-      "SELECT " + USER_COLUMNS + " FROM users " + where + " ORDER BY is_guest ASC, last_seen_at DESC, id DESC LIMIT ? OFFSET ?",
+      "SELECT " + USER_COLUMNS + " FROM users " + where + " ORDER BY last_seen_at DESC, id DESC LIMIT ? OFFSET ?",
       ...params,
       options.pageSize,
       (options.page - 1) * options.pageSize,

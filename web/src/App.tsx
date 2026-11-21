@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { BrowserRouter, matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Permission } from "@airmic/shared";
-import { ConfirmDialog, FullScreenLoader, ToastHost } from "@/components/ui";
+import { ConfirmDialog, FullScreenLoader, Modal, ToastHost } from "@/components/ui";
 import AppLayout from "@/components/layout/AppLayout";
 import RoomDirectoryManager from "@/components/lobby/RoomDirectoryManager";
 import UpgradeAccountModal from "@/components/auth/UpgradeAccountModal";
@@ -39,11 +39,15 @@ function RequireAuth({ children, adminOnly = false }: { children: ReactNode; adm
 
 function GlobalOverlays() {
   const modal = useUiStore((state) => state.modal);
+  const closeModal = useUiStore((state) => state.closeModal);
   return (
     <>
       {modal === "settings" && <SettingsModal />}
       {modal === "profile" && <ProfileModal />}
       {modal === "upgrade" && <UpgradeAccountModal />}
+      {modal === "room-directory" && <Modal open title="分区与房间管理" size="2xl" onClose={closeModal}>
+        <RoomDirectoryManager inDialog />
+      </Modal>}
       <ConfirmDialog />
       <ToastHost />
     </>
@@ -90,7 +94,7 @@ function AppRoutes() {
   }, [bootstrapped, setupRequired, status, location.pathname, server]);
 
   if (status === "loading") return <FullScreenLoader text="正在连接 AirMic…" />;
-  if (status === "anonymous" && submitting) return <FullScreenLoader text="正在以游客身份进入…" />;
+  if (status === "anonymous" && submitting && location.pathname !== "/login") return <FullScreenLoader text="正在以游客身份进入…" />;
 
   // 服务器尚未初始化时强制进入初始化向导（未登录也可访问）
   if (bootstrapped && setupRequired && location.pathname !== "/setup") {

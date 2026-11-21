@@ -44,7 +44,7 @@ export default function AppLayout() {
               </IconButton>
             </div>
             <div className="flex min-h-0 flex-1">
-              <Sidebar mobile onNavigate={() => setSidebarOpen(false)} />
+              <Sidebar onNavigate={() => setSidebarOpen(false)} />
             </div>
           </div>
         </div>

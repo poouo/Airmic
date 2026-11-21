@@ -10,7 +10,7 @@ export interface ToastItem {
   duration: number;
 }
 
-export type GlobalModal = "settings" | "profile" | "upgrade" | null;
+export type GlobalModal = "settings" | "profile" | "upgrade" | "room-directory" | null;
 
 export interface ConfirmOptions {
   title: string;

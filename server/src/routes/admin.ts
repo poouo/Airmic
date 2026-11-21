@@ -250,12 +250,6 @@ function toAdminUserRow(
   };
 }
 
-function toAdminUserRowList(services: Services, rows: UserRow[]): AdminUserRow[] {
-  const onlineMap = buildOnlineMap();
-  const roomNames = new Map<number, string | null>();
-  return rows.map((row) => toAdminUserRow(services, row, onlineMap, roomNames));
-}
-
 interface SessionJoinRow {
   id: number;
   user_id: number;
@@ -349,13 +343,15 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
     { preHandler: app.requirePermission("manage_users") },
     async (request): Promise<AdminUserListResponse> => {
       const query = parseWith(listUsersQuerySchema, request.query);
-      const { rows, total } = services.users.list({
+      const { rows, total } = services.users.listRegistered({
         search: query.search || undefined,
         page: query.page,
         pageSize: query.pageSize,
         role: query.role,
       });
-      const users = toAdminUserRowList(services, rows);
+      const onlineMap = buildOnlineMap();
+      const roomNames = new Map<number, string | null>();
+      const users = rows.map((row) => toAdminUserRow(services, row, onlineMap, roomNames));
       // shared 的 AdminUserListResponse 继承 Paginated（字段名为 items），
       // 同时附带 users 以兼容任务/前端约定的字段名。
       return {
@@ -364,7 +360,7 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
         total,
         page: query.page,
         pageSize: query.pageSize,
-        onlineCount: getHub()?.getOnlineCount() ?? 0,
+        onlineCount: [...onlineMap.values()].filter((user) => !user.isGuest).length,
       } as AdminUserListResponse & { users: AdminUserRow[] };
     },
   );

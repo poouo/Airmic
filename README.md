@@ -365,7 +365,8 @@ node ~/.airmic/bin/airmic-cli.mjs upgrade --from ~/source.tar.gz --build --force
 
 ## 升级 / 回滚 / 卸载
 
-- **一键升级**（自动识别本地/Docker 模式与来源；有 Release 预构建包/镜像直接用，否则从 GitHub 源码归档升级，失败自动回滚）：
+- **一键升级**：用安装脚本部署的本地服务可在「管理后台 → 服务器设置 → 系统更新」点击「一键升级」。服务会备份数据库、校验发布包并重启，失败时自动回滚。
+- 命令行也可升级本地和 Docker 部署，按安装方式获取预构建包、镜像或源码：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/poouo/Airmic/main/scripts/install.sh | bash -s -- upgrade

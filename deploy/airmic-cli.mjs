@@ -27,7 +27,7 @@ import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const CLI_VERSION = "1.2.2";
+const CLI_VERSION = "1.3.1";
 const APP_NAME = "AirMic";
 const DEFAULT_REPO = "poouo/Airmic";
 const HOME_MARKER = ".airmic-install.json";
@@ -1307,11 +1307,13 @@ function startLivekit(home, noLivekit) {
   return { started: true, pid };
 }
 
-function killProcess(pid, label) {
+function killProcess(pid, label, includeChildren = true) {
   if (!pid || !isProcessAlive(pid)) return false;
   log("  停止 " + label + "（PID " + pid + "）");
   if (IS_WIN) {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    const args = ["/PID", String(pid), "/F"];
+    if (includeChildren) args.push("/T");
+    spawnSync("taskkill", args, { stdio: "ignore", windowsHide: true });
   } else {
     try {
       process.kill(-pid, "SIGTERM");
@@ -1350,7 +1352,9 @@ function stopLocal(home) {
   for (const name of ["airmic", "livekit"]) {
     const pid = readPid(home, name);
     if (pid && isProcessAlive(pid)) {
-      killProcess(pid, name === "airmic" ? "AirMic" : "LiveKit");
+      // On Windows the web upgrader is descended from AirMic, even when detached.
+      const includeChildren = !(name === "airmic" && process.env.AIRMIC_UPGRADE_SOURCE === "web-admin");
+      killProcess(pid, name === "airmic" ? "AirMic" : "LiveKit", includeChildren);
       stopped = true;
     } else {
       if (pid) log("  " + name + " 进程不存在，清理 PID 文件");

@@ -7,7 +7,7 @@ import { useUiStore } from "@/stores/ui";
 import { formatDateTime } from "@/lib/format";
 import { SectionCard } from "./shared";
 
-/** 管理后台「系统更新」：读取 GitHub 上最新版本，只做检查；升级由部署脚本执行。 */
+/** 检查 GitHub 版本，并为本地安装提供网页升级入口。 */
 export default function UpdateCard() {
   const [info, setInfo] = useState<UpdateCheckResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,6 +30,7 @@ export default function UpdateCard() {
   }, [check]);
 
   const updateAvailable = info?.updateAvailable ?? false;
+  const canUpgrade = info?.webUpgradeAvailable && info.latestSource === "release";
 
   const [starting, setStarting] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
@@ -125,7 +126,7 @@ export default function UpdateCard() {
 
           {info.latestSource === "branch" && (
             <Alert tone="warning">
-              暂无正式版本，升级将使用 {info.latestRef} 分支。
+              暂无正式发布的版本。
             </Alert>
           )}
 
@@ -154,15 +155,13 @@ export default function UpdateCard() {
                 </div>
               ) : (
                 <>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Docker 部署请在宿主机运行 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">airmic upgrade</code>。
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {canUpgrade ? <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Button size="sm" loading={starting} onClick={() => void startUpgrade()}>
                       一键升级到 v{info.latestVersion ?? info.latestRef}
                     </Button>
-                    <span className="text-[11px] text-muted-foreground">{info.upgradeHint}</span>
-                  </div>
+                  </div> : <p className="mt-1 text-xs text-muted-foreground">
+                    {info.webUpgradeAvailable ? "正式发布后可在此升级。" : "网页升级仅适用于一键安装的本地部署。"}
+                  </p>}
                 </>
               )}
               {upgradeError && <Alert tone="error">{upgradeError}</Alert>}

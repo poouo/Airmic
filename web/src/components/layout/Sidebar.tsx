@@ -14,10 +14,9 @@ import { useState } from "react";
 
 export interface SidebarProps {
   onNavigate?: () => void;
-  mobile?: boolean;
 }
 
-export default function Sidebar({ onNavigate, mobile = false }: SidebarProps) {
+export default function Sidebar({ onNavigate }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
@@ -62,7 +61,7 @@ export default function Sidebar({ onNavigate, mobile = false }: SidebarProps) {
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <RoomNavList currentRoomId={currentRoomId} canCreateRooms={!!defaultCreateArea} canManage={allowManage && location.pathname !== "/rooms/manage"} onSelect={handleSelect} onCreate={() => setCreating(true)} />
-      <OnlineUsersList initiallyOpen={!mobile} />
+      <OnlineUsersList />
       <SidebarUserCard />
 
       {joinTarget && <JoinRoomPasswordModal room={joinTarget} onClose={() => setJoinTarget(null)} />}

@@ -46,7 +46,7 @@ export default function LobbyPage() {
         <PageHeader title={server?.name ?? "AirMic 语音服务器"} description={server?.motd && <span className="whitespace-pre-line break-words">{server.motd}</span>}
           actions={<>
             {currentRoom && <Button variant="outline" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate(`/room/${currentRoom.id}`)}>返回「{currentRoom.name}」</Button>}
-            {canOpenRoomManagement(user, server, directory, rooms) && <Button className="min-h-10" icon={<Settings2 className="h-4 w-4" />} onClick={() => navigate("/rooms/manage")}>分区与房间管理</Button>}
+            {canOpenRoomManagement(user, server, directory, rooms) && <Button className="min-h-10" aria-haspopup="dialog" icon={<Settings2 className="h-4 w-4" />} onClick={() => useUiStore.getState().openModal("room-directory")}>分区与房间管理</Button>}
           </>}
         />
       </div>

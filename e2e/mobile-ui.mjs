@@ -13,6 +13,10 @@ try {
   await admin.register("mobile_admin");
   await player.register("mobile_player");
   const protectedRoom = await admin.createRoom({ name: "加密测试房", password: "mobile-1234" });
+  const { areas } = await admin.get("/api/room-directory");
+  const rootArea = areas.find((area) => area.parentId === null);
+  assert.ok(rootArea);
+  await admin.post("/api/room-directory/areas", { parentId: rootArea.id, name: "下拉测试" });
 
   browser = await launchBrowser();
   const context = await browser.browser.newContext({
@@ -48,6 +52,10 @@ try {
   });
 
   const button = (scope, name) => scope.getByRole("button", { name, exact: true });
+  const choose = async (scope, label, option) => {
+    await scope.getByRole("combobox", { name: label, exact: true }).tap();
+    await page.getByRole("option", { name: option, exact: true }).tap();
+  };
   const assertTappable = async (locator) => {
     await locator.waitFor();
     const check = await locator.evaluate((element) => {
@@ -66,12 +74,17 @@ try {
   const createDialog = page.getByRole("dialog", { name: "创建房间" });
   await createDialog.getByLabel(/房间名称/).fill("短屏测试房");
   await page.evaluate(() => window.simulateKeyboard(260, 14));
+  await createDialog.getByRole("combobox", { name: "所属子区" }).tap();
+  const lastArea = page.getByRole("option", { name: "默认频道 / 下拉测试" });
+  await lastArea.scrollIntoViewIfNeeded();
+  await assertTappable(lastArea);
+  await lastArea.tap();
   await assertTappable(button(createDialog, "创建房间"));
   await button(createDialog, "创建房间").tap();
   await createDialog.waitFor({ state: "hidden" });
   await page.evaluate(() => window.simulateKeyboard(undefined));
-  await group.getByText("短屏测试房", { exact: true }).waitFor();
-  console.log("通过：短屏、键盘和底部安全区内可创建房间");
+  await page.getByRole("region", { name: "默认频道 / 下拉测试" }).getByText("短屏测试房", { exact: true }).waitFor();
+  console.log("通过：短屏、键盘和底部安全区内可选择子区并创建房间");
 
   const { rooms } = await admin.get("/api/rooms");
   const openRoom = rooms.find((room) => room.name === "短屏测试房");
@@ -86,6 +99,14 @@ try {
   await button(passwordDialog, "进入房间").tap();
   await page.waitForURL("**/room/" + protectedRoom.id);
   await page.getByRole("heading", { name: "加密测试房", exact: true }).waitFor();
+  await button(page, "打开侧栏").tap();
+  const drawer = page.getByRole("dialog", { name: "房间导航" });
+  await button(drawer, "分区与房间管理").tap();
+  const directory = page.getByRole("dialog", { name: "分区与房间管理" });
+  await directory.getByRole("region", { name: "默认频道 / 开黑房间" }).waitFor();
+  assert.equal(page.url(), server.url + "/room/" + protectedRoom.id);
+  await button(directory, "关闭").tap();
+  await button(drawer, "关闭侧栏").tap();
   console.log("通过：从房间侧栏切换到加密房");
 
   await button(page, "聊天").tap();
@@ -121,7 +142,7 @@ try {
   await page.waitForURL(server.url + "/");
   await page.setViewportSize({ width: 360, height: 420 });
   await page.goto(server.url + "/admin");
-  await page.getByLabel("管理模块").selectOption("users");
+  await choose(page, "管理模块", "用户管理");
   const manageUser = button(page.getByRole("main"), "管理").first();
   await manageUser.waitFor();
   await manageUser.evaluate((element) => {
@@ -133,7 +154,7 @@ try {
   await manageUser.tap();
   await page.getByRole("dialog").waitFor();
   await page.keyboard.press("Escape");
-  await page.getByLabel("管理模块").selectOption("settings");
+  await choose(page, "管理模块", "服务器设置");
   const save = button(page, "保存设置");
   await assertTappable(save);
   await save.tap();
@@ -145,6 +166,21 @@ try {
   await page.getByRole("heading", { name: "语音房间" }).waitFor();
   await page.getByRole("heading", { name: "短屏测试房" }).waitFor();
   await page.screenshot({ path: path.join(screenshotDir, "airmic-mobile-lobby.png") });
+
+  await context.clearCookies();
+  await page.goto(server.url + "/login");
+  await button(page, "游客").tap();
+  const guestName = page.getByRole("textbox", { name: "游客昵称" });
+  await guestName.fill("手机游客");
+  await page.route("**/api/auth/guest", (route) => route.fulfill({ status: 429, json: { error: { message: "请稍后再试" } } }), { times: 1 });
+  await button(page, "以游客身份进入").tap();
+  await page.getByText("请稍后再试", { exact: true }).waitFor();
+  assert.equal(await guestName.inputValue(), "手机游客");
+  await button(page, "以游客身份进入").tap();
+  await page.waitForURL(server.url + "/");
+  const session = await page.request.get(server.url + "/api/auth/me");
+  assert.equal((await session.json()).user.displayName, "手机游客");
+  console.log("通过：手动游客登录可重试并跳转大厅");
   await context.close();
 } finally {
   await browser?.close();

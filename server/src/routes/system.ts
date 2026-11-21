@@ -6,7 +6,7 @@ import type { SystemUpgradeResponse, UpdateCheckResponse } from "@airmic/shared"
 import { ROOT_DIR } from "../config.js";
 import { requireAuth } from "../plugins/auth.js";
 import { getClientIp } from "../lib/http.js";
-import { badRequest, conflict } from "../lib/errors.js";
+import { badRequest, conflict, internalError } from "../lib/errors.js";
 import type { Services } from "../types.js";
 
 /** 升级进行中的短期锁，防止连点触发多次升级 */
@@ -24,6 +24,7 @@ interface InstallInfo {
  * 源码开发目录（仓库根）没有 version.json / bin/airmic-cli.mjs，会被判为不可一键升级。
  */
 function detectInstall(): InstallInfo | null {
+  if (path.basename(ROOT_DIR) !== "app") return null;
   const home = path.resolve(ROOT_DIR, "..");
   const cli = path.join(home, "bin", "airmic-cli.mjs");
   const versionFile = path.join(home, "version.json");
@@ -45,7 +46,8 @@ export async function registerSystemRoutes(app: FastifyInstance, services: Servi
     async (request): Promise<UpdateCheckResponse> => {
       requireAuth(request);
       const force = String((request.query as { force?: string }).force ?? "") === "1";
-      return services.update.check(force);
+      const info = await services.update.check(force);
+      return { ...info, webUpgradeAvailable: detectInstall()?.mode === "local" };
     },
   );
 
@@ -77,20 +79,31 @@ export async function registerSystemRoutes(app: FastifyInstance, services: Servi
       const logPath = path.join(logDir, "upgrade-" + stamp + ".log");
 
       const fd = fs.openSync(logPath, "a");
+      const startedAt = Date.now();
+      upgradeStartedAt = startedAt;
+      const releaseLock = () => { if (upgradeStartedAt === startedAt) upgradeStartedAt = null; };
       try {
-        const child = spawn(process.execPath, [install.cli, "upgrade", "--yes"], {
+        const child = spawn(process.execPath, [install.cli, "upgrade", "--dir", install.home, "--source", "release", "--yes"], {
           cwd: install.home,
           detached: true,
           stdio: ["ignore", fd, fd],
           windowsHide: true,
           env: { ...process.env, AIRMIC_UPGRADE_SOURCE: "web-admin" },
         });
+        child.once("exit", releaseLock);
+        await new Promise<void>((resolve, reject) => {
+          child.once("spawn", resolve);
+          child.once("error", reject);
+        });
         child.unref();
+      } catch (error) {
+        releaseLock();
+        request.log.error(error, "无法启动网页升级进程");
+        throw internalError("无法启动升级，请检查安装目录及运行权限", "upgrade_start_failed");
       } finally {
         fs.closeSync(fd);
       }
 
-      upgradeStartedAt = Date.now();
       services.logs.write({
         level: "info",
         category: "system",

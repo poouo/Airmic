@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { Ghost, UserRound } from "lucide-react";
 import { Alert, Button, Input } from "@/components/ui";
 import { useAuthStore } from "@/stores/auth";
@@ -8,8 +9,10 @@ export interface GuestFormProps {
 }
 
 export default function GuestForm({ guestEnabled }: GuestFormProps) {
+  const navigate = useNavigate();
   const submitting = useAuthStore((state) => state.submitting);
   const guest = useAuthStore((state) => state.guest);
+  const alreadyGuest = useAuthStore((state) => state.user?.isGuest === true);
   const [displayName, setDisplayName] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -28,10 +31,13 @@ export default function GuestForm({ guestEnabled }: GuestFormProps) {
     setLocalError(null);
     try {
       await guest(trimmed);
+      navigate("/", { replace: true });
     } catch {
       /* 错误由 authStore.error 展示 */
     }
   };
+
+  if (alreadyGuest) return <Button size="lg" fullWidth onClick={() => navigate("/", { replace: true })}>返回大厅</Button>;
 
   if (!guestEnabled) {
     return (
@@ -43,7 +49,6 @@ export default function GuestForm({ guestEnabled }: GuestFormProps) {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
-      <Alert tone="info">游客身份无需密码即可进入，可收听语音与加入房间，具体权限由服务器管理员配置。</Alert>
       {localError && <Alert tone="error">{localError}</Alert>}
       <Input
         label="游客昵称"
@@ -53,7 +58,6 @@ export default function GuestForm({ guestEnabled }: GuestFormProps) {
         maxLength={24}
         placeholder="给自己起个名字"
         leftIcon={<UserRound className="h-4 w-4" />}
-        hint="1 - 24 个字符，其他用户将看到这个昵称"
         onChange={(event) => {
           setDisplayName(event.target.value);
           setLocalError(null);

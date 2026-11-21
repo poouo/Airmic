@@ -376,14 +376,14 @@ test("settings 读取、更新、审计与广播", async (t) => {
 
 // ============ 用户管理 ============
 
-test("用户列表支持搜索、分页、角色筛选并含在线状态", async (t) => {
+test("用户列表只统计注册账号，支持搜索、分页、角色筛选及在线状态", async (t) => {
   const env = await setup(t);
   const alice = createActor(env.ctx, { username: "alice", displayName: "爱丽丝" });
   const bob = createActor(env.ctx, { username: "bob", displayName: "鲍勃" });
   const guest = createActor(env.ctx, { username: "charlie", displayName: "游客查理", isGuest: true });
   const room = createRoom(env.ctx, "一号房", {}, env.admin.row.id);
-  env.hub.onlineUsers = [makeOnlineUser(alice.row, room.id), makeOnlineUser(bob.row, null)];
-  env.hub.onlineCount = 2;
+  env.hub.onlineUsers = [makeOnlineUser(alice.row, room.id), makeOnlineUser(bob.row, null), makeOnlineUser(guest.row, null)];
+  env.hub.onlineCount = 3;
 
   const res = await env.admin.client.get<{
     items: AdminUserRow[];
@@ -394,11 +394,12 @@ test("用户列表支持搜索、分页、角色筛选并含在线状态", async
     onlineCount: number;
   }>("/api/admin/users");
   assert.equal(res.status, 200);
-  assert.equal(res.body.total, 5);
+  assert.equal(res.body.total, 4);
   assert.equal(res.body.page, 1);
   assert.equal(res.body.pageSize, 20);
   assert.equal(res.body.onlineCount, 2);
   assert.deepEqual(res.body.users, res.body.items);
+  assert.ok(res.body.items.every((row) => !row.isGuest));
 
   const aliceRow = res.body.items.find((row) => row.id === alice.row.id);
   assert.ok(aliceRow);
@@ -418,7 +419,7 @@ test("用户列表支持搜索、分页、角色筛选并含在线状态", async
     "/api/admin/users?page=2&pageSize=2",
   );
   assert.equal(page2.status, 200);
-  assert.equal(page2.body.total, 5);
+  assert.equal(page2.body.total, 4);
   assert.equal(page2.body.items.length, 2);
 
   const search = await env.admin.client.get<{ items: AdminUserRow[]; total: number }>("/api/admin/users?search=ali");
@@ -426,8 +427,10 @@ test("用户列表支持搜索、分页、角色筛选并含在线状态", async
   assert.equal(search.body.items[0]?.username, "alice");
 
   const guests = await env.admin.client.get<{ items: AdminUserRow[]; total: number }>("/api/admin/users?role=guest");
-  assert.equal(guests.body.total, 1);
-  assert.equal(guests.body.items[0]?.username, guest.row.username);
+  assert.equal(guests.body.total, 0);
+  assert.deepEqual(guests.body.items, []);
+  const guestSearch = await env.admin.client.get<{ total: number }>("/api/admin/users?search=charlie");
+  assert.equal(guestSearch.body.total, 0);
 
   assert.equal((await env.admin.client.get("/api/admin/users?role=superuser")).status, 400);
   assert.equal((await env.admin.client.get("/api/admin/users?pageSize=101")).status, 400);

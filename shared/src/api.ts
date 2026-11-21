@@ -85,6 +85,8 @@ export interface UpdateCheckResponse {
   latestRef: string | null;
   latestSource: "release" | "tag" | "branch" | "unknown";
   updateAvailable: boolean;
+  /** 当前安装是否可以由网页启动升级。 */
+  webUpgradeAvailable?: boolean;
   repo: string;
   repoUrl: string;
   releaseUrl: string | null;
@@ -296,6 +298,7 @@ export interface AdminUserRow extends UserPublic {
 }
 
 export interface AdminUserListResponse extends Paginated<AdminUserRow> {
+  /** 全站在线的注册用户人数，含未出现在本页的用户。 */
   onlineCount: number;
 }
 

@@ -13,7 +13,7 @@ import AreaEditor, { type AreaEditorTarget } from "./AreaEditor";
 import RoomEditor, { type RoomEditorTarget } from "./RoomEditor";
 import RoomManagersModal, { type ManagersTarget } from "./RoomManagersModal";
 
-export default function RoomDirectoryManager() {
+export default function RoomDirectoryManager({ inDialog = false }: { inDialog?: boolean }) {
   const user = useAuthStore((state) => state.user);
   const directory = useAppStore((state) => state.directory);
   const directoryError = useAppStore((state) => state.directoryError);
@@ -61,18 +61,25 @@ export default function RoomDirectoryManager() {
     }
   };
 
-  return (
-    <div className="space-y-5">
-      <PageHeader title="分区与房间管理" description="在一级分区下添加子区，再创建语音房间。"
-        actions={<>
+  const actions = <>
           <IconButton label="刷新分区和房间" onClick={() => {
             const app = useAppStore.getState();
             void app.refreshDirectory();
             void app.refreshRooms();
           }}><RefreshCw className="h-4 w-4" /></IconButton>
           {isAdmin && <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setAreaEditor({ parent: null })}>添加一级分区</Button>}
-        </>} />
-      <Input aria-label="搜索分区和房间" placeholder="搜索分区、子区或房间" leftIcon={<Search className="h-4 w-4" />} value={search} onChange={(event) => setSearch(event.target.value)} />
+  </>;
+  const searchInput = <Input aria-label="搜索分区和房间" placeholder="搜索分区、子区或房间" leftIcon={<Search className="h-4 w-4" />} value={search} onChange={(event) => setSearch(event.target.value)} />;
+
+  return (
+    <div className="space-y-5">
+      {inDialog ? <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-40 flex-1">{searchInput}</div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>
+      </div> : <>
+        <PageHeader title="分区与房间管理" actions={actions} />
+        {searchInput}
+      </>}
       {directoryError && <Alert tone="error">{directoryError}</Alert>}
       {tree.length === 0 && <EmptyState icon={<Folder className="h-6 w-6" />} title={keyword ? "没有匹配的分区或房间" : isAdmin ? "还没有分区" : "暂无可管理的分区或房间"} />}
       {tree.map((root) => (

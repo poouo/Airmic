@@ -7,7 +7,6 @@ import {
   type CSSProperties,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
 import { createPortal } from "react-dom";
@@ -216,37 +215,138 @@ export interface SelectChangeEvent {
   currentTarget: { value: string };
 }
 
-export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "onChange" | "value"> {
+export interface SelectProps {
   label?: ReactNode;
   hint?: ReactNode;
   error?: string | null;
   options: { value: string; label: string; disabled?: boolean }[];
+  id?: string;
+  className?: string;
+  disabled?: boolean;
+  required?: boolean;
+  "aria-label"?: string;
   value?: string;
   onChange?: (event: SelectChangeEvent) => void;
 }
 
-export function Select({ label, hint, error, options, className, id, value, onChange, required, ...rest }: SelectProps) {
+export function Select({ label, hint, error, options, className, id, value, onChange, required, disabled, "aria-label": ariaLabel }: SelectProps) {
   const generatedId = useId();
   const selectId = id ?? generatedId;
-  const current = value ?? "";
-  const hasSelection = options.some((option) => option.value === current);
+  const listId = `${selectId}-listbox`;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [position, setPosition] = useState<CSSProperties>();
+  const selectedIndex = options.findIndex((option) => option.value === (value ?? ""));
+  const available = options.flatMap((option, index) => option.disabled ? [] : [index]);
+
+  useEffect(() => {
+    if (!open) return;
+    const viewport = window.visualViewport;
+    const place = () => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect?.width) { setOpen(false); return; }
+      const top = (viewport?.offsetTop ?? 0) + 8;
+      const bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - 8;
+      const left = (viewport?.offsetLeft ?? 0) + 8;
+      const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - 8;
+      const above = rect.top - top - 6;
+      const below = bottom - rect.bottom - 6;
+      const flipped = below < 160 && above > below;
+      const availableHeight = flipped ? above : below;
+      const width = Math.min(Math.max(136, rect.width), right - left);
+      const overlaps = availableHeight < 44;
+      setPosition({
+        left: Math.min(Math.max(left, rect.left), right - width),
+        width,
+        top: overlaps ? top : flipped ? rect.top - 6 : rect.bottom + 6,
+        maxHeight: Math.min(288, Math.max(0, overlaps ? bottom - top : availableHeight)),
+        transform: flipped && !overlaps ? "translateY(-100%)" : undefined,
+      });
+    };
+    const scroll = (event: Event) => {
+      if (event.target !== menu.current) place();
+    };
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && (trigger.current?.contains(event.target) || menu.current?.contains(event.target))) return;
+      setOpen(false);
+    };
+    place();
+    document.addEventListener("pointerdown", dismiss, true);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", scroll, true);
+    viewport?.addEventListener("resize", place);
+    viewport?.addEventListener("scroll", place);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", scroll, true);
+      viewport?.removeEventListener("resize", place);
+      viewport?.removeEventListener("scroll", place);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && position && activeIndex >= 0) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, !!position, activeIndex, listId]);
+
+  const openMenu = (last = false) => {
+    setPosition(undefined);
+    setActiveIndex(available.includes(selectedIndex) ? selectedIndex : (last ? available.at(-1) : available[0]) ?? -1);
+    setOpen(true);
+  };
+
+  const choose = (index: number) => {
+    const option = options[index];
+    if (!option || option.disabled) return;
+    setOpen(false);
+    trigger.current?.focus({ preventScroll: true });
+    onChange?.({ target: { value: option.value }, currentTarget: { value: option.value } });
+  };
 
   return (
     <FieldShell label={label} hint={hint} error={error} required={required} htmlFor={selectId}>
-      <div className="relative">
-        <select
-          {...rest}
-          id={selectId}
-          value={hasSelection ? current : ""}
-          required={required}
-          onChange={onChange}
-          className={cn(fieldBase, "h-10 appearance-none px-3 pr-9 sm:h-9", error && "border-destructive", className)}
-        >
-          {!hasSelection && !options.some((option) => option.value === "") && <option value="" disabled>请选择</option>}
-          {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-        </select>
-        <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      </div>
+      <button ref={trigger} id={selectId} type="button" role="combobox" disabled={disabled} aria-label={ariaLabel}
+        aria-required={required} aria-expanded={open} aria-controls={open ? listId : undefined}
+        aria-activedescendant={open && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+        className={cn(fieldBase, "flex h-10 items-center justify-between gap-2 px-3 text-left sm:h-9", error && "border-destructive", className)}
+        onClick={() => open ? setOpen(false) : openMenu()}
+        onKeyDown={(event) => {
+          const key = event.key;
+          if (key === "Escape" && open) { event.preventDefault(); setOpen(false); return; }
+          if (key === "Tab") { setOpen(false); return; }
+          if (key === "ArrowDown" || key === "ArrowUp" || (open && (key === "Home" || key === "End"))) {
+            event.preventDefault();
+            if (!open) { openMenu(key === "ArrowUp"); return; }
+            const current = available.indexOf(activeIndex);
+            const next = key === "Home" ? available[0] : key === "End" ? available.at(-1)
+              : available[Math.min(available.length - 1, Math.max(0, current + (key === "ArrowDown" ? 1 : -1)))];
+            setActiveIndex(next ?? -1);
+          } else if (open && (key === "Enter" || key === " ") && activeIndex >= 0) {
+            event.preventDefault();
+            choose(activeIndex);
+          }
+        }}>
+        <span className="truncate">{options[selectedIndex]?.label ?? "请选择"}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && !disabled && position && createPortal(
+        <div ref={menu} id={listId} role="listbox" aria-label={typeof label === "string" ? label : ariaLabel ?? "选项"}
+          className="app-scroll fixed z-[80] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-popover" style={position}>
+          {options.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">暂无选项</p>}
+          {options.map((option, index) => (
+            <button key={option.value} id={`${listId}-${index}`} role="option" type="button" tabIndex={-1}
+              aria-selected={index === selectedIndex} disabled={option.disabled} onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(index)}
+              className={cn("flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-accent disabled:opacity-45",
+                index === activeIndex && "bg-accent", index === selectedIndex && "font-medium text-brand")}>
+              <span className="truncate">{option.label}</span>
+              {index === selectedIndex && <Check aria-hidden className="h-4 w-4 shrink-0" />}
+            </button>
+          ))}
+        </div>, document.body,
+      )}
     </FieldShell>
   );
 }

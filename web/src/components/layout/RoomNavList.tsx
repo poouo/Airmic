@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
 import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2 } from "lucide-react";
-import { Link } from "react-router-dom";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
 import { groupRoomDirectory, useAppStore } from "@/stores/app";
+import { useUiStore } from "@/stores/ui";
 
 export interface RoomNavListProps {
   currentRoomId: number | null;
@@ -35,9 +35,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
       <div className="flex shrink-0 items-center justify-between px-3 py-2">
         <p className="text-xs font-semibold text-foreground">语音房间</p>
         <div className="flex items-center gap-1">
-          {canManage && <Link to="/rooms/manage" aria-label="分区与房间管理" title="分区与房间管理" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-brand focus-visible:ring-2 focus-visible:ring-ring">
-            <Settings2 className="h-4 w-4" />
-          </Link>}
+          {canManage && <IconButton label="分区与房间管理" aria-haspopup="dialog" onClick={() => useUiStore.getState().openModal("room-directory")}><Settings2 className="h-4 w-4" /></IconButton>}
           {canCreateRooms && (
             <IconButton label="创建房间" onClick={onCreate}><Plus className="h-4 w-4" /></IconButton>
           )}

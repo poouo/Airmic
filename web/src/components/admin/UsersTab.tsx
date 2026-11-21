@@ -31,7 +31,6 @@ const ROLE_OPTIONS = [
   { value: "admin", label: "管理员" },
   { value: "moderator", label: "版主" },
   { value: "user", label: "用户" },
-  { value: "guest", label: "游客" },
 ];
 
 export default function UsersTab() {
@@ -63,7 +62,7 @@ export default function UsersTab() {
     <div className="space-y-4">
       <SectionCard
         title="用户列表"
-        description={"共 " + (data?.total ?? 0) + " 个账号 · 当前在线 " + (data?.onlineCount ?? 0) + " 人"}
+        description={"共 " + (data?.total ?? 0) + " 个注册账号 · 注册用户在线 " + (data?.onlineCount ?? 0) + " 人"}
         action={
           <Button variant="outline" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={loading} onClick={reload}>
             刷新
@@ -132,7 +131,6 @@ export default function UsersTab() {
                           <p className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                             {row.displayName}
                             {row.id === self?.id && <span className="text-[11px] font-normal text-muted-foreground">（你）</span>}
-                            {row.isGuest && <Badge>游客</Badge>}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">@{row.username}</p>
                         </div>
