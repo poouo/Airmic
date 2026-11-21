@@ -12,6 +12,7 @@ export interface RoomFormInitial {
   /** 0 表示跟随服务器房间人数上限 */
   maxUsers: number;
   locked: boolean;
+  allowGuests: boolean;
   screenShareEnabled: boolean;
   /** 房间音质覆盖；null 表示跟随服务器默认 */
   audioOverride: import("@airmic/shared").AudioOverride | null;
@@ -29,6 +30,7 @@ export function createRoomInitial(base: AudioSettings, areaId: number): RoomForm
     hasPassword: false,
     maxUsers: 0,
     locked: false,
+    allowGuests: true,
     screenShareEnabled: true,
     audioOverride: null,
     audioSettings: base,
@@ -46,6 +48,7 @@ export function detailRoomInitial(room: RoomDetail): RoomFormInitial {
     hasPassword: room.hasPassword,
     maxUsers: room.maxUsers,
     locked: room.locked,
+    allowGuests: room.allowGuests !== false,
     screenShareEnabled: room.screenShareEnabled,
     audioOverride: room.audioOverride,
     audioSettings: room.audioSettings,

@@ -212,9 +212,14 @@ CREATE TABLE room_management_grants (
 CREATE INDEX idx_room_grants_user ON room_management_grants(user_id);
 `;
 
+const V5 = `
+ALTER TABLE rooms ADD COLUMN allow_guests INTEGER NOT NULL DEFAULT 1;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "initial-schema", sql: V1 },
   { version: 2, name: "app-logs", sql: V2 },
   { version: 3, name: "room-channel-icon", sql: V3 },
   { version: 4, name: "room-directory", sql: V4 },
+  { version: 5, name: "room-guest-access", sql: V5 },
 ];

@@ -35,6 +35,7 @@ const createRoomSchema = z.object({
   maxUsers: z.number().int().min(0).max(500).optional(),
   sortOrder: z.number().int().min(-100000).max(100000).optional(),
   locked: z.boolean().optional(),
+  allowGuests: z.boolean().optional(),
   screenShareEnabled: z.boolean().optional(),
   audioOverride: audioOverrideSchema.nullable().optional(),
 });
@@ -75,6 +76,7 @@ function toRoomInput(body: z.infer<typeof createRoomSchema> | z.infer<typeof upd
     maxUsers: body.maxUsers,
     sortOrder: body.sortOrder,
     locked: body.locked,
+    allowGuests: body.allowGuests,
     screenShareEnabled: body.screenShareEnabled,
     audioOverride: body.audioOverride as AudioOverride | null | undefined,
   };
@@ -203,7 +205,10 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
     const { user } = requireAuth(request);
     const room = findRoom(services, request);
     const query = request.query as { limit?: string; beforeId?: string };
-    if (room.password_hash && getHub()?.getRoomIdForUser(user.id) !== room.id) throw forbidden("请先加入该房间");
+    if (getHub()?.getRoomIdForUser(user.id) !== room.id) {
+      if (user.isGuest && room.allow_guests === 0) throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
+      if (room.password_hash) throw forbidden("请先加入该房间");
+    }
     const limit = query.limit ? Math.min(200, Math.max(1, Number(query.limit))) : 50;
     const beforeId = query.beforeId ? Number(query.beforeId) : undefined;
     return { messages: services.rooms.listMessages(room.id, limit, beforeId) };
@@ -211,10 +216,11 @@ export async function registerRoomRoutes(app: FastifyInstance, services: Service
 
   /** 校验房间密码（用于 UI 提前校验，可省略直接 join_room） */
   app.post("/api/rooms/:id/check-password", async (request) => {
-    requireAuth(request);
+    const { user } = requireAuth(request);
     const roomId = Number((request.params as { id: string }).id);
     const row = services.rooms.findById(roomId);
     if (!row) throw notFound("房间不存在");
+    if (user.isGuest && row.allow_guests === 0) throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
     const body = parseWith(z.object({ password: z.string().optional() }), request.body ?? {});
     if (!row.password_hash) return { ok: true, required: false };
     const ok = services.rooms.verifyPassword(row, body.password);

@@ -212,6 +212,7 @@ export interface CreateRoomRequest {
   maxUsers?: number;
   sortOrder?: number;
   locked?: boolean;
+  allowGuests?: boolean;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
 }

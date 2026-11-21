@@ -39,6 +39,7 @@ export type WsErrorCode =
   | "room_password_invalid"
   | "room_full"
   | "room_locked"
+  | "room_guests_disabled"
   | "not_in_room"
   | "peer_not_found"
   | "chat_disabled"

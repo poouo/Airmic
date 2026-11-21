@@ -36,6 +36,10 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
       navigate("/room/" + room.id);
       return;
     }
+    if (user?.isGuest && room.allowGuests === false) {
+      useUiStore.getState().toast("该房间仅限注册用户进入", "warning");
+      return;
+    }
     if (room.locked) {
       useUiStore.getState().toast("房间已锁定", "warning");
       return;

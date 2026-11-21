@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RoomSummary } from "@airmic/shared";
-import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2 } from "lucide-react";
+import { Folder, FolderOpen, Layers, Lock, LockKeyhole, Plus, Settings2, UserRoundCheck } from "lucide-react";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/format";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
@@ -136,6 +136,7 @@ export default function RoomNavList({ currentRoomId, canCreateRooms, canManage, 
                                       {room.name}
                                     </span>
                                     {room.hasPassword && <Lock className="h-3 w-3 shrink-0 text-warning" />}
+                                    {room.allowGuests === false && <span title="仅注册用户" className="shrink-0"><UserRoundCheck role="img" aria-label="仅注册用户" className="h-3 w-3 text-muted-foreground" /></span>}
                                     {room.locked && <LockKeyhole className="h-3 w-3 shrink-0 text-muted-foreground" />}
                                     <span
                                       className={cn(

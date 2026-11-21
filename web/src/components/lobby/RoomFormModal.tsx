@@ -50,6 +50,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
   const [maxUsers, setMaxUsers] = useState(String(initial.maxUsers));
   const [maxUsersDirty, setMaxUsersDirty] = useState(false);
   const [locked, setLocked] = useState(initial.locked);
+  const [allowGuests, setAllowGuests] = useState(initial.allowGuests);
   const [screenShareEnabled, setScreenShareEnabled] = useState(initial.screenShareEnabled);
   const [requirePassword, setRequirePassword] = useState(initial.hasPassword);
   const [password, setPassword] = useState("");
@@ -104,6 +105,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
       screenShareEnabled,
     };
     if (!isEdit || areaId !== initial.areaId) payload.areaId = areaId;
+    if (!isEdit || allowGuests !== initial.allowGuests) payload.allowGuests = allowGuests;
     if (sortOrder !== "" && Number(sortOrder) !== initial.sortOrder) payload.sortOrder = Number(sortOrder);
     // 编辑时只有用户主动修改人数上限才提交，避免把“继承服务器上限”变成固定值
     if (!isEdit || maxUsersDirty) payload.maxUsers = Math.trunc(Number(maxUsers));
@@ -257,6 +259,7 @@ export default function RoomFormModal({ initial, audioBase, canDelete = false, o
               />
               <div className="space-y-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
                 <Switch label="锁定房间" description="锁定后禁止加入" checked={locked} onChange={setLocked} />
+                <Switch label="允许游客进入" description="关闭后仅注册用户可加入" checked={allowGuests} onChange={setAllowGuests} />
                 <Switch
                   label="允许屏幕共享"
                   description={screenShareAllowed ? undefined : "服务器已关闭共享"}

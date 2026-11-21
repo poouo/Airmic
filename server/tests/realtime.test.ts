@@ -412,6 +412,40 @@ test("房间容量已满时返回 room_full", TEST_OPTIONS, () =>
   }),
 );
 
+test("关闭游客访问后，只有注册用户可以新加入房间", TEST_OPTIONS, () =>
+  withSession(async (session) => {
+    const password = "secret123";
+    const roomId = await session.createRoom({ name: "游客权限测试房", password });
+    const roomPath = "/api/rooms/" + roomId;
+    const guest = session.ctx.newClient();
+    const guestLogin = await guest.guest("测试游客");
+    assert.equal(guestLogin.status, 200);
+    const guestId = guestLogin.body.user.id;
+    const { ws: guestWs } = await session.connectWithHello(guest);
+    assert.equal((await joinRoom(guestWs, roomId, password)).snapshot.room.allowGuests, true);
+
+    assert.equal((await session.admin.patch(roomPath, { allowGuests: false })).status, 200);
+    assert.equal(session.hub.getRoomIdForUser(guestId), roomId);
+    assert.equal((await guest.get(roomPath + "/messages")).status, 200);
+    guestWs.send({ t: "leave_room" });
+    await guestWs.waitFor("room_left");
+    assert.equal((await guest.get(roomPath + "/messages")).status, 403);
+    assert.equal((await guest.post(roomPath + "/check-password", { password })).status, 403);
+    assert.equal((await session.admin.post("/api/admin/users/" + guestId + "/move", { roomId })).status, 403);
+    assert.equal(session.hub.moveToRoom(guestId, roomId), false);
+
+    guestWs.send({ t: "join_room", roomId, password });
+    assert.equal((await guestWs.waitFor("error", (message) => message.request === "join_room")).code, "room_guests_disabled");
+    assert.equal(session.hub.getRoomIdForUser(guestId), null);
+    const member = await session.registerUser("member");
+    const { ws: memberWs } = await session.connectWithHello(member.client);
+    assert.equal((await joinRoom(memberWs, roomId, password)).snapshot.room.allowGuests, false);
+
+    assert.equal((await session.admin.patch(roomPath, { allowGuests: true })).status, 200);
+    assert.equal((await joinRoom(guestWs, roomId, password)).snapshot.room.allowGuests, true);
+  }),
+);
+
 test("锁定房间返回 room_locked", TEST_OPTIONS, () =>
   withSession(async (session) => {
     const roomId = await session.createRoom({ name: "锁门房", locked: true });

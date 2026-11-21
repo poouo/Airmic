@@ -157,6 +157,7 @@ export interface RoomSummary {
   /** 房间图标 key（对应前端 ROOM_ICONS） */
   icon: string;
   hasPassword: boolean;
+  allowGuests: boolean;
   maxUsers: number;
   userCount: number;
   locked: boolean;

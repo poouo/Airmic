@@ -3,6 +3,7 @@ import { Lock, MonitorUp, Pencil, Users } from "lucide-react";
 import { Badge, Button, IconButton } from "@/components/ui";
 import { RoomIcon, iconLabel } from "@/components/room/roomIcons";
 import { cn } from "@/lib/format";
+import { useAuthStore } from "@/stores/auth";
 
 export interface RoomCardProps {
   room: RoomSummary;
@@ -13,8 +14,10 @@ export interface RoomCardProps {
 }
 
 export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: RoomCardProps) {
+  const isGuest = useAuthStore((state) => state.user?.isGuest);
+  const guestBlocked = isGuest && room.allowGuests === false;
   const full = room.maxUsers > 0 && room.userCount >= room.maxUsers;
-  const disabled = !isCurrent && (room.locked || full);
+  const disabled = !isCurrent && (guestBlocked || room.locked || full);
   return (
     <article
       className={cn(
@@ -28,6 +31,7 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
           <span className="truncate" title={room.name}>{room.name}</span>
         </h4>
         {room.hasPassword && <Badge tone="warn"><Lock className="h-3 w-3" />需密码</Badge>}
+        {room.allowGuests === false && <Badge>仅注册用户</Badge>}
         {isCurrent && <Badge tone="brand">当前</Badge>}
       </div>
       {room.description && <p className="mt-1.5 line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">{room.description}</p>}
@@ -52,7 +56,7 @@ export default function RoomCard({ room, isCurrent, canEdit, onJoin, onEdit }: R
           className="min-h-11 flex-1 sm:min-h-9"
           onClick={() => onJoin(room)}
         >
-          {isCurrent ? "返回房间" : room.locked ? "已锁定" : full ? "房间已满" : "进入房间"}
+          {isCurrent ? "返回房间" : guestBlocked ? "注册后可进入" : room.locked ? "已锁定" : full ? "房间已满" : "进入房间"}
         </Button>
         {canEdit && (
           <IconButton

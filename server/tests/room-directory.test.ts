@@ -54,6 +54,7 @@ test("旧数据库按原有路径迁移，保留房间 ID、密码、聊天和�
       `);
       assert.deepEqual(rooms.map(({ id, channel, category, password_hash }) => [id, channel, category, password_hash]),
         [[7, "游戏区", "大厅", "old-hash"], [9, "娱乐区", "大厅", null]]);
+      assert.equal(db.get("SELECT 1 FROM rooms WHERE allow_guests != 1"), undefined);
       assert.equal(db.get<{ content: string }>("SELECT content FROM messages WHERE id = 13 AND room_id = 7")?.content, "上车");
       assert.equal(db.get<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'rooms'")?.seq, 12);
       assert.equal(db.get<{ name: string }>("SELECT name FROM room_areas WHERE name = '备用' AND parent_id IS NOT NULL")?.name, "备用");

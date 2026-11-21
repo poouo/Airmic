@@ -448,6 +448,10 @@ export class Hub implements HubLike {
       this.sendRoomJoined(conn, row);
       return;
     }
+    if (conn.user.isGuest && row.allow_guests === 0) {
+      this.sendError(conn, "room_guests_disabled", "该房间仅限注册用户进入", "join_room");
+      return;
+    }
     if (row.locked === 1) {
       this.sendError(conn, "room_locked", "房间已被锁定", "join_room");
       return;
@@ -891,7 +895,7 @@ export class Hub implements HubLike {
     if (conn.roomId === roomId) return true;
     const row = this.services.rooms.findById(roomId);
     if (!row) return false;
-    if (row.locked === 1) return false;
+    if (row.locked === 1 || (conn.user.isGuest && row.allow_guests === 0)) return false;
     const currentUsers = this.getRoomCounts().get(roomId) ?? 0;
     if (currentUsers >= this.services.rooms.maxUsersFor(row)) return false;
     if (conn.roomId !== null) {

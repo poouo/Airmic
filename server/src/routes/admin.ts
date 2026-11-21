@@ -27,7 +27,7 @@ import type {
   UpdateSettingsRequest,
   UpdateUserRequest,
 } from "@airmic/shared";
-import { badRequest, conflict, notFound } from "../lib/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { getClientIp } from "../lib/http.js";
 import { isExpired, nowIso, secondsSince } from "../lib/time.js";
 import { displayNameSchema, paginationSchema, parseWith, statusTextSchema } from "../lib/validation.js";
@@ -498,13 +498,16 @@ export async function registerAdminRoutes(app: FastifyInstance, services: Servic
       const body: MoveUserRequest = parseWith(moveUserRequestSchema, request.body ?? {});
       const target = services.users.findById(userId);
       if (!target) throw notFound("用户不存在");
+      const hub = getHub();
       let roomName: string | null = null;
       if (body.roomId !== null) {
         const room = services.rooms.findById(body.roomId);
         if (!room) throw notFound("房间不存在");
+        if (target.is_guest === 1 && room.allow_guests === 0 && hub?.getRoomIdForUser(userId) !== room.id) {
+          throw forbidden("该房间仅限注册用户进入", "room_guests_disabled");
+        }
         roomName = room.name;
       }
-      const hub = getHub();
       if (hub && !hub.moveToRoom(userId, body.roomId)) {
         throw conflict("移动失败，该用户可能不在线或目标房间已满");
       }

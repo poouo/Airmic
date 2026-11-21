@@ -22,6 +22,7 @@ export interface RoomRow {
   max_users: number;
   sort_order: number;
   locked: number;
+  allow_guests: number;
   screen_share_enabled: number;
   audio_override: string | null;
   created_by: number | null;
@@ -54,6 +55,7 @@ export interface RoomInput {
   maxUsers?: number;
   sortOrder?: number;
   locked?: boolean;
+  allowGuests?: boolean;
   screenShareEnabled?: boolean;
   audioOverride?: AudioOverride | null;
 }
@@ -135,6 +137,7 @@ export class RoomsService {
       maxUsers: this.maxUsersFor(row),
       userCount,
       locked: row.locked === 1,
+      allowGuests: row.allow_guests === 1,
       sortOrder: row.sort_order,
       screenShareEnabled: row.screen_share_enabled === 1,
       createdAt: row.created_at,
@@ -203,8 +206,8 @@ export class RoomsService {
       ) + 10);
     const timestamp = nowIso();
     const result = this.db.run(
-      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO rooms (name, description, area_id, icon, password_hash, max_users, sort_order, locked, allow_guests, screen_share_enabled, audio_override, created_by, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       input.name.trim(),
       (input.description ?? "").trim(),
       area.id,
@@ -213,6 +216,7 @@ export class RoomsService {
       clampRoomMaxUsers(input.maxUsers),
       nextSort,
       input.locked ? 1 : 0,
+      input.allowGuests === false ? 0 : 1,
       input.screenShareEnabled === false ? 0 : 1,
       this.normalizeOverride(input.audioOverride),
       actorId,
@@ -263,6 +267,10 @@ export class RoomsService {
     if (input.locked !== undefined) {
       fields.push("locked = ?");
       params.push(input.locked ? 1 : 0);
+    }
+    if (input.allowGuests !== undefined) {
+      fields.push("allow_guests = ?");
+      params.push(input.allowGuests ? 1 : 0);
     }
     if (input.screenShareEnabled !== undefined) {
       fields.push("screen_share_enabled = ?");
